@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trafficpulse"
+description = "Evidence-first intelligent traffic-violation detection platform (Phase 0-F repository baseline)."
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = []
+
+# NOTE: no `license` field is declared yet. The detector/licence posture
+# (permissive vs AGPL) is ADR-001, which is intentionally unresolved at the
+# end of Phase 0-F (see docs/architecture-review.md §11, §27). Declaring a
+# project licence here would pre-empt that open architectural decision.
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pytest>=8.0",
+]
+
+# --- Version single-source: read from src/trafficpulse/__init__.py -----------
+[tool.hatch.version]
+path = "src/trafficpulse/__init__.py"
+
+# --- src-layout package discovery --------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["src/trafficpulse"]
+
+# --- Ruff (lint + format) ----------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+# --- mypy (static type checking) ---------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_configs = true
+
+# --- pytest ------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
+testpaths = ["tests"]
