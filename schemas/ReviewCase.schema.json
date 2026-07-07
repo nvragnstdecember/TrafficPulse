@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "ReviewStatus": {
+      "description": "Human-review decision states (architecture-review §21).",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "needs_more_evidence"
+      ],
+      "title": "ReviewStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The human-review state attached to one evidence package.\n\n``reviewer_id`` is an opaque identifier only. ``audit_ref`` is a pointer to\nan append-only audit record maintained elsewhere; the log itself is not\npart of this contract.",
+  "properties": {
+    "audit_ref": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Audit Ref"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decided_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided At"
+    },
+    "evidence_package_id": {
+      "minLength": 1,
+      "title": "Evidence Package Id",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "review_case_id": {
+      "minLength": 1,
+      "title": "Review Case Id",
+      "type": "string"
+    },
+    "reviewer_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewer Id"
+    },
+    "status": {
+      "$ref": "#/$defs/ReviewStatus"
+    }
+  },
+  "required": [
+    "review_case_id",
+    "evidence_package_id",
+    "status",
+    "created_at"
+  ],
+  "title": "ReviewCase",
+  "type": "object"
+}

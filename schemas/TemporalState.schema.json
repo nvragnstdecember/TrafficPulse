@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "LifecycleState": {
+      "description": "Event/hypothesis lifecycle states (architecture-review §13 FSM).\n\nRepresented as data only; no transition logic lives in the contracts.",
+      "enum": [
+        "idle",
+        "candidate",
+        "confirmed",
+        "closed",
+        "abstained"
+      ],
+      "title": "LifecycleState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A snapshot of one per-(track, rule) temporal accumulator.\n\nCaptures the candidate-accumulation vs confirmed distinction via\n``lifecycle_state`` without implementing the transitions between them.",
+  "properties": {
+    "accumulated_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Accumulated Score"
+    },
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "first_observation_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "First Observation At"
+    },
+    "last_observation_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Observation At"
+    },
+    "lifecycle_state": {
+      "$ref": "#/$defs/LifecycleState"
+    },
+    "observation_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Observation Count",
+      "type": "integer"
+    },
+    "rule_id": {
+      "minLength": 1,
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "state_id": {
+      "minLength": 1,
+      "title": "State Id",
+      "type": "string"
+    },
+    "tainted": {
+      "default": false,
+      "title": "Tainted",
+      "type": "boolean"
+    },
+    "track_id": {
+      "minLength": 1,
+      "title": "Track Id",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state_id",
+    "camera_id",
+    "track_id",
+    "rule_id",
+    "lifecycle_state",
+    "updated_at"
+  ],
+  "title": "TemporalState",
+  "type": "object"
+}

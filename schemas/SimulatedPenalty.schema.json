@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "SimulatedAmount": {
+      "additionalProperties": false,
+      "description": "A simulated monetary amount (defaults to INR).",
+      "properties": {
+        "currency": {
+          "default": "INR",
+          "pattern": "^[A-Z]{3}$",
+          "title": "Currency",
+          "type": "string"
+        },
+        "value": {
+          "minimum": 0.0,
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "SimulatedAmount",
+      "type": "object"
+    },
+    "SimulatedPenaltyStatus": {
+      "description": "Simulated-penalty lifecycle states (architecture-review §21).\n\nSimulation only — never real enforcement.",
+      "enum": [
+        "issued",
+        "paid",
+        "contested",
+        "voided"
+      ],
+      "title": "SimulatedPenaltyStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Simulated penalty state — never real enforcement.\n\nTwo fields make the simulation structural rather than conventional:\n``simulated`` is pinned to ``True`` (a ``Literal`` that cannot be set\nfalse), and ``disclaimer`` is locked to the mandated watermark string.\nIssuance presupposes an *approved* ``ReviewCase``; that human-approval gate\nis enforced by the Phase 2 workflow in code, not by this data contract.",
+  "properties": {
+    "amount": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SimulatedAmount"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "disclaimer": {
+      "const": "SIMULATION - NOT A LEGAL NOTICE.",
+      "default": "SIMULATION - NOT A LEGAL NOTICE.",
+      "title": "Disclaimer",
+      "type": "string"
+    },
+    "issued_at": {
+      "format": "date-time",
+      "title": "Issued At",
+      "type": "string"
+    },
+    "penalty_id": {
+      "minLength": 1,
+      "title": "Penalty Id",
+      "type": "string"
+    },
+    "review_case_id": {
+      "minLength": 1,
+      "title": "Review Case Id",
+      "type": "string"
+    },
+    "simulated": {
+      "const": true,
+      "default": true,
+      "title": "Simulated",
+      "type": "boolean"
+    },
+    "status": {
+      "$ref": "#/$defs/SimulatedPenaltyStatus"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
+    }
+  },
+  "required": [
+    "penalty_id",
+    "review_case_id",
+    "status",
+    "issued_at"
+  ],
+  "title": "SimulatedPenalty",
+  "type": "object"
+}

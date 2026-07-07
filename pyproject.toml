@@ -7,7 +7,12 @@ name = "trafficpulse"
 description = "Evidence-first intelligent traffic-violation detection platform (Phase 0-F repository baseline)."
 requires-python = ">=3.11"
 dynamic = ["version"]
-dependencies = []
+# Pydantic is the sole U2 runtime dependency: it provides the runtime
+# validation and deterministic JSON Schema generation the domain contracts
+# require. No ML/CV/OCR/video/DB/web dependencies are introduced.
+dependencies = [
+  "pydantic>=2.5,<3",
+]
 
 # NOTE: no `license` field is declared yet. The detector/licence posture
 # (permissive vs AGPL) is ADR-001, which is intentionally unresolved at the
@@ -43,6 +48,7 @@ select = ["E", "F", "I", "W", "UP", "B", "SIM"]
 python_version = "3.11"
 strict = true
 warn_unused_configs = true
+plugins = ["pydantic.mypy"]
 
 # --- pytest ------------------------------------------------------------------
 [tool.pytest.ini_options]

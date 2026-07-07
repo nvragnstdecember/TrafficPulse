@@ -1,0 +1,781 @@
+{
+  "$defs": {
+    "HeadingVsLaneObservation": {
+      "additionalProperties": false,
+      "description": "Track heading relative to a lane's legal direction (wrong-way).",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "deviation_degrees": {
+          "maximum": 180.0,
+          "minimum": 0.0,
+          "title": "Deviation Degrees",
+          "type": "number"
+        },
+        "heading_degrees": {
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "title": "Heading Degrees",
+          "type": "number"
+        },
+        "is_contradiction": {
+          "title": "Is Contradiction",
+          "type": "boolean"
+        },
+        "lane_id": {
+          "minLength": 1,
+          "title": "Lane Id",
+          "type": "string"
+        },
+        "legal_heading_degrees": {
+          "anyOf": [
+            {
+              "maximum": 360.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Legal Heading Degrees"
+        },
+        "obs_type": {
+          "const": "heading_vs_lane",
+          "default": "heading_vs_lane",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "lane_id",
+        "heading_degrees",
+        "deviation_degrees",
+        "is_contradiction"
+      ],
+      "title": "HeadingVsLaneObservation",
+      "type": "object"
+    },
+    "HelmetState": {
+      "description": "Four-label helmet ontology (architecture-review §5e, §12).\n\nThe rule-layer mapping (turban -> exempt, uncertain -> abstain) is U3's\nresponsibility and is deliberately not encoded in the contracts.",
+      "enum": [
+        "helmet",
+        "no_helmet",
+        "turban",
+        "uncertain"
+      ],
+      "title": "HelmetState",
+      "type": "string"
+    },
+    "HelmetStateObservation": {
+      "additionalProperties": false,
+      "description": "Per-rider-slot helmet state.\n\nCarries the four-label ontology {helmet, no_helmet, turban, uncertain}\nrequired later by U3. The rule-layer mapping (turban -> exempt,\nuncertain -> abstain) is U3's responsibility and is not encoded here.",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "crop_height_px": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Crop Height Px"
+        },
+        "helmet_state": {
+          "$ref": "#/$defs/HelmetState"
+        },
+        "obs_type": {
+          "const": "helmet_state",
+          "default": "helmet_state",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "rider_slot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RiderSlot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "helmet_state"
+      ],
+      "title": "HelmetStateObservation",
+      "type": "object"
+    },
+    "InZoneObservation": {
+      "additionalProperties": false,
+      "description": "Whether a track occupies a configured scene zone.",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "is_inside": {
+          "title": "Is Inside",
+          "type": "boolean"
+        },
+        "obs_type": {
+          "const": "in_zone",
+          "default": "in_zone",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "zone_id": {
+          "minLength": 1,
+          "title": "Zone Id",
+          "type": "string"
+        },
+        "zone_kind": {
+          "$ref": "#/$defs/ZoneKind"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "zone_id",
+        "zone_kind",
+        "is_inside"
+      ],
+      "title": "InZoneObservation",
+      "type": "object"
+    },
+    "Producer": {
+      "additionalProperties": false,
+      "description": "Provenance for what produced an observation (model/heuristic/rule).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProducerKind"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind"
+      ],
+      "title": "Producer",
+      "type": "object"
+    },
+    "ProducerKind": {
+      "description": "What kind of component produced an observation (provenance).",
+      "enum": [
+        "model",
+        "heuristic",
+        "rule",
+        "tracker",
+        "calibration"
+      ],
+      "title": "ProducerKind",
+      "type": "string"
+    },
+    "RiderCountObservation": {
+      "additionalProperties": false,
+      "description": "Estimated rider count on a motorcycle (triple riding).",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "motorcycle_track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Motorcycle Track Id"
+        },
+        "obs_type": {
+          "const": "rider_count",
+          "default": "rider_count",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "rider_count": {
+          "minimum": 0,
+          "title": "Rider Count",
+          "type": "integer"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "rider_count"
+      ],
+      "title": "RiderCountObservation",
+      "type": "object"
+    },
+    "RiderSlot": {
+      "description": "Ordered rider slot on a motorcycle (architecture-review §5e).",
+      "enum": [
+        "driver",
+        "pillion",
+        "third",
+        "unknown"
+      ],
+      "title": "RiderSlot",
+      "type": "string"
+    },
+    "SignalState": {
+      "description": "Traffic-signal states (architecture-review §5b).",
+      "enum": [
+        "red",
+        "amber",
+        "green",
+        "off",
+        "unknown"
+      ],
+      "title": "SignalState",
+      "type": "string"
+    },
+    "SignalStateObservation": {
+      "additionalProperties": false,
+      "description": "Observed traffic-signal state for a configured light ROI.",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "obs_type": {
+          "const": "signal_state",
+          "default": "signal_state",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "roi_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roi Id"
+        },
+        "signal_state": {
+          "$ref": "#/$defs/SignalState"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "signal_state"
+      ],
+      "title": "SignalStateObservation",
+      "type": "object"
+    },
+    "SpeedObservation": {
+      "additionalProperties": false,
+      "description": "Ground-plane speed with explicit uncertainty (v +/- sigma; §17).",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "measurement_zone_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measurement Zone Id"
+        },
+        "obs_type": {
+          "const": "speed",
+          "default": "speed",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "sample_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Count"
+        },
+        "speed_sigma": {
+          "minimum": 0.0,
+          "title": "Speed Sigma",
+          "type": "number"
+        },
+        "speed_value": {
+          "minimum": 0.0,
+          "title": "Speed Value",
+          "type": "number"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        },
+        "unit": {
+          "$ref": "#/$defs/SpeedUnit"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "speed_value",
+        "speed_sigma",
+        "unit"
+      ],
+      "title": "SpeedObservation",
+      "type": "object"
+    },
+    "SpeedUnit": {
+      "description": "Units for reported speed observations.",
+      "enum": [
+        "km_per_h",
+        "m_per_s"
+      ],
+      "title": "SpeedUnit",
+      "type": "string"
+    },
+    "StationaryObservation": {
+      "additionalProperties": false,
+      "description": "Whether a track is stationary, with optional dwell (illegal stopping).",
+      "properties": {
+        "camera_id": {
+          "minLength": 1,
+          "title": "Camera Id",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "dwell_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dwell Seconds"
+        },
+        "is_stationary": {
+          "title": "Is Stationary",
+          "type": "boolean"
+        },
+        "obs_type": {
+          "const": "stationary",
+          "default": "stationary",
+          "title": "Obs Type",
+          "type": "string"
+        },
+        "observation_id": {
+          "minLength": 1,
+          "title": "Observation Id",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/Producer"
+        },
+        "speed_estimate": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Speed Estimate"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Id"
+        }
+      },
+      "required": [
+        "observation_id",
+        "camera_id",
+        "timestamp",
+        "producer",
+        "is_stationary"
+      ],
+      "title": "StationaryObservation",
+      "type": "object"
+    },
+    "ZoneKind": {
+      "description": "Configured scene-geometry zone kinds (architecture-review §16).",
+      "enum": [
+        "road",
+        "lane",
+        "no_stopping",
+        "parking",
+        "exclusion",
+        "junction_conflict",
+        "light_roi",
+        "measurement_zone"
+      ],
+      "title": "ZoneKind",
+      "type": "string"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "heading_vs_lane": "#/$defs/HeadingVsLaneObservation",
+      "helmet_state": "#/$defs/HelmetStateObservation",
+      "in_zone": "#/$defs/InZoneObservation",
+      "rider_count": "#/$defs/RiderCountObservation",
+      "signal_state": "#/$defs/SignalStateObservation",
+      "speed": "#/$defs/SpeedObservation",
+      "stationary": "#/$defs/StationaryObservation"
+    },
+    "propertyName": "obs_type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/InZoneObservation"
+    },
+    {
+      "$ref": "#/$defs/SignalStateObservation"
+    },
+    {
+      "$ref": "#/$defs/HeadingVsLaneObservation"
+    },
+    {
+      "$ref": "#/$defs/StationaryObservation"
+    },
+    {
+      "$ref": "#/$defs/RiderCountObservation"
+    },
+    {
+      "$ref": "#/$defs/HelmetStateObservation"
+    },
+    {
+      "$ref": "#/$defs/SpeedObservation"
+    }
+  ]
+}

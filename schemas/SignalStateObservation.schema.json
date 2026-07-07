@@ -1,0 +1,134 @@
+{
+  "$defs": {
+    "Producer": {
+      "additionalProperties": false,
+      "description": "Provenance for what produced an observation (model/heuristic/rule).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProducerKind"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind"
+      ],
+      "title": "Producer",
+      "type": "object"
+    },
+    "ProducerKind": {
+      "description": "What kind of component produced an observation (provenance).",
+      "enum": [
+        "model",
+        "heuristic",
+        "rule",
+        "tracker",
+        "calibration"
+      ],
+      "title": "ProducerKind",
+      "type": "string"
+    },
+    "SignalState": {
+      "description": "Traffic-signal states (architecture-review §5b).",
+      "enum": [
+        "red",
+        "amber",
+        "green",
+        "off",
+        "unknown"
+      ],
+      "title": "SignalState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Observed traffic-signal state for a configured light ROI.",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "obs_type": {
+      "const": "signal_state",
+      "default": "signal_state",
+      "title": "Obs Type",
+      "type": "string"
+    },
+    "observation_id": {
+      "minLength": 1,
+      "title": "Observation Id",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/Producer"
+    },
+    "roi_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roi Id"
+    },
+    "signal_state": {
+      "$ref": "#/$defs/SignalState"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "track_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Track Id"
+    }
+  },
+  "required": [
+    "observation_id",
+    "camera_id",
+    "timestamp",
+    "producer",
+    "signal_state"
+  ],
+  "title": "SignalStateObservation",
+  "type": "object"
+}

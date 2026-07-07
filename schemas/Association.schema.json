@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "AssociationType": {
+      "description": "Kinds of explicit entity-to-entity relationships.",
+      "enum": [
+        "rider_of_motorcycle",
+        "head_of_rider",
+        "plate_of_vehicle"
+      ],
+      "title": "AssociationType",
+      "type": "string"
+    },
+    "TimeInterval": {
+      "additionalProperties": false,
+      "description": "Closed time interval with timezone-aware bounds.",
+      "properties": {
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "TimeInterval",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A confidence-weighted relationship between two tracked entities.",
+  "properties": {
+    "association_id": {
+      "minLength": 1,
+      "title": "Association Id",
+      "type": "string"
+    },
+    "association_type": {
+      "$ref": "#/$defs/AssociationType"
+    },
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "interval": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TimeInterval"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "object_track_id": {
+      "minLength": 1,
+      "title": "Object Track Id",
+      "type": "string"
+    },
+    "subject_track_id": {
+      "minLength": 1,
+      "title": "Subject Track Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "association_id",
+    "camera_id",
+    "subject_track_id",
+    "object_track_id",
+    "association_type",
+    "confidence",
+    "timestamp"
+  ],
+  "title": "Association",
+  "type": "object"
+}

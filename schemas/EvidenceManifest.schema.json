@@ -1,0 +1,365 @@
+{
+  "$defs": {
+    "ArtifactKind": {
+      "description": "Kinds of evidence artifacts referenced by a manifest.",
+      "enum": [
+        "before_frame",
+        "trigger_frame",
+        "after_frame",
+        "clip",
+        "trajectory",
+        "plate_crop",
+        "overlay",
+        "other"
+      ],
+      "title": "ArtifactKind",
+      "type": "string"
+    },
+    "ArtifactReference": {
+      "additionalProperties": false,
+      "description": "A reference to one evidence artifact (metadata only, no file access).\n\n``locator`` is an opaque content address or relative path; ``sha256``, if\npresent, is the artifact's integrity hash (validated as hex, not computed).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ArtifactKind"
+        },
+        "locator": {
+          "minLength": 1,
+          "title": "Locator",
+          "type": "string"
+        },
+        "media_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Media Type"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": [
+        "kind",
+        "locator"
+      ],
+      "title": "ArtifactReference",
+      "type": "object"
+    },
+    "MeasuredValue": {
+      "additionalProperties": false,
+      "description": "A named measured quantity with an optional unit (data only).\n\nUsed for a rule's measured values and thresholds instead of an untyped\nmapping, so measurements stay explicit and inspectable.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "MeasuredValue",
+      "type": "object"
+    },
+    "ModelRef": {
+      "additionalProperties": false,
+      "description": "Reference to a model/weights version (metadata only; no loading).",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "weights_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights Hash"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ModelRef",
+      "type": "object"
+    },
+    "OcrResult": {
+      "additionalProperties": false,
+      "description": "A recognized plate string with confidence (data only, no OCR).",
+      "properties": {
+        "confidence": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "per_char_confidence": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per Char Confidence"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "confidence"
+      ],
+      "title": "OcrResult",
+      "type": "object"
+    },
+    "RuleTraceStep": {
+      "additionalProperties": false,
+      "description": "One ordered step of a rule's reasoning trace.",
+      "properties": {
+        "index": {
+          "minimum": 0,
+          "title": "Index",
+          "type": "integer"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "measurements": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MeasuredValue"
+          },
+          "title": "Measurements",
+          "type": "array"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "required": [
+        "index",
+        "label"
+      ],
+      "title": "RuleTraceStep",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Metadata describing the evidence package for a confirmed event.\n\nDistinct from the ``ConfirmedEvent`` itself: the event is the decision, the\nmanifest is the reviewable evidence around it. Artifacts are referenced by\n``ArtifactReference`` (locator + optional hash), never embedded or stored.",
+  "properties": {
+    "additional_artifacts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactReference"
+      },
+      "title": "Additional Artifacts",
+      "type": "array"
+    },
+    "after_frame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "before_frame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "clip": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "code_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code Version"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "event_id": {
+      "minLength": 1,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "evidence_package_id": {
+      "minLength": 1,
+      "title": "Evidence Package Id",
+      "type": "string"
+    },
+    "models": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ModelRef"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "ocr": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OcrResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "plate_crop": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rule_trace": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/RuleTraceStep"
+      },
+      "title": "Rule Trace",
+      "type": "array"
+    },
+    "scene_config_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scene Config Hash"
+    },
+    "trajectory": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "trigger_frame": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactReference"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "evidence_package_id",
+    "event_id",
+    "created_at"
+  ],
+  "title": "EvidenceManifest",
+  "type": "object"
+}

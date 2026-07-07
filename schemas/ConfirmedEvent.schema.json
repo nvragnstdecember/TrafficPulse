@@ -1,0 +1,352 @@
+{
+  "$defs": {
+    "ConfidenceBreakdown": {
+      "additionalProperties": false,
+      "description": "Typed confidence components (architecture-review §13).\n\nDeliberately not a probability unless calibration is demonstrated. Every\ncomponent is optional and, when present, lies in ``[0, 1]``.",
+      "properties": {
+        "aggregate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aggregate"
+        },
+        "association": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Association"
+        },
+        "calibration_quality": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration Quality"
+        },
+        "classifier": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classifier"
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detector"
+        },
+        "geometric_margin": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geometric Margin"
+        },
+        "temporal_consistency": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Consistency"
+        },
+        "track_continuity": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Continuity"
+        }
+      },
+      "title": "ConfidenceBreakdown",
+      "type": "object"
+    },
+    "MeasuredValue": {
+      "additionalProperties": false,
+      "description": "A named measured quantity with an optional unit (data only).\n\nUsed for a rule's measured values and thresholds instead of an untyped\nmapping, so measurements stay explicit and inspectable.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "MeasuredValue",
+      "type": "object"
+    },
+    "ModelRef": {
+      "additionalProperties": false,
+      "description": "Reference to a model/weights version (metadata only; no loading).",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "weights_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights Hash"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ModelRef",
+      "type": "object"
+    },
+    "ViolationType": {
+      "description": "The six locked violation types (spec §2; architecture-review §3).",
+      "enum": [
+        "no_helmet",
+        "triple_riding",
+        "red_light_jumping",
+        "wrong_way",
+        "illegal_stopping",
+        "speeding"
+      ],
+      "title": "ViolationType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An immutable confirmed violation event.\n\nAll contracts are frozen, but confirmation is where immutability is\narchitecturally load-bearing (architecture-review §14, §19). ``models``,\n``code_version`` and ``scene_config_hash`` capture the provenance every\nevent embeds; ``source_hypothesis_id`` links back to its origin.",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "code_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Code Version"
+    },
+    "confidence": {
+      "$ref": "#/$defs/ConfidenceBreakdown"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "end_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "End At"
+    },
+    "event_id": {
+      "minLength": 1,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "measurements": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MeasuredValue"
+      },
+      "title": "Measurements",
+      "type": "array"
+    },
+    "models": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ModelRef"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "rule_id": {
+      "minLength": 1,
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "rule_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Version"
+    },
+    "scene_config_hash": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scene Config Hash"
+    },
+    "source_hypothesis_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Hypothesis Id"
+    },
+    "start_at": {
+      "format": "date-time",
+      "title": "Start At",
+      "type": "string"
+    },
+    "thresholds": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MeasuredValue"
+      },
+      "title": "Thresholds",
+      "type": "array"
+    },
+    "track_ids": {
+      "default": [],
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Track Ids",
+      "type": "array"
+    },
+    "trigger_at": {
+      "format": "date-time",
+      "title": "Trigger At",
+      "type": "string"
+    },
+    "violation_type": {
+      "$ref": "#/$defs/ViolationType"
+    }
+  },
+  "required": [
+    "event_id",
+    "violation_type",
+    "camera_id",
+    "start_at",
+    "trigger_at",
+    "rule_id",
+    "created_at"
+  ],
+  "title": "ConfirmedEvent",
+  "type": "object"
+}

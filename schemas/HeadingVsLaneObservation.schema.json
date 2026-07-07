@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "Producer": {
+      "additionalProperties": false,
+      "description": "Provenance for what produced an observation (model/heuristic/rule).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProducerKind"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind"
+      ],
+      "title": "Producer",
+      "type": "object"
+    },
+    "ProducerKind": {
+      "description": "What kind of component produced an observation (provenance).",
+      "enum": [
+        "model",
+        "heuristic",
+        "rule",
+        "tracker",
+        "calibration"
+      ],
+      "title": "ProducerKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Track heading relative to a lane's legal direction (wrong-way).",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "deviation_degrees": {
+      "maximum": 180.0,
+      "minimum": 0.0,
+      "title": "Deviation Degrees",
+      "type": "number"
+    },
+    "heading_degrees": {
+      "maximum": 360.0,
+      "minimum": 0.0,
+      "title": "Heading Degrees",
+      "type": "number"
+    },
+    "is_contradiction": {
+      "title": "Is Contradiction",
+      "type": "boolean"
+    },
+    "lane_id": {
+      "minLength": 1,
+      "title": "Lane Id",
+      "type": "string"
+    },
+    "legal_heading_degrees": {
+      "anyOf": [
+        {
+          "maximum": 360.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Legal Heading Degrees"
+    },
+    "obs_type": {
+      "const": "heading_vs_lane",
+      "default": "heading_vs_lane",
+      "title": "Obs Type",
+      "type": "string"
+    },
+    "observation_id": {
+      "minLength": 1,
+      "title": "Observation Id",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/Producer"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "track_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Track Id"
+    }
+  },
+  "required": [
+    "observation_id",
+    "camera_id",
+    "timestamp",
+    "producer",
+    "lane_id",
+    "heading_degrees",
+    "deviation_degrees",
+    "is_contradiction"
+  ],
+  "title": "HeadingVsLaneObservation",
+  "type": "object"
+}

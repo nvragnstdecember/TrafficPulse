@@ -1,0 +1,124 @@
+{
+  "$defs": {
+    "Producer": {
+      "additionalProperties": false,
+      "description": "Provenance for what produced an observation (model/heuristic/rule).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProducerKind"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind"
+      ],
+      "title": "Producer",
+      "type": "object"
+    },
+    "ProducerKind": {
+      "description": "What kind of component produced an observation (provenance).",
+      "enum": [
+        "model",
+        "heuristic",
+        "rule",
+        "tracker",
+        "calibration"
+      ],
+      "title": "ProducerKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Estimated rider count on a motorcycle (triple riding).",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "motorcycle_track_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Motorcycle Track Id"
+    },
+    "obs_type": {
+      "const": "rider_count",
+      "default": "rider_count",
+      "title": "Obs Type",
+      "type": "string"
+    },
+    "observation_id": {
+      "minLength": 1,
+      "title": "Observation Id",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/Producer"
+    },
+    "rider_count": {
+      "minimum": 0,
+      "title": "Rider Count",
+      "type": "integer"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "track_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Track Id"
+    }
+  },
+  "required": [
+    "observation_id",
+    "camera_id",
+    "timestamp",
+    "producer",
+    "rider_count"
+  ],
+  "title": "RiderCountObservation",
+  "type": "object"
+}

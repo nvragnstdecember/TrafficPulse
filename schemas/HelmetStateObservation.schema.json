@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "HelmetState": {
+      "description": "Four-label helmet ontology (architecture-review §5e, §12).\n\nThe rule-layer mapping (turban -> exempt, uncertain -> abstain) is U3's\nresponsibility and is deliberately not encoded in the contracts.",
+      "enum": [
+        "helmet",
+        "no_helmet",
+        "turban",
+        "uncertain"
+      ],
+      "title": "HelmetState",
+      "type": "string"
+    },
+    "Producer": {
+      "additionalProperties": false,
+      "description": "Provenance for what produced an observation (model/heuristic/rule).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ProducerKind"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kind"
+      ],
+      "title": "Producer",
+      "type": "object"
+    },
+    "ProducerKind": {
+      "description": "What kind of component produced an observation (provenance).",
+      "enum": [
+        "model",
+        "heuristic",
+        "rule",
+        "tracker",
+        "calibration"
+      ],
+      "title": "ProducerKind",
+      "type": "string"
+    },
+    "RiderSlot": {
+      "description": "Ordered rider slot on a motorcycle (architecture-review §5e).",
+      "enum": [
+        "driver",
+        "pillion",
+        "third",
+        "unknown"
+      ],
+      "title": "RiderSlot",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Per-rider-slot helmet state.\n\nCarries the four-label ontology {helmet, no_helmet, turban, uncertain}\nrequired later by U3. The rule-layer mapping (turban -> exempt,\nuncertain -> abstain) is U3's responsibility and is not encoded here.",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "crop_height_px": {
+      "anyOf": [
+        {
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Crop Height Px"
+    },
+    "helmet_state": {
+      "$ref": "#/$defs/HelmetState"
+    },
+    "obs_type": {
+      "const": "helmet_state",
+      "default": "helmet_state",
+      "title": "Obs Type",
+      "type": "string"
+    },
+    "observation_id": {
+      "minLength": 1,
+      "title": "Observation Id",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/Producer"
+    },
+    "rider_slot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RiderSlot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "track_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Track Id"
+    }
+  },
+  "required": [
+    "observation_id",
+    "camera_id",
+    "timestamp",
+    "producer",
+    "helmet_state"
+  ],
+  "title": "HelmetStateObservation",
+  "type": "object"
+}

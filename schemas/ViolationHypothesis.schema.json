@@ -1,0 +1,290 @@
+{
+  "$defs": {
+    "ConfidenceBreakdown": {
+      "additionalProperties": false,
+      "description": "Typed confidence components (architecture-review §13).\n\nDeliberately not a probability unless calibration is demonstrated. Every\ncomponent is optional and, when present, lies in ``[0, 1]``.",
+      "properties": {
+        "aggregate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aggregate"
+        },
+        "association": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Association"
+        },
+        "calibration_quality": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Calibration Quality"
+        },
+        "classifier": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classifier"
+        },
+        "detector": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detector"
+        },
+        "geometric_margin": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geometric Margin"
+        },
+        "temporal_consistency": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temporal Consistency"
+        },
+        "track_continuity": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Track Continuity"
+        }
+      },
+      "title": "ConfidenceBreakdown",
+      "type": "object"
+    },
+    "LifecycleState": {
+      "description": "Event/hypothesis lifecycle states (architecture-review §13 FSM).\n\nRepresented as data only; no transition logic lives in the contracts.",
+      "enum": [
+        "idle",
+        "candidate",
+        "confirmed",
+        "closed",
+        "abstained"
+      ],
+      "title": "LifecycleState",
+      "type": "string"
+    },
+    "MeasuredValue": {
+      "additionalProperties": false,
+      "description": "A named measured quantity with an optional unit (data only).\n\nUsed for a rule's measured values and thresholds instead of an untyped\nmapping, so measurements stay explicit and inspectable.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "MeasuredValue",
+      "type": "object"
+    },
+    "TimeInterval": {
+      "additionalProperties": false,
+      "description": "Closed time interval with timezone-aware bounds.",
+      "properties": {
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        },
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "TimeInterval",
+      "type": "object"
+    },
+    "ViolationType": {
+      "description": "The six locked violation types (spec §2; architecture-review §3).",
+      "enum": [
+        "no_helmet",
+        "triple_riding",
+        "red_light_jumping",
+        "wrong_way",
+        "illegal_stopping",
+        "speeding"
+      ],
+      "title": "ViolationType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A candidate violation accumulating evidence, pre-confirmation.",
+  "properties": {
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "$ref": "#/$defs/ConfidenceBreakdown"
+    },
+    "hypothesis_id": {
+      "minLength": 1,
+      "title": "Hypothesis Id",
+      "type": "string"
+    },
+    "interval": {
+      "$ref": "#/$defs/TimeInterval"
+    },
+    "measurements": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MeasuredValue"
+      },
+      "title": "Measurements",
+      "type": "array"
+    },
+    "reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "rule_id": {
+      "minLength": 1,
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "rule_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rule Version"
+    },
+    "state": {
+      "$ref": "#/$defs/LifecycleState"
+    },
+    "thresholds": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MeasuredValue"
+      },
+      "title": "Thresholds",
+      "type": "array"
+    },
+    "track_ids": {
+      "default": [],
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": "Track Ids",
+      "type": "array"
+    },
+    "violation_type": {
+      "$ref": "#/$defs/ViolationType"
+    }
+  },
+  "required": [
+    "hypothesis_id",
+    "violation_type",
+    "camera_id",
+    "interval",
+    "state",
+    "rule_id"
+  ],
+  "title": "ViolationHypothesis",
+  "type": "object"
+}

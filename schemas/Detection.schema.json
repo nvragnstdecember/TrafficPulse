@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "description": "Axis-aligned image-space box in pixel coordinates (top-left origin).",
+      "properties": {
+        "x1": {
+          "minimum": 0.0,
+          "title": "X1",
+          "type": "number"
+        },
+        "x2": {
+          "minimum": 0.0,
+          "title": "X2",
+          "type": "number"
+        },
+        "y1": {
+          "minimum": 0.0,
+          "title": "Y1",
+          "type": "number"
+        },
+        "y2": {
+          "minimum": 0.0,
+          "title": "Y2",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
+    "ModelRef": {
+      "additionalProperties": false,
+      "description": "Reference to a model/weights version (metadata only; no loading).",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "weights_hash": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weights Hash"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ModelRef",
+      "type": "object"
+    },
+    "ObjectClass": {
+      "description": "Detector/tracker object classes (architecture-review §5 shared core).",
+      "enum": [
+        "motorcycle",
+        "car",
+        "bus",
+        "truck",
+        "auto_rickshaw",
+        "bicycle",
+        "person",
+        "license_plate"
+      ],
+      "title": "ObjectClass",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One detector output for one object in one frame.",
+  "properties": {
+    "bbox": {
+      "$ref": "#/$defs/BoundingBox"
+    },
+    "camera_id": {
+      "minLength": 1,
+      "title": "Camera Id",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "detection_id": {
+      "minLength": 1,
+      "title": "Detection Id",
+      "type": "string"
+    },
+    "frame_index": {
+      "minimum": 0,
+      "title": "Frame Index",
+      "type": "integer"
+    },
+    "object_class": {
+      "$ref": "#/$defs/ObjectClass"
+    },
+    "source_model": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "timestamp": {
+      "format": "date-time",
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "detection_id",
+    "camera_id",
+    "frame_index",
+    "timestamp",
+    "object_class",
+    "confidence",
+    "bbox"
+  ],
+  "title": "Detection",
+  "type": "object"
+}
