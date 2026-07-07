@@ -1,0 +1,283 @@
+# TrafficPulse per-camera scene configuration — validation schema & vocabularies.
+#
+# DECLARATIVE DATA ONLY. This schema and the example scene contain configuration
+# data that LATER phases will consume to implement zone membership, stop-line
+# crossing, legal-direction comparison, signal-ROI classification, dwell
+# reasoning, and calibrated speed estimation. U5 implements NONE of that
+# behaviour: no geometry, no line crossing, no homography maths, no rule engine,
+# no signal classification. Only structure and closed vocabularies are frozen
+# here; tests in tests/scenes/ validate the example against this schema.
+#
+# Closed identifier references (violation types, observation types, signal
+# states) are validated against the LIVE U2 contracts, never duplicated here.
+#
+# Honesty rules encoded and tested:
+#   * the example scene is synthetic and NOT marked validated;
+#   * synthetic calibration is NOT marked verified and claims no accuracy;
+#   * provisional rule parameters are marked provisional and require tuning on
+#     held-out data (see docs/dataset-policy.md) — never tuned/validated here.
+
+meta:
+  name: TrafficPulse Scene Configuration Schema
+  version: "1.0.0"
+  status: frozen
+  description: >
+    Required-section/field structure and closed vocabularies for per-camera
+    scene configuration files. Declarative only; no runtime behaviour in U5.
+
+# --- Frozen coordinate convention (the example must match exactly) -----------
+# Chosen once for the whole project; consistent with the U2 BoundingBox
+# convention (pixel space, top-left origin).
+coordinate_convention:
+  coordinate_space: pixel        # image pixels, not normalized
+  origin: top_left               # (0,0) at the top-left of the reference frame
+  x_axis_direction: right        # +x increases to the right
+  y_axis_direction: down         # +y increases downward
+  polygon_point_ordering: ordered_ring  # ordered vertices; ring closed implicitly
+
+# --- Closed vocabularies -----------------------------------------------------
+vocabularies:
+  scene_status:
+    - draft
+    - calibration_pending
+    - validation_pending
+    - validated
+    - archived
+  calibration_status:
+    - absent
+    - provisional
+    - unverified
+    - validated
+    - rejected
+  verification_status:
+    - unverified
+    - project_verified
+    - externally_verified
+  parameter_status:
+    - unset
+    - provisional
+    - tuned
+    - validated
+  zone_type:
+    - lane
+    - approach
+    - exit
+    - intersection
+    - no_stopping
+    - speed_measurement
+    - signal_controlled_region
+    - roi
+  signal_source_mode:
+    - roi_classifier
+    - simulated_schedule
+    - manual_annotation
+  speed_unit:
+    - km_per_h
+    - m_per_s
+  calibration_type:
+    - homography
+    - none
+    - other
+  world_unit:
+    - meters
+  coordinate_space:
+    - pixel
+    - normalized
+  origin:
+    - top_left
+  x_axis_direction:
+    - right
+  y_axis_direction:
+    - down
+  polygon_point_ordering:
+    - ordered_ring
+  roi_shape:
+    - rectangle
+    - polygon
+  parameter_unit:
+    - frames
+    - seconds
+    - degrees
+    - m_per_s
+    - km_per_h
+    - count
+    - ratio
+    - status_ref
+
+# References to U2/U3 closed sets, validated by tests against the live contracts.
+contract_reference_keys:
+  violation_types: trafficpulse.contracts.enums.ViolationType
+  observation_types: trafficpulse.contracts.observations.OBSERVATION_VARIANTS
+  signal_states: trafficpulse.contracts.enums.SignalState
+
+# --- Required structure ------------------------------------------------------
+required_sections:
+  - scene
+  - frame
+  - zones
+  - stop_lines
+  - legal_directions
+  - signal_groups
+  - speed_limits
+  - calibration
+  - rule_parameters
+
+required_fields:
+  scene:
+    - scene_id
+    - scene_name
+    - config_version
+    - schema_version
+    - status
+    - camera_id
+    - site_id
+    - description
+    - created_at
+    - updated_at
+    - provenance
+  frame:
+    - reference_width
+    - reference_height
+    - coordinate_space
+    - origin
+    - x_axis_direction
+    - y_axis_direction
+    - polygon_point_ordering
+  zone:
+    - zone_id
+    - zone_type
+    - polygon
+    - enabled
+  stop_line:
+    - stop_line_id
+    - endpoints
+    - crossing_direction
+    - signal_group_id
+    - zone_ids
+    - enabled
+  legal_direction:
+    - direction_id
+    - vector
+    - zone_ids
+    - description
+  signal_group:
+    - signal_group_id
+    - roi
+    - signal_source_mode
+    - stop_line_ids
+    - zone_ids
+    - enabled
+  speed_limit:
+    - speed_limit_id
+    - value
+    - unit
+    - zone_ids
+    - source
+    - verification_status
+  calibration:
+    - calibration_id
+    - type
+    - status
+    - verification_status
+    - source
+    - created_at
+    - world_unit
+    - homography_matrix
+    - correspondences
+    - quality_metrics
+    - notes
+  rule_parameter_block:
+    - violation_type
+    - parameters
+  rule_parameter:
+    - id
+    - value
+    - unit
+    - status
+    - note
+
+# Fields whose value is permitted to be null (genuinely-unset config data).
+nullable_fields:
+  - value                       # an unset rule parameter has value: null
+  - homography_matrix           # calibration.status: absent may carry no matrix
+  - reprojection_rmse_px        # NOT computed in U5
+
+# --- Field -> vocabulary bindings (single-value fields; tested) --------------
+field_vocabularies:
+  scene.status: scene_status
+  frame.coordinate_space: coordinate_space
+  frame.origin: origin
+  frame.x_axis_direction: x_axis_direction
+  frame.y_axis_direction: y_axis_direction
+  frame.polygon_point_ordering: polygon_point_ordering
+  calibration.type: calibration_type
+  calibration.status: calibration_status
+  calibration.verification_status: verification_status
+  calibration.world_unit: world_unit
+
+# List-item vocabulary bindings (item field -> vocabulary; tested by iteration).
+item_field_vocabularies:
+  zones.zone_type: zone_type
+  signal_groups.signal_source_mode: signal_source_mode
+  signal_groups.roi.shape: roi_shape
+  speed_limits.unit: speed_unit
+  speed_limits.verification_status: verification_status
+
+# --- Referential-integrity categories (documentation; tests enforce) ---------
+reference_categories:
+  - from: stop_lines[].signal_group_id
+    to: signal_groups[].signal_group_id
+  - from: stop_lines[].zone_ids[]
+    to: zones[].zone_id
+  - from: signal_groups[].stop_line_ids[]
+    to: stop_lines[].stop_line_id
+  - from: signal_groups[].zone_ids[]
+    to: zones[].zone_id
+  - from: legal_directions[].zone_ids[]
+    to: zones[].zone_id
+  - from: speed_limits[].zone_ids[]
+    to: zones[].zone_id
+  - from: zones[].legal_direction_id
+    to: legal_directions[].direction_id
+  - from: zones[].signal_group_id
+    to: signal_groups[].signal_group_id
+
+# --- Security / privacy --------------------------------------------------------
+# No scene file may carry credentials, secrets, precise geolocation, or personal
+# addresses. Camera/site references are opaque identifiers. Tests sweep for these
+# key names and for credential-like value patterns.
+forbidden_keys:
+  - password
+  - passwd
+  - secret
+  - token
+  - api_key
+  - apikey
+  - access_token
+  - credential
+  - credentials
+  - rtsp_url
+  - rtsp
+  - connection_string
+  - private_key
+  - username
+  - street_address
+  - address
+  - latitude
+  - longitude
+  - gps_coordinates
+
+secret_value_patterns:
+  - "rtsp://"
+  - "://[^\\s/]+:[^\\s/@]+@"     # user:pass@host
+  - "-----BEGIN"                 # private key blocks
+  - "(?i)password\\s*[:=]"
+  - "(?i)api[_-]?key\\s*[:=]"
+
+# Value substrings that would indicate embedded executable logic (tested absent).
+forbidden_value_substrings:
+  - "lambda "
+  - "eval("
+  - "exec("
+  - "__import__"
+  - "os.system"

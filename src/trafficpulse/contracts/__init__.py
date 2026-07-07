@@ -62,6 +62,25 @@ from .primitives import (
     Velocity,
 )
 from .review import ReviewCase
+from .scene import (
+    Calibration,
+    CalibrationStatus,
+    CalibrationType,
+    LegalDirection,
+    ParameterStatus,
+    RuleParameterBlock,
+    SceneConfig,
+    SceneStatus,
+    SignalGroup,
+    SignalSourceMode,
+    SpeedLimit,
+    StopLine,
+    VerificationStatus,
+    Zone,
+    ZoneType,
+    canonical_scene_bytes,
+    scene_config_hash,
+)
 from .temporal import TemporalState
 from .track import TrackState
 
@@ -125,6 +144,24 @@ __all__ = [
     "ReviewCase",
     "SimulatedAmount",
     "SimulatedPenalty",
+    # scene configuration (U5)
+    "SceneConfig",
+    "SceneStatus",
+    "CalibrationStatus",
+    "CalibrationType",
+    "VerificationStatus",
+    "ParameterStatus",
+    "ZoneType",
+    "SignalSourceMode",
+    "Zone",
+    "StopLine",
+    "LegalDirection",
+    "SignalGroup",
+    "SpeedLimit",
+    "Calibration",
+    "RuleParameterBlock",
+    "canonical_scene_bytes",
+    "scene_config_hash",
     # schema export
     "export_schemas",
 ]

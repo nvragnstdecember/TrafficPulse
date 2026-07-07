@@ -1,0 +1,263 @@
+# SYNTHETIC example scene configuration — for schema validation / demo ONLY.
+#
+# This describes NO real deployment. All identifiers are opaque and synthetic;
+# calibration is a synthetic placeholder claiming no accuracy; rule parameters
+# are provisional and require tuning on held-out data. It contains no
+# credentials, no precise location, and no personal data.
+
+scene:
+  scene_id: scene-synthetic-01
+  scene_name: Synthetic Junction (demo)
+  config_version: "0.1.0-synthetic"
+  schema_version: "1.0.0"
+  status: draft                     # NOT validated
+  camera_id: cam-synthetic-01       # opaque identifier
+  site_id: site-synthetic-01        # opaque identifier (no address)
+  description: >
+    A synthetic single-approach signalised junction used to exercise the scene
+    schema: one lane, one approach, a junction/intersection, a no-stopping zone,
+    a speed-measurement zone, a signal-controlled region, one stop line, legal
+    directions, one signal group, one speed limit, and synthetic calibration.
+  created_at: "2026-07-07T00:00:00Z"
+  updated_at: "2026-07-07T00:00:00Z"
+  provenance:
+    origin: synthetic
+    purpose: schema_validation_and_demo
+    synthetic: true
+    author_role: project_maintainer   # opaque role, not a person
+    source_reference: synthetic-no-footage
+    notes: >
+      Synthetic scene for schema validation and demonstration only; not a real
+      deployment. No legal validity and no calibration accuracy are claimed.
+
+frame:
+  reference_width: 1920
+  reference_height: 1080
+  coordinate_space: pixel
+  origin: top_left
+  x_axis_direction: right
+  y_axis_direction: down
+  polygon_point_ordering: ordered_ring
+
+zones:
+  - zone_id: zone-lane-north
+    zone_type: lane
+    enabled: true
+    description: Northbound lane (travel is upward in the image, away from camera).
+    polygon: [[860, 1060], [1060, 1060], [1010, 640], [910, 640]]
+    legal_direction_id: dir-north
+    signal_group_id: null
+    applicable_violations: [wrong_way]
+    observation_consumers: [heading_vs_lane, in_zone]
+  - zone_id: zone-approach-south
+    zone_type: approach
+    enabled: true
+    description: Signalised approach leading to the stop line.
+    polygon: [[830, 1070], [1090, 1070], [1030, 700], [890, 700]]
+    legal_direction_id: dir-approach
+    signal_group_id: null
+    applicable_violations: [red_light_jumping]
+    observation_consumers: [in_zone]
+  - zone_id: zone-junction
+    zone_type: intersection
+    enabled: true
+    description: Junction conflict area entered after crossing the stop line.
+    polygon: [[700, 620], [1220, 620], [1220, 320], [700, 320]]
+    legal_direction_id: null
+    signal_group_id: sg-001
+    applicable_violations: [red_light_jumping]
+    observation_consumers: [in_zone]
+  - zone_id: zone-no-stop
+    zone_type: no_stopping
+    enabled: true
+    description: No-stopping zone beside the approach.
+    polygon: [[1260, 1060], [1520, 1060], [1470, 660], [1310, 660]]
+    legal_direction_id: null
+    signal_group_id: null
+    applicable_violations: [illegal_stopping]
+    observation_consumers: [in_zone, stationary]
+  - zone_id: zone-speed
+    zone_type: speed_measurement
+    enabled: true
+    description: Near-field calibrated speed-measurement zone.
+    polygon: [[880, 1000], [1050, 1000], [1000, 720], [930, 720]]
+    legal_direction_id: null
+    signal_group_id: null
+    applicable_violations: [speeding]
+    observation_consumers: [speed]
+  - zone_id: zone-signal-ctrl
+    zone_type: signal_controlled_region
+    enabled: true
+    description: Region whose right-of-way is governed by the signal group.
+    polygon: [[720, 640], [1200, 640], [1200, 360], [720, 360]]
+    legal_direction_id: null
+    signal_group_id: sg-001
+    applicable_violations: [red_light_jumping]
+    observation_consumers: [in_zone, signal_state]
+
+legal_directions:
+  - direction_id: dir-north
+    description: Legal travel is upward in the image (decreasing y).
+    vector: {dx: 0.0, dy: -1.0}
+    zone_ids: [zone-lane-north]
+    tolerance_degrees: null           # tolerance is a rule parameter, left unset here
+    tolerance_status: unset
+  - direction_id: dir-approach
+    description: Legal travel on the approach is roughly upward toward the junction.
+    vector: {dx: 0.1, dy: -1.0}
+    zone_ids: [zone-approach-south]
+    tolerance_degrees: null
+    tolerance_status: unset
+
+stop_lines:
+  - stop_line_id: stopline-001
+    enabled: true
+    description: Stop line across the signalised approach.
+    endpoints: {a: [830, 700], b: [1090, 700]}
+    crossing_direction: {dx: 0.0, dy: -1.0}   # legal crossing is upward into the junction
+    signal_group_id: sg-001
+    zone_ids: [zone-approach-south]
+
+signal_groups:
+  - signal_group_id: sg-001
+    enabled: true
+    description: Signal head governing the approach and junction.
+    signal_source_mode: roi_classifier        # not simulated; no live controller
+    roi: {shape: rectangle, x: 1400, y: 200, width: 60, height: 160}
+    stop_line_ids: [stopline-001]
+    zone_ids: [zone-junction, zone-signal-ctrl]
+    permitted_movements: [free_left]          # per-site flag, not an assumption
+    expected_states: [red, amber, green, "off", unknown]  # "off" quoted (YAML boolean)
+
+speed_limits:
+  - speed_limit_id: sl-001
+    value: 50
+    unit: km_per_h
+    zone_ids: [zone-speed]
+    source: synthetic_demo                     # NOT an inferred legal limit
+    verification_status: unverified
+
+calibration:
+  calibration_id: cal-001
+  type: homography
+  status: provisional                          # NOT validated
+  verification_status: unverified              # NOT verified
+  source: synthetic_demo
+  created_at: "2026-07-07T00:00:00Z"
+  world_unit: meters
+  # Synthetic placeholder (identity). NOT a computed calibration; no accuracy claimed.
+  homography_matrix:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  correspondences:
+    - {image_xy: [910, 640], world_xy: [0.0, 30.0], description: synthetic far-left}
+    - {image_xy: [1010, 640], world_xy: [3.5, 30.0], description: synthetic far-right}
+    - {image_xy: [860, 1060], world_xy: [0.0, 0.0], description: synthetic near-left}
+    - {image_xy: [1060, 1060], world_xy: [3.5, 0.0], description: synthetic near-right}
+  quality_metrics:
+    reprojection_rmse_px: null                 # NOT computed in U5
+    status: unset
+  notes: >
+    Synthetic identity homography for schema validation only. It is not a real
+    calibration, has not been computed or verified, and no reprojection error or
+    speed accuracy is claimed.
+
+rule_parameters:
+  - violation_type: no_helmet
+    parameters:
+      - id: min_confirming_observations
+        value: 2
+        unit: count
+        status: provisional
+        note: >
+          architecture-review §13 requires at least two observations before a
+          rule confirms; a floor, not a tuned per-scene value.
+      - id: candidate_persistence_frames
+        value: null
+        unit: frames
+        status: unset
+        note: No justified default; to be set from held-out data in Phase 1.
+      - id: abstain_on_uncertain
+        value: null
+        unit: status_ref
+        status: unset
+        note: >
+          Abstention-behaviour reference; uncertain/turban handling is a
+          rule-layer decision per U3 and is not encoded here.
+  - violation_type: triple_riding
+    parameters:
+      - id: rider_count_threshold
+        value: 3
+        unit: count
+        status: provisional
+        note: >
+          Ontology defines triple riding as three or more riders; per-scene
+          confirmation still requires temporal tuning.
+      - id: persistence_window_frames
+        value: null
+        unit: frames
+        status: unset
+        note: K-of-N temporal window; no justified default.
+  - violation_type: red_light_jumping
+    parameters:
+      - id: amber_onset_grace
+        value: 0.3
+        unit: seconds
+        status: provisional
+        note: Provisional (architecture-review ~0.3 s); requires tuning on held-out data.
+      - id: crossing_dedup_window
+        value: null
+        unit: seconds
+        status: unset
+        note: Crossing debounce/deduplication window; no justified default.
+  - violation_type: wrong_way
+    parameters:
+      - id: heading_deviation_max
+        value: 120.0
+        unit: degrees
+        status: provisional
+        note: Provisional (architecture-review ~120 deg); requires tuning on held-out data.
+      - id: min_persistence
+        value: 1.0
+        unit: seconds
+        status: provisional
+        note: Provisional (architecture-review ~1.0 s); requires tuning on held-out data.
+      - id: min_speed
+        value: 1.5
+        unit: m_per_s
+        status: provisional
+        note: Provisional (architecture-review ~1.5 m/s); requires tuning on held-out data.
+  - violation_type: illegal_stopping
+    parameters:
+      - id: stationary_duration
+        value: 10.0
+        unit: seconds
+        status: provisional
+        note: Provisional (architecture-review ~10 s); requires tuning on held-out data.
+      - id: motion_threshold
+        value: 0.5
+        unit: m_per_s
+        status: provisional
+        note: Provisional (architecture-review ~0.5 m/s); requires tuning on held-out data.
+      - id: congestion_suppression
+        value: null
+        unit: status_ref
+        status: unset
+        note: Scene-level congestion-suppression config reference; not set here.
+  - violation_type: speeding
+    parameters:
+      - id: speed_uncertainty_k
+        value: null
+        unit: ratio
+        status: unset
+        note: >
+          k in the (v - k*sigma > limit) hypothesis rule; no justified default,
+          gated on the U4 speed feasibility protocol.
+      - id: min_calibration_status
+        value: null
+        unit: status_ref
+        status: unset
+        note: >
+          Minimum calibration status required before speeding may participate;
+          unset until the speed feasibility gate is evaluated.
