@@ -1,0 +1,225 @@
+# TrafficPulse label ontology — canonical machine-readable registry.
+#
+# This file is the single machine-readable source of truth for the *semantic
+# meaning* of TrafficPulse labels. The human interpretation and annotation
+# guide is docs/ontology.md. Closed identifier sets here MUST stay exactly
+# consistent with the frozen U2 contract enums in
+# src/trafficpulse/contracts/enums.py (verified by tests/ontology/).
+#
+# This ontology defines SEMANTICS only. It deliberately contains no rule
+# thresholds, durations, grace periods, speed limits, confidence cutoffs, or
+# executable logic — those belong to later rule/config layers (U4/U5/Phase 1).
+
+ontology:
+  name: TrafficPulse Label Ontology
+  version: "1.0.0"
+  status: frozen
+  description: >
+    Canonical semantics for TrafficPulse detection classes, helmet states,
+    traffic-signal states, violation types, and observation types. Frozen in
+    Phase 0-F (U3) before any dataset preparation, annotation, training, or
+    evaluation begins. A visual/classifier label is never a final legal or
+    policy decision; violation confirmation is an evidence-first, rule-layer
+    concern kept strictly separate from classification.
+  canonical_document: docs/ontology.md
+  contract_source: src/trafficpulse/contracts/enums.py
+
+principles:
+  - Label observable visual facts, not assumptions or invisible states.
+  - Prefer an abstention/unknown label over guessing when evidence is weak.
+  - A single-frame classification is not a confirmed violation.
+  - Classification labels and final violation/policy decisions are separate.
+  - Closed identifier sets mirror the frozen U2 contract enums exactly.
+  - Frame-level labels are distinct from temporal/event-level ground truth.
+  - Preserve camera/video/source grouping so later splits can be leakage-safe.
+
+# --- Helmet states -----------------------------------------------------------
+# The four-label helmet ontology. `automatic_violation_semantics: none` on
+# every state encodes the evidence-first rule: no classification, by itself,
+# auto-confirms a violation. Any downstream policy mapping (e.g. how turban or
+# uncertain are treated by a rule) is decided in the rule layer, not here.
+helmet_states:
+  - id: helmet
+    description: >
+      A qualifying protective helmet is visibly present on the rider's head
+      with sufficient visual evidence.
+    automatic_violation_semantics: none
+    abstains: false
+  - id: no_helmet
+    description: >
+      The relevant head region is sufficiently visible and a qualifying
+      protective helmet is visibly absent.
+    automatic_violation_semantics: none
+    abstains: false
+  - id: turban
+    description: >
+      A distinct visual state in which the rider is wearing a turban. Recorded
+      as its own label and never silently merged into no_helmet. This label
+      records what is seen only; it asserts no legal exemption and no violation.
+    automatic_violation_semantics: none
+    abstains: false
+    distinct_from_no_helmet: true
+  - id: uncertain
+    description: >
+      Visual evidence is insufficient for a reliable helmet-state decision
+      (e.g. blur, occlusion, tiny crop, truncation, poor illumination, or
+      ambiguous headgear). An abstention state, not a violation state; prefer
+      it over guessing.
+    automatic_violation_semantics: none
+    abstains: true
+
+# --- Traffic-signal states ---------------------------------------------------
+# `visibility: classified` = a determinate observed state; `indeterminate` =
+# the state could not be reliably read and downstream reasoning should abstain.
+signal_states:
+  - id: red
+    description: The controlling signal head is showing a red (stop) aspect.
+    visibility: classified
+  - id: amber
+    description: The controlling signal head is showing an amber (caution) aspect.
+    visibility: classified
+  - id: green
+    description: The controlling signal head is showing a green (go) aspect.
+    visibility: classified
+  - id: "off"  # quoted: bare off is a YAML 1.1 boolean
+    description: >
+      The signal head is visibly not showing an active aspect (dark, blank, or
+      non-operating). A determinate observation of the absence of an aspect.
+    visibility: classified
+  - id: unknown
+    description: >
+      The signal state could not be reliably determined (occluded, out of
+      frame, low confidence). Indeterminate; reasoning should abstain.
+    visibility: indeterminate
+
+# --- Object classes ----------------------------------------------------------
+# The closed detector/tracker classes. Not expanded speculatively.
+object_classes:
+  - id: motorcycle
+    description: A two-wheeled motorized vehicle (the primary subject of helmet, triple-riding, and plate reasoning).
+  - id: car
+    description: A passenger car / light four-wheeled vehicle.
+  - id: bus
+    description: A large passenger road vehicle (bus/coach).
+  - id: truck
+    description: A goods/heavy road vehicle.
+  - id: auto_rickshaw
+    description: A three-wheeled auto-rickshaw common in Indian traffic.
+  - id: bicycle
+    description: A human-powered two-wheeled cycle.
+  - id: person
+    description: A human, whether pedestrian or vehicle occupant/rider.
+  - id: license_plate
+    description: A vehicle number plate region (subject of ANPR), not a vehicle itself.
+
+# --- Violation types ---------------------------------------------------------
+# The six locked violation types. `id` matches the U2 ViolationType enum.
+# `upstream_observations` are the conceptual observation categories a rule may
+# consume later; this is semantics, NOT rule logic or thresholds.
+violation_types:
+  - id: no_helmet
+    name: No-helmet riding
+    description: >
+      A motorcycle rider operating or riding without a qualifying protective
+      helmet.
+    upstream_observations: [helmet_state, rider_count]
+    abstention_conditions: >
+      Head region not sufficiently visible, helmet-state uncertain, or unstable
+      rider-slot assignment.
+  - id: triple_riding
+    name: Triple riding
+    description: >
+      Three or more riders carried on a single motorcycle.
+    upstream_observations: [rider_count]
+    abstention_conditions: >
+      Overlapping bikes, oscillating or low-confidence rider counts, or
+      partially visible occupants.
+  - id: red_light_jumping
+    name: Red-light jumping
+    description: >
+      A vehicle crossing the controlled stop line into the junction while the
+      controlling signal is red.
+    upstream_observations: [signal_state, in_zone]
+    abstention_conditions: >
+      Signal state indeterminate/occluded, or crossing within a signal-state
+      transition uncertainty window.
+  - id: wrong_way
+    name: Wrong-way driving
+    description: >
+      A vehicle travelling against the legal direction of its lane/road.
+    upstream_observations: [heading_vs_lane]
+    abstention_conditions: >
+      Short or tainted tracks, or positions near a lane-polygon boundary.
+  - id: illegal_stopping
+    name: Illegal stopping or parking
+    description: >
+      A vehicle stopped or parked within a configured no-stopping/parking zone.
+    upstream_observations: [stationary, in_zone]
+    abstention_conditions: >
+      Active congestion, or dwell interrupted beyond tolerance.
+  - id: speeding
+    name: Speeding
+    description: >
+      A vehicle travelling faster than the applicable limit within a calibrated
+      measurement zone. Feasibility-gated; treated with explicit uncertainty.
+    upstream_observations: [speed]
+    abstention_conditions: >
+      Poor calibration quality, insufficient samples, or tainted tracks.
+
+# --- Observation types -------------------------------------------------------
+# The seven per-frame derived facts. `id` matches the U2 observation
+# discriminators (obs_type). `does_not_imply` states what a single observation
+# does NOT establish by itself; `consumed_by` lists violation families that may
+# later consume it.
+observation_types:
+  - id: in_zone
+    represents: Whether a track occupies a specific configured scene zone in a frame.
+    does_not_imply: A zone occupancy alone is not a violation.
+    consumed_by: [red_light_jumping, illegal_stopping]
+  - id: signal_state
+    represents: The observed traffic-signal aspect for a configured light ROI.
+    does_not_imply: A signal aspect alone is not a violation and is not tied to any vehicle.
+    consumed_by: [red_light_jumping]
+  - id: heading_vs_lane
+    represents: A track's heading relative to a lane's legal direction in a frame.
+    does_not_imply: A single-frame heading contradiction is not a wrong-way violation.
+    consumed_by: [wrong_way]
+  - id: stationary
+    represents: Whether a track is stationary in a frame, with optional dwell so far.
+    does_not_imply: Being stationary is not by itself illegal stopping.
+    consumed_by: [illegal_stopping]
+  - id: rider_count
+    represents: The estimated number of riders on a motorcycle in a frame.
+    does_not_imply: A single-frame rider count is not a confirmed triple-riding event.
+    consumed_by: [triple_riding]
+  - id: helmet_state
+    represents: The per-rider-slot helmet state for a head region in a frame.
+    does_not_imply: A single-frame helmet_state (including no_helmet) is not a confirmed no-helmet event.
+    consumed_by: [no_helmet]
+  - id: speed
+    represents: A ground-plane speed estimate with explicit uncertainty in a measurement zone.
+    does_not_imply: A speed estimate is not speeding without calibration quality and rule context.
+    consumed_by: [speeding]
+
+# --- Annotation and ambiguity policy -----------------------------------------
+annotation_policy:
+  label_observable_facts_only: true
+  prefer_abstention_over_guessing: true
+  do_not_infer_invisible_states: true
+  frame_level_labels_distinct_from_event_ground_truth: true
+  use_future_frames_to_label_current_frame: false
+  preserve_source_grouping_metadata: true
+  occlusion_handling: >
+    When the region needed for a label is occluded, use the ontology's
+    abstention/unknown label rather than guessing the hidden state.
+  truncation_handling: >
+    When the region is truncated by the frame edge such that the label cannot
+    be reliably determined, abstain (uncertain/unknown) rather than guess.
+  borderline_escalation: >
+    Borderline or contested cases should be escalated for review or excluded,
+    never resolved by guessing; contested closed-class cases fold into the
+    abstention label for this ontology version.
+  source_grouping_note: >
+    Every labelled item must retain its source camera/video identity so later
+    dataset splitting can hold out whole sources and avoid leakage. The concrete
+    split policy is defined later (U4) and is intentionally not encoded here.

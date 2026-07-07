@@ -24,6 +24,12 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.11",
   "pytest>=8.0",
+  # PyYAML parses configs/ontology.yaml in the U3 ontology-validation tests.
+  # It is a test-only dependency in Phase 0-F: no runtime code loads the
+  # ontology yet. A runtime ontology loader (and any promotion of the parser
+  # to a runtime dependency) is deferred to Phase 1, keeping runtime deps
+  # limited to pydantic.
+  "pyyaml>=6",
 ]
 
 # --- Version single-source: read from src/trafficpulse/__init__.py -----------
