@@ -1,0 +1,216 @@
+# TrafficPulse dataset registry — validation schema and closed vocabularies.
+#
+# Governance/metadata ONLY. This registry does not download, prepare, split, or
+# otherwise touch any dataset; it records candidacy, provenance, access,
+# licensing, task fit, split/leakage metadata, privacy, and integrity state so
+# that honest, reviewable decisions can be made before any acquisition.
+#
+# Entries live in registry/datasets/*.yaml and are validated against this file
+# by tests/registry/. Closed identifier references (violation types, object
+# classes, helmet/signal states, observation types) are validated against the
+# live U2 contracts and the U3 ontology — never duplicated here.
+#
+# Explicitly-distinguished epistemics:
+#   * a *verified fact* is one this project confirmed from an official source
+#     (access.access_confirmed_by_project, licensing.status = verified, and a
+#     date_last_verified all record this);
+#   * a *project assessment* lives in the task_fit / suitability fields;
+#   * *unknown / unverified* information is recorded as such (status = unknown /
+#     unclear / unconfirmed) and never silently promoted to a permission.
+
+schema:
+  name: TrafficPulse Dataset Registry Schema
+  version: "1.0.0"
+  status: frozen
+  description: >
+    Required-field structure and closed status vocabularies for candidate
+    dataset registry entries. No dataset is downloaded or prepared by U4.
+
+# --- Closed status vocabularies ---------------------------------------------
+# Status tokens deliberately avoid YAML 1.1 boolean words (yes/no/on/off/true/
+# false) so that plain scalars are never coerced to booleans.
+vocabularies:
+  registry_status:
+    - candidate
+    - approved_for_acquisition
+    - rejected
+    - archived
+  access_status:
+    - public_direct
+    - registration_required
+    - application_required
+    - restricted
+    - unavailable
+    - unconfirmed
+    - self_generated
+    - self_collection_required
+  licence_status:
+    - verified
+    - unclear
+    - unknown
+    - incompatible
+    - pending_review
+  local_acquisition_status:
+    - not_downloaded
+    - downloaded_unverified
+    - verified
+  checksum_status:
+    - none
+    - recorded
+    - verified
+  source_type:
+    - academic_dataset
+    - challenge_dataset
+    - synthetic_generated
+    - self_collected
+    - public_repository
+  task_category:
+    - detection
+    - tracking
+    - helmet_classification
+    - rider_count
+    - signal_state_classification
+    - plate_detection
+    - plate_ocr
+    - speed_estimation
+    - event_evaluation
+  suitability_status:
+    - suitable
+    - partially_suitable
+    - reference_only
+    - insufficient_alone
+    - unsuitable
+  requirement_tri:
+    - required
+    - not_required
+    - not_applicable
+    - unknown
+  availability_tri:
+    - available
+    - absent
+    - unknown
+  permission_tri:
+    - allowed
+    - not_allowed
+    - unknown
+  presence_tri:
+    - present
+    - absent
+    - likely
+    - unknown
+  split_preserve:
+    - preserve
+    - not_applicable
+    - unknown
+  acquisition_date_state:
+    - pending
+
+# Allowed keys for task_fit.ontology_references; each list is validated against
+# the corresponding live U2 enum / U3 ontology set by the tests.
+ontology_reference_keys:
+  - violation_types
+  - observation_types
+  - helmet_states
+  - object_classes
+  - signal_states
+
+# --- Required field structure per entry -------------------------------------
+# Each dataset entry file must contain these sections, each carrying these
+# keys. A value MAY be null only for the fields listed in nullable_fields.
+required_fields:
+  identity:
+    - id
+    - name
+    - release
+    - task_categories
+    - domain_context
+    - intended_use
+    - registry_status
+  provenance:
+    - canonical_source_name
+    - canonical_source_url
+    - publisher
+    - source_type
+    - citation
+    - date_last_verified
+  access:
+    - status
+    - procedure
+    - registration_required
+    - application_required
+    - access_confirmed_by_project
+    - notes
+  licensing:
+    - status
+    - identifier
+    - source
+    - commercial_use
+    - redistribution
+    - notes
+  task_fit:
+    - trafficpulse_capabilities
+    - ontology_references
+    - annotation_types
+    - strengths
+    - domain_gaps
+    - suitability
+    - custom_data_still_required
+  split_leakage:
+    - source_grouping_unit
+    - camera_identity
+    - video_identity
+    - sequence_identity
+    - official_split_available
+    - preserve_official_split
+    - leakage_risks
+  privacy_ethics:
+    - faces_present
+    - plates_present
+    - pii_concerns
+    - handling_notes
+  integrity:
+    - checksum_status
+    - local_acquisition_status
+    - acquisition_date
+    - immutable_source_reference
+    - notes
+
+# Fields whose value is permitted to be null (e.g. a licence identifier that is
+# genuinely unknown). All other required fields must be non-null.
+nullable_fields:
+  - identifier
+  - immutable_source_reference
+  - date_last_verified
+  - release
+  - citation  # self-generated / self-collected tracks have no external citation
+
+# --- Field -> vocabulary bindings (enforced by tests) ------------------------
+field_vocabularies:
+  identity.registry_status: registry_status
+  provenance.source_type: source_type
+  access.status: access_status
+  access.registration_required: requirement_tri
+  access.application_required: requirement_tri
+  licensing.status: licence_status
+  licensing.commercial_use: permission_tri
+  licensing.redistribution: permission_tri
+  task_fit.suitability: suitability_status
+  task_fit.custom_data_still_required: requirement_tri
+  split_leakage.camera_identity: availability_tri
+  split_leakage.video_identity: availability_tri
+  split_leakage.sequence_identity: availability_tri
+  split_leakage.official_split_available: availability_tri
+  split_leakage.preserve_official_split: split_preserve
+  privacy_ethics.faces_present: presence_tri
+  privacy_ethics.plates_present: presence_tri
+  integrity.checksum_status: checksum_status
+  integrity.local_acquisition_status: local_acquisition_status
+
+# Forbidden keys anywhere in an entry: no local dataset/model paths may be
+# recorded (nothing is downloaded).
+forbidden_keys:
+  - local_path
+  - data_path
+  - download_path
+  - cache_dir
+  - weights_path

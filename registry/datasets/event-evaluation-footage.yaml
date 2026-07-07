@@ -1,0 +1,90 @@
+# Own fixed-camera evaluation footage — FIRST-CLASS project dependency (to be secured).
+#
+# This is the load-bearing acquisition track: public component datasets do NOT
+# provide event-level temporal ground truth for the six violations. Serious
+# event-level evaluation, ANPR evaluation on Indian plates, and speed ground
+# truth all depend on properly authorized, permitted footage that does not yet
+# exist. See docs/dataset-policy.md and docs/evaluation-protocol.md.
+identity:
+  id: event-evaluation-footage
+  name: Own fixed-camera evaluation footage (to be secured)
+  release: null
+  task_categories: [event_evaluation]
+  domain_context: Authorized Indian fixed-camera roadside footage with elevated view and a visible signal head.
+  intended_use: >
+    The evaluation substrate for event-level violation metrics, Indian-plate
+    ANPR evaluation, and speed ground truth. Held-out from component-model
+    development. Demo footage is kept separate from held-out evaluation footage.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: TrafficPulse own footage (institutionally permitted)
+  canonical_source_url: internal://registry/event-evaluation-footage
+  publisher: TrafficPulse project
+  source_type: self_collected
+  citation: null
+  date_last_verified: null
+
+access:
+  status: self_collection_required
+  procedure: >
+    Requires institutional permission/ethics clearance, scouted sites (>=1 with
+    elevated view AND a visible signal head), and a written data-handling plan
+    before any recording. Acquisition is the schedule long pole.
+  registration_required: not_applicable
+  application_required: required
+  access_confirmed_by_project: false
+  notes: >
+    No site is secured and no institutional permission is on file (architecture
+    review §9, marked unresolved). Nothing may claim this footage exists yet.
+
+licensing:
+  status: pending_review
+  identifier: null
+  source: internal://registry/event-evaluation-footage
+  commercial_use: not_allowed
+  redistribution: not_allowed
+  notes: >
+    Self-owned upon authorized collection, but subject to institutional ethics
+    and privacy constraints; redistribution not permitted. Pending permission.
+
+task_fit:
+  trafficpulse_capabilities:
+    [detection, tracking, helmet_classification, rider_count, signal_state_classification, plate_ocr, speed_estimation, event_evaluation]
+  ontology_references:
+    violation_types: [no_helmet, triple_riding, red_light_jumping, wrong_way, illegal_stopping, speeding]
+    observation_types: [in_zone, signal_state, heading_vs_lane, stationary, rider_count, helmet_state, speed]
+  annotation_types: [event_level_ground_truth, tracks, bounding_boxes, plate_transcriptions]
+  strengths: The only in-domain source of event-level temporal ground truth for the six violations.
+  domain_gaps: >
+    Does not yet exist; acquisition/permissions are the primary project risk. If
+    no site is secured by end of Phase 1, the evaluation plan is re-scoped
+    (gated datasets + short opportunistic recordings with narrowed claims).
+  suitability: suitable
+  custom_data_still_required: not_applicable
+
+split_leakage:
+  source_grouping_unit: site
+  camera_identity: available
+  video_identity: available
+  sequence_identity: available
+  official_split_available: absent
+  preserve_official_split: not_applicable
+  leakage_risks: >
+    Whole-site holdout is required for generalization claims; evaluation footage
+    must stay isolated from component-model training footage.
+
+privacy_ethics:
+  faces_present: present
+  plates_present: present
+  pii_concerns: Real faces and plates of the public; strongest PII exposure of any entry.
+  handling_notes: >
+    Restricted, role-gated, logged storage of originals; redaction at evidence
+    render time; retention policy; deletion checklist after the project.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not collected; provenance, checksums, and a data-handling record created at collection time.

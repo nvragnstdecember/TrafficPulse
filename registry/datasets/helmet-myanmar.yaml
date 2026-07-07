@@ -1,0 +1,78 @@
+# HELMET (Myanmar) — candidate for helmet-state and rider-count pretraining.
+identity:
+  id: helmet-myanmar
+  name: HELMET dataset (Siebert & Lin)
+  release: "HELMET (~2020)"
+  task_categories: [helmet_classification, rider_count, detection]
+  domain_context: Motorcycle helmet use across observation sites in Myanmar (~91k frames, ~10k motorcycles).
+  intended_use: >
+    Pretraining/augmentation for helmet-state classification and rider-count
+    estimation; derived head/bike crops feed the CNN-vs-ViT helmet experiment.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: HELMET dataset (OSF)
+  canonical_source_url: https://osf.io/4pwj8/
+  publisher: Siebert & Lin (associated IEEE Access publication)
+  source_type: academic_dataset
+  citation: "Siebert & Lin, Helmet Use Detection of Tracked Motorcycles using CNN-based Multi-task Learning; see also arXiv:1910.13232"
+  date_last_verified: "2026-07-07"
+
+access:
+  status: unconfirmed
+  procedure: Hosted on the Open Science Framework (osf.io/4pwj8); download/registration terms not confirmed by the project.
+  registration_required: unknown
+  application_required: unknown
+  access_confirmed_by_project: false
+  notes: >
+    Verified 2026-07-07 that the dataset is officially hosted on OSF and
+    described by the authors' publications. The OSF licence/access terms could
+    not be retrieved (JS-rendered page); access recorded as unconfirmed.
+
+licensing:
+  status: unknown
+  identifier: null
+  source: https://osf.io/4pwj8/
+  commercial_use: unknown
+  redistribution: unknown
+  notes: >
+    Licence not retrieved from the OSF page; recorded as unknown and NOT assumed
+    permissive. Verify the OSF licence field before any use.
+
+task_fit:
+  trafficpulse_capabilities: [helmet_classification, rider_count]
+  ontology_references:
+    helmet_states: [helmet, no_helmet, uncertain]
+    violation_types: [no_helmet, triple_riding]
+    observation_types: [helmet_state, rider_count]
+  annotation_types: [motorcycle_tracks, rider_helmet_labels]
+  strengths: In-purpose helmet + rider-count video labels for pretraining and augmentation.
+  domain_gaps: >
+    Myanmar (not Indian) road/appearance domain; turban headwear is not a native
+    label — Indian-context turban crops require custom annotation (ontology U3).
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: observation_site_and_video
+  camera_identity: available
+  video_identity: available
+  sequence_identity: available
+  official_split_available: unknown
+  preserve_official_split: unknown
+  leakage_risks: >
+    Adjacent frames of a tracked motorcycle are highly correlated; crops must
+    inherit their source video's split and no track may span splits.
+
+privacy_ethics:
+  faces_present: likely
+  plates_present: likely
+  pii_concerns: Riders' faces and plates are likely visible.
+  handling_notes: Apply redaction expectations; treat derived crops under the same split policy.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not downloaded; confirm OSF licence and record checksums at authorized acquisition time.

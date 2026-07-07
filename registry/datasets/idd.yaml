@@ -1,0 +1,76 @@
+# India Driving Dataset (IDD) — candidate for Indian-domain detector fine-tuning.
+identity:
+  id: idd
+  name: India Driving Dataset (IDD)
+  release: "IDD Detection / IDD-20k (WACV 2019)"
+  task_categories: [detection, tracking]
+  domain_context: Unstructured Indian driving scenes (Hyderabad, Bangalore); dashcam viewpoint.
+  intended_use: >
+    Appearance-domain fine-tuning of the detector toward Indian road classes to
+    reduce domain shift; not a source of helmet, plate, signal, or event labels.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: India Driving Dataset (IIIT Hyderabad)
+  canonical_source_url: https://idd.insaan.iiit.ac.in/
+  publisher: IIIT Hyderabad and Intel
+  source_type: academic_dataset
+  citation: "Varma et al., IDD: A Dataset for Exploring Problems of Autonomous Navigation in Unconstrained Environments, WACV 2019"
+  date_last_verified: "2026-07-07"
+
+access:
+  status: registration_required
+  procedure: Create an account on the IDD portal; a licence is displayed before each dataset download.
+  registration_required: required
+  application_required: not_required
+  access_confirmed_by_project: false
+  notes: >
+    Verified 2026-07-07 that the download portal requires an account login
+    ("New accounts? Sign Up") and states "License will be displayed before
+    downloading a dataset". The project has neither registered nor downloaded.
+
+licensing:
+  status: unknown
+  identifier: null
+  source: https://idd.insaan.iiit.ac.in/dataset/download/
+  commercial_use: unknown
+  redistribution: unknown
+  notes: >
+    Licence text is shown only after login / before download and was not
+    retrieved; recorded as unknown and NOT assumed permissive.
+
+task_fit:
+  trafficpulse_capabilities: [detection, tracking]
+  ontology_references:
+    object_classes: [motorcycle, car, bus, truck, auto_rickshaw, bicycle, person]
+  annotation_types: [bounding_boxes, semantic_segmentation]
+  strengths: In-domain Indian road appearance; helps reduce detector domain shift.
+  domain_gaps: >
+    Dashcam (in-vehicle) viewpoint, not fixed roadside CCTV; no helmet-state,
+    plate, signal-state, or event-level labels.
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: driving_sequence
+  camera_identity: unknown
+  video_identity: available
+  sequence_identity: available
+  official_split_available: available
+  preserve_official_split: preserve
+  leakage_risks: >
+    Frames within a driving sequence are temporally correlated; never split
+    frames from one sequence across train/validation/test.
+
+privacy_ethics:
+  faces_present: likely
+  plates_present: likely
+  pii_concerns: On-street pedestrian faces and vehicle plates are likely present.
+  handling_notes: Subject to the project redaction expectations at use time (Phase 1+).
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not downloaded; checksums and provenance recorded only at authorized acquisition time.

@@ -1,0 +1,81 @@
+# NVIDIA AI City Challenge helmet/rider data — OPTIONAL candidate, access UNCONFIRMED.
+identity:
+  id: aicity-track5-helmet
+  name: NVIDIA AI City Challenge — Helmet/Rider data (2023 Track 5)
+  release: "AI City Challenge 2023, Track 5 (helmet detection)"
+  task_categories: [helmet_classification, rider_count, detection]
+  domain_context: CCTV-style motorcycle helmet/rider footage from the AI City Challenge.
+  intended_use: >
+    OPTIONAL high-value source for helmet-state and rider-count labels IF access
+    is granted. The project does not depend on it; it is not a required input.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: NVIDIA AI City Challenge
+  canonical_source_url: https://www.aicitychallenge.org/
+  publisher: NVIDIA AI City Challenge organizers
+  source_type: challenge_dataset
+  citation: "NVIDIA AI City Challenge 2023, Track 5 (Helmet Detection)"
+  date_last_verified: "2026-07-07"
+
+access:
+  status: application_required
+  procedure: >
+    Request access via the AI City Challenge dataset-access process (data-access
+    agreement; contact aicitychallenges@gmail.com). Challenge track numbering is
+    year-specific: the helmet task was 2023 Track 5, which differs from later years.
+  registration_required: required
+  application_required: required
+  access_confirmed_by_project: false
+  notes: >
+    Verified 2026-07-07 that AI City data is obtained through a data-access
+    agreement via the official site. The project has NOT applied for or been
+    granted access; access is UNCONFIRMED and the project must not assume it.
+
+licensing:
+  status: unclear
+  identifier: null
+  source: https://www.aicitychallenge.org/
+  commercial_use: unknown
+  redistribution: unknown
+  notes: >
+    Governed by a challenge data-access agreement (typically research-only with
+    no redistribution). Exact terms not individually verified; recorded as
+    unclear and not assumed permissive.
+
+task_fit:
+  trafficpulse_capabilities: [helmet_classification, rider_count]
+  ontology_references:
+    helmet_states: [helmet, no_helmet]
+    violation_types: [no_helmet, triple_riding]
+    observation_types: [helmet_state, rider_count]
+  annotation_types: [bounding_boxes, helmet_rider_labels]
+  strengths: Directly relevant CCTV-viewpoint helmet + rider-count labels if granted.
+  domain_gaps: >
+    Access gated and unconfirmed; not Indian-context; turban labelling absent.
+    Load-bearing only if granted — the annotation budget must assume it may not be.
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: video
+  camera_identity: available
+  video_identity: available
+  sequence_identity: available
+  official_split_available: unknown
+  preserve_official_split: unknown
+  leakage_risks: >
+    Short CCTV clips; crops must inherit source-video split and no track may span splits.
+
+privacy_ethics:
+  faces_present: likely
+  plates_present: likely
+  pii_concerns: Riders' faces and plates likely present; challenge redistribution restrictions apply.
+  handling_notes: Honor the challenge agreement; do not redistribute; apply redaction.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not downloaded; access unconfirmed. No reliance until an agreement is actually in place.

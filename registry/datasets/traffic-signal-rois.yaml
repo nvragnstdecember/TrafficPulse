@@ -1,0 +1,80 @@
+# Traffic-signal-state ROI crops — self-collected per-site acquisition track.
+identity:
+  id: traffic-signal-rois
+  name: Traffic-signal-state ROI crops (per-site, custom)
+  release: null
+  task_categories: [signal_state_classification]
+  domain_context: Signal-head ROI crops extracted from the project's own per-site footage.
+  intended_use: >
+    Train/validate a small signal-state classifier (with an HSV heuristic
+    baseline first) per site for the red-light rule. Public traffic-light
+    datasets (e.g. LISA Traffic Light, Bosch BSTLD, S2TLD) are optional
+    pretraining references only and are recorded in docs/dataset-policy.md, not
+    as verified registered datasets pending licence/access verification.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: Project per-site signal ROIs
+  canonical_source_url: internal://registry/traffic-signal-rois
+  publisher: TrafficPulse project
+  source_type: self_collected
+  citation: null
+  date_last_verified: null
+
+access:
+  status: self_collection_required
+  procedure: Cropped from authorized own footage at annotation time; per-site and time-block stratified.
+  registration_required: not_applicable
+  application_required: not_applicable
+  access_confirmed_by_project: false
+  notes: >
+    Depends on securing own footage (see event-evaluation-footage); no crops
+    exist yet. Public references are optional and separately licence-gated.
+
+licensing:
+  status: pending_review
+  identifier: null
+  source: internal://registry/traffic-signal-rois
+  commercial_use: not_allowed
+  redistribution: not_allowed
+  notes: >
+    Derived from own footage of public roads; redistribution restricted by
+    privacy/ethics. Licence posture pending the footage-acquisition permission.
+
+task_fit:
+  trafficpulse_capabilities: [signal_state_classification]
+  ontology_references:
+    signal_states: [red, amber, green, "off", unknown]  # "off" quoted: bare off is a YAML boolean
+    violation_types: [red_light_jumping]
+    observation_types: [signal_state]
+  annotation_types: [signal_state_roi_labels]
+  strengths: Site-specific signal appearance/lighting; small and targeted.
+  domain_gaps: >
+    Requires own footage first; night signal classification is a robustness
+    slice only, not a supported operating condition.
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: site_and_time_block
+  camera_identity: available
+  video_identity: available
+  sequence_identity: available
+  official_split_available: absent
+  preserve_official_split: not_applicable
+  leakage_risks: >
+    ROI crops from adjacent frames/time-blocks are correlated; split by site and
+    time-block, never by individual crop.
+
+privacy_ethics:
+  faces_present: likely
+  plates_present: likely
+  pii_concerns: Wider frames contain faces/plates even if ROI crops are signal-only.
+  handling_notes: Crop to signal ROI; apply redaction to any incidental PII in retained context.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not collected; crops and labels versioned when produced (Phase 1).

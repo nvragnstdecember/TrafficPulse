@@ -1,0 +1,73 @@
+# CCPD (Chinese City Parking Dataset) — candidate for plate-DETECTION pretraining only.
+identity:
+  id: ccpd
+  name: CCPD (Chinese City Parking Dataset)
+  release: "CCPD / CCPD2019 (ECCV 2018)"
+  task_categories: [plate_detection]
+  domain_context: Chinese city parking scenes; single license plate per image.
+  intended_use: >
+    Plate-DETECTION pretraining only. Chinese OCR/character labels are NOT
+    applicable to Indian plates and must not be used for recognition.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: CCPD (detectRecog/CCPD)
+  canonical_source_url: https://github.com/detectRecog/CCPD
+  publisher: Xu et al. (University of Science and Technology of China)
+  source_type: public_repository
+  citation: "Xu et al., Towards End-to-End License Plate Detection and Recognition: A Large Dataset and Baseline, ECCV 2018"
+  date_last_verified: "2026-07-07"
+
+access:
+  status: public_direct
+  procedure: Public GitHub repository with download links; no account required.
+  registration_required: not_required
+  application_required: not_required
+  access_confirmed_by_project: false
+  notes: >
+    Verified 2026-07-07 from the official repository that CCPD is public and
+    MIT-licensed. The project has not downloaded it (acquisition deferred).
+
+licensing:
+  status: verified
+  identifier: MIT
+  source: https://github.com/detectRecog/CCPD
+  commercial_use: allowed
+  redistribution: allowed
+  notes: MIT licence confirmed 2026-07-07 in the official repository.
+
+task_fit:
+  trafficpulse_capabilities: [plate_detection]
+  ontology_references:
+    object_classes: [license_plate]
+  annotation_types: [plate_bounding_boxes, plate_character_labels]
+  strengths: Large, permissively-licensed plate-detection data for pretraining.
+  domain_gaps: >
+    Chinese plates and Chinese OCR labels; not applicable to Indian plate
+    recognition, two-line motorcycle plates, or Indian formats.
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: image
+  camera_identity: unknown
+  video_identity: absent
+  sequence_identity: absent
+  official_split_available: available
+  preserve_official_split: preserve
+  leakage_risks: >
+    Largely independent still images; standard grouping precautions apply if
+    any near-duplicate captures exist.
+
+privacy_ethics:
+  faces_present: unknown
+  plates_present: present
+  pii_concerns: Real (Chinese) plate strings are present.
+  handling_notes: Use for detection pretraining only; do not surface plate strings as project output.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not downloaded; record checksums at authorized acquisition time.

@@ -1,0 +1,74 @@
+# Synthetic Indian number plates — self-generated acquisition track for OCR training.
+identity:
+  id: anpr-synthetic-indian
+  name: Synthetic Indian Number Plates (self-generated)
+  release: null
+  task_categories: [plate_ocr]
+  domain_context: Programmatically rendered Indian plates (one- and two-line layouts, state codes, HSRP/BH variants).
+  intended_use: >
+    Primary training source for Indian plate OCR (format-controlled, unlimited),
+    complementing CCPD detector pretraining and a small real transcription set
+    reserved for evaluation.
+  registry_status: approved_for_acquisition
+
+provenance:
+  canonical_source_name: Project-generated synthetic plates
+  canonical_source_url: internal://registry/anpr-synthetic-indian
+  publisher: TrafficPulse project
+  source_type: synthetic_generated
+  citation: null
+  date_last_verified: null
+
+access:
+  status: self_generated
+  procedure: Generated in-project by a synthetic renderer (Phase 1); not externally sourced.
+  registration_required: not_applicable
+  application_required: not_applicable
+  access_confirmed_by_project: false
+  notes: >
+    Self-owned synthetic data; not yet generated. access_confirmed_by_project is
+    false because nothing has been produced or acquired yet.
+
+licensing:
+  status: verified
+  identifier: project-owned (self-generated)
+  source: internal://registry/anpr-synthetic-indian
+  commercial_use: allowed
+  redistribution: allowed
+  notes: Self-owned, non-personal synthetic strings; project controls all rights.
+
+task_fit:
+  trafficpulse_capabilities: [plate_ocr]
+  ontology_references:
+    object_classes: [license_plate]
+  annotation_types: [rendered_plate_strings, character_boxes]
+  strengths: Controllable coverage of Indian formats incl. two-line motorcycle plates; no real PII.
+  domain_gaps: >
+    Synthetic appearance gap vs real captures (blur, perspective, wear); real
+    Indian transcriptions still required for honest OCR evaluation.
+  suitability: partially_suitable
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: generation_seed
+  camera_identity: absent
+  video_identity: absent
+  sequence_identity: absent
+  official_split_available: absent
+  preserve_official_split: not_applicable
+  leakage_risks: >
+    Deterministic generation must partition by seed/config so identical rendered
+    plates never appear across train/validation/test.
+
+privacy_ethics:
+  faces_present: absent
+  plates_present: present
+  pii_concerns: Synthetic (non-real) plate strings; no personal data.
+  handling_notes: Ensure generated strings do not coincide with real registered plates by construction.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not yet generated; generator config + seeds to be versioned when produced (Phase 1).

@@ -1,0 +1,77 @@
+# BrnoCompSpeed — candidate for validating the speed-estimation METHOD (not Indian domain).
+identity:
+  id: brnocompspeed
+  name: BrnoCompSpeed
+  release: "BrnoCompSpeed (IEEE T-ITS)"
+  task_categories: [speed_estimation]
+  domain_context: Fixed-camera highway scenes (Czech Republic) with reference vehicle speeds.
+  intended_use: >
+    Validate the single-camera speed-estimation METHOD against trustworthy
+    reference speeds before trusting the project's own calibration; supports the
+    speed feasibility gate. Not an Indian-domain or urban dataset.
+  registry_status: candidate
+
+provenance:
+  canonical_source_name: BrnoCompSpeed (Brno University of Technology, FIT)
+  canonical_source_url: https://github.com/JakubSochor/BrnoCompSpeed
+  publisher: Brno University of Technology (VUT FIT)
+  source_type: academic_dataset
+  citation: "Sochor et al., Comprehensive Data Set for Automatic Single Camera Visual Speed Measurement, IEEE T-ITS"
+  date_last_verified: "2026-07-07"
+
+access:
+  status: application_required
+  procedure: Contact the authors by email to request the dataset (per the official repository).
+  registration_required: not_required
+  application_required: required
+  access_confirmed_by_project: false
+  notes: >
+    Verified 2026-07-07 from the official repository that the ~200 GB dataset is
+    obtained by emailing the authors; the project has not requested or received it.
+
+licensing:
+  status: unclear
+  identifier: null
+  source: https://github.com/JakubSochor/BrnoCompSpeed
+  commercial_use: unknown
+  redistribution: unknown
+  notes: >
+    No formal licence is stated in the official repository; access is a custom
+    arrangement via the authors. Recorded as unclear, not assumed permissive.
+
+task_fit:
+  trafficpulse_capabilities: [speed_estimation]
+  ontology_references:
+    violation_types: [speeding]
+    observation_types: [speed]
+  annotation_types: [reference_speeds, vehicle_trajectories]
+  strengths: Trustworthy ground-truth speeds for validating the estimation method.
+  domain_gaps: >
+    Czech highway viewpoint, not Indian urban traffic; validates the METHOD only,
+    not Indian-domain generalization.
+  suitability: reference_only
+  custom_data_still_required: required
+
+split_leakage:
+  source_grouping_unit: recording_session
+  camera_identity: available
+  video_identity: available
+  sequence_identity: available
+  official_split_available: available
+  preserve_official_split: preserve
+  leakage_risks: >
+    Per-session fixed-camera video; keep whole sessions/sites intact across any
+    split to avoid calibration leakage.
+
+privacy_ethics:
+  faces_present: unknown
+  plates_present: likely
+  pii_concerns: European plates likely visible in highway footage.
+  handling_notes: Method-validation use only; no plate strings are a project output here.
+
+integrity:
+  checksum_status: none
+  local_acquisition_status: not_downloaded
+  acquisition_date: pending
+  immutable_source_reference: null
+  notes: Not downloaded; record checksums at authorized acquisition time.
