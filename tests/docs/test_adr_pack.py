@@ -3,7 +3,9 @@
 Validates the actual artifacts required by the Phase 0-F U6 acceptance criteria:
 the ADR files exist with required metadata/sections and correct statuses, the
 architecture document confirms the canonical reference and links every ADR, and
-no Phase 1 runtime package has appeared under ``src/trafficpulse``.
+only sanctioned runtime packages have appeared under ``src/trafficpulse`` (the
+U2 ``contracts`` layer and the detector-independent ``geometry`` layer of P1-U1;
+no forbidden Phase 1 package such as detectors, tracking, or rules).
 """
 
 import re
@@ -78,7 +80,13 @@ def test_architecture_confirms_canonical_reference_and_links_adrs() -> None:
         assert (REPO_ROOT / "docs" / "adr" / f"{adr_id}.md").is_file()
 
 
-def test_no_phase1_runtime_packages() -> None:
+def test_only_sanctioned_runtime_packages() -> None:
+    # Permitted so far: the U2 ``contracts`` layer and the detector-independent
+    # ``geometry`` layer (P1-U1), which ADR-001 and architecture-review §25
+    # explicitly sanction as non-blocked Phase 1 work. Any other package
+    # (detectors, tracking, rules, ingestion, events, ...) would be premature
+    # scope and must still fail this guard.
+    allowed = {"contracts", "geometry"}
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
-    assert subdirs == {"contracts"}, f"unexpected package dirs: {subdirs}"
+    assert subdirs <= allowed, f"unexpected package dirs: {subdirs - allowed}"
