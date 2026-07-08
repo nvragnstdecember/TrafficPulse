@@ -15,3 +15,89 @@ dist/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.cache/
+
+# Packaging / build extras
+*.egg
+/wheels/
+*.whl
+/pip-wheel-metadata/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Secrets / local configuration — never commit credentials
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+
+# IDE / editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local runtime artifacts (generated; never tracked). Root-anchored (leading /)
+# so they only match top-level local working dirs, never a nested tracked dir.
+/logs/
+*.log
+/runs/
+/outputs/
+/evidence/
+/tmp/
+/scratch/
+# Local databases (ADR-002 SQLite event/case/audit stores are runtime-only)
+*.db
+*.sqlite
+*.sqlite3
+# Observation logs / generated tabular outputs (ADR-002 Parquet substrate)
+*.parquet
+
+# Local CV/ML data and artifacts — kept out of the repo by the dataset policy
+# (docs/dataset-policy.md). Root-anchored directory ignores so tracked paths
+# such as registry/datasets/, configs/, schemas/, tests/, docs/ and any
+# intentional media fixtures added later are unaffected.
+/data/
+/datasets/
+/media/
+/videos/
+/footage/
+/frames/
+/models/
+/weights/
+/checkpoints/
+# Model-weight formats (heavy binaries; never committed)
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+*.engine
+*.safetensors
+*.h5
+*.ckpt
+*.caffemodel
+*.gguf
+# Local video inputs (footage stays in restricted local storage per policy)
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v

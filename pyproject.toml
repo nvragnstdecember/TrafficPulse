@@ -6,6 +6,13 @@ build-backend = "hatchling.build"
 name = "trafficpulse"
 description = "Evidence-first intelligent traffic-violation detection platform (Phase 0-F repository baseline)."
 requires-python = ">=3.11"
+# Project source-code licence: Apache-2.0 (SPDX expression, PEP 639). The full
+# standard text lives in the root LICENSE file. This declares the licence of
+# TrafficPulse's own source code only; it does NOT relicense datasets, model
+# weights, or third-party components — those are governed independently (see the
+# "Licensing distinctions" section of README.md and ADR-001).
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 dynamic = ["version"]
 # Runtime dependencies:
 # - pydantic: runtime validation + deterministic JSON Schema for the U2
@@ -26,11 +33,12 @@ dependencies = [
   "numpy>=1.26,<2.2",
 ]
 
-# NOTE: no `license` field is declared yet. The detector-stack licence posture
-# (permissive vs AGPL) is settled by ADR-001, now Accepted (permissive-only; see
-# docs/adr/ADR-001.md, docs/architecture-review.md §11). That is a separate
-# question from the project's own SPDX/distribution licence, which has not yet
-# been declared — so the field remains omitted pending that distinct decision.
+# NOTE: the project source-code licence (Apache-2.0) is declared above via the
+# PEP 639 `license`/`license-files` fields. It is a distinct question from the
+# detector-stack licence posture — settled separately by ADR-001, Accepted
+# (permissive-only; see docs/adr/ADR-001.md, docs/architecture-review.md §11) —
+# and does not extend to datasets or model weights, which remain independently
+# governed by the U4 registry and their own upstream terms.
 
 [project.optional-dependencies]
 dev = [
