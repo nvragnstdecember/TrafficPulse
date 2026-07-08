@@ -7,11 +7,23 @@ name = "trafficpulse"
 description = "Evidence-first intelligent traffic-violation detection platform (Phase 0-F repository baseline)."
 requires-python = ">=3.11"
 dynamic = ["version"]
-# Pydantic is the sole U2 runtime dependency: it provides the runtime
-# validation and deterministic JSON Schema generation the domain contracts
-# require. No ML/CV/OCR/video/DB/web dependencies are introduced.
+# Runtime dependencies:
+# - pydantic: runtime validation + deterministic JSON Schema for the U2
+#   domain contracts.
+# - av (PyAV): the architecture-selected video backend for PTS-accurate decode
+#   (architecture-review §151, §17; docs/windows-verification.md). Self-contained
+#   FFmpeg wheels (cp311-abi3) install on Windows dev and ubuntu CI without a
+#   system FFmpeg. First used by the P1-U5 ingestion layer.
+# - numpy: the decoded-frame array payload (RGB uint8) that PyAV's to_ndarray
+#   produces and that FrameRecord.image exposes as NDArray[uint8]. PyAV does not
+#   depend on numpy transitively, so it is a required *direct* dependency. Capped
+#   < 2.2 to preserve the project's Python 3.11 static-analysis floor: numpy
+#   >= 2.2 type stubs use PEP 695 `type` statements that mypy rejects under a
+#   3.11 target. numpy 2.1.x supports Python 3.11-3.13. No ML/CV framework.
 dependencies = [
   "pydantic>=2.5,<3",
+  "av>=18,<19",
+  "numpy>=1.26,<2.2",
 ]
 
 # NOTE: no `license` field is declared yet. The detector/licence posture
@@ -51,6 +63,10 @@ select = ["E", "F", "I", "W", "UP", "B", "SIM"]
 
 # --- mypy (static type checking) ---------------------------------------------
 [tool.mypy]
+# Kept at the project's declared minimum runtime (requires-python >= 3.11) so
+# static analysis validates that floor. numpy is capped < 2.2 (see the
+# dependency comment) because numpy >= 2.2 stubs are not parseable under a 3.11
+# mypy target.
 python_version = "3.11"
 strict = true
 warn_unused_configs = true

@@ -81,12 +81,12 @@ def test_architecture_confirms_canonical_reference_and_links_adrs() -> None:
 
 
 def test_only_sanctioned_runtime_packages() -> None:
-    # Permitted so far: the U2 ``contracts`` layer and the detector-independent
-    # ``geometry`` (P1-U1), ``synth`` (P1-U2), ``rules`` (P1-U3), and
-    # ``observations`` (P1-U4) layers, which ADR-001 and architecture-review §25
-    # explicitly sanction as non-blocked Phase 1 work. Any other package
-    # (detectors, tracking, ingestion, events, ...) would be premature scope.
-    allowed = {"contracts", "geometry", "synth", "rules", "observations"}
+    # Permitted so far: the U2 ``contracts`` layer plus the detector-independent
+    # Phase 1 layers ``geometry`` (P1-U1), ``synth`` (P1-U2), ``rules`` (P1-U3),
+    # ``observations`` (P1-U4), and ``ingestion`` (P1-U5), which ADR-001/003 and
+    # architecture-review §25 sanction as non-blocked Phase 1 work. Any other
+    # package (detectors, tracking, events, ...) would be premature scope.
+    allowed = {"contracts", "geometry", "synth", "rules", "observations", "ingestion"}
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
     assert subdirs <= allowed, f"unexpected package dirs: {subdirs - allowed}"
