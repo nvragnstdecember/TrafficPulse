@@ -18,15 +18,18 @@ the Phase 1 agent has one place to start.
 
 | ADR | Topic | Status |
 |---|---|---|
-| [ADR-001](adr/ADR-001.md) | Detector / licence posture (AGPL Ultralytics vs permissive-only) | **Proposed — documented-open (unresolved)**; owner + deadline + consequences recorded |
+| [ADR-001](adr/ADR-001.md) | Detector / licence posture (AGPL Ultralytics vs permissive-only) | **Accepted** (2026-07-08) — permissive-only posture; RT-DETR primary direction (D-FINE alternative); detector behind the U2 `Detection` contract |
 | [ADR-002](adr/ADR-002.md) | Storage (SQLite + filesystem artifacts + Parquet logs) | **Accepted** |
 | [ADR-003](adr/ADR-003.md) | Offline-first + labeled near-real-time demo mode | **Accepted** |
 | [ADR-004](adr/ADR-004.md) | Reprocessing / event-identity semantics | **Proposed** |
 
-ADR-001 is deliberately open: detector **integration** is blocked in Phase 1
-until it is resolved (deadline: before the first detector-integration unit), but
-detector-independent Phase 1 work is not blocked. Any deviation from an accepted
-ADR is recorded as a new ADR, not an edit that erases history.
+ADR-001 is now **Accepted** (2026-07-08): TrafficPulse adopts a permissive-only
+detector posture — RT-DETR as the primary integration direction (D-FINE an
+alternative), with the detector kept behind the U2 `Detection` contract. This
+**lifts the Phase 1 detector-integration gate**; the first detector-integration
+unit may now proceed. (It was documented-open through Phase 0-F and resolved at
+its deadline, before that unit.) Any deviation from an accepted ADR is recorded
+as a new ADR, not an edit that erases history.
 
 ## Phase 0-F unit completion matrix
 
@@ -53,10 +56,12 @@ scene rule parameters (wrong-way ~120°/~1.0 s/~1.5 m/s, illegal-stop ~10 s/~0.5
 m/s, red-light grace ~0.3 s) — all marked `provisional`/`unset` in
 `configs/scenes/example-scene.yaml`, requiring tuning on held-out data.
 
-**Unresolved external dependencies (carry-forward):** ADR-001 detector/licence
-decision; own event-evaluation footage acquisition (permissions/ethics — the
-schedule long pole); AI City T5 access (unconfirmed); several dataset licences
-(IDD, HELMET, BrnoCompSpeed, AI City) recorded `unknown`/`unclear`, not promoted.
+**Unresolved external dependencies (carry-forward):** own event-evaluation footage
+acquisition (permissions/ethics — the schedule long pole); AI City T5 access
+(unconfirmed); several dataset licences (IDD, HELMET, BrnoCompSpeed, AI City)
+recorded `unknown`/`unclear`, not promoted. (ADR-001, the detector/licence
+decision, is now **resolved** — permissive-only, RT-DETR primary — and no longer a
+carry-forward item.)
 
 ## What Phase 0-F does NOT prove
 
@@ -70,7 +75,8 @@ deployment readiness. No behavioral TrafficPulse system exists yet.
 
 - The Definition of Done in `docs/phase-0-plan.md` holds (contracts, ontology,
   split/leakage policy, evaluation protocol, and scene schema frozen).
-- ADR-002 and ADR-003 are accepted; ADR-004 is proposed; ADR-001 is documented-open.
-- **ADR-001 must be resolved before the first detector-integration unit**;
-  detector-independent Phase 1 work (geometry, synthetic tracks, rule-engine
-  foundations) may begin under the plan's recommended first slice (wrong-way).
+- ADR-001, ADR-002, and ADR-003 are accepted; ADR-004 is proposed.
+- **ADR-001 is resolved (Accepted, permissive-only), so the detector-integration
+  unit is unblocked**; the detector-independent Phase 1 work (geometry, synthetic
+  tracks, rule-engine foundations, ingestion) that began under the plan's
+  recommended first slice (wrong-way) has already landed (P1-U1…P1-U5).

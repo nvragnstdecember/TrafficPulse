@@ -235,7 +235,7 @@ Documentation stays synchronized with the repository: `docs/architecture-review.
 
 | ADR | Topic | Expected status at end of Phase 0-F |
 |---|---|---|
-| ADR-001 | Detector / licence posture (AGPL Ultralytics vs permissive-only) | **Resolved, OR documented-open** with named owner + deadline (before the first detector-integration unit of Phase 1) + consequences. **Currently UNRESOLVED.** Does **not** block detector-independent Phase 1 work; **does** block detector integration until resolved. |
+| ADR-001 | Detector / licence posture (AGPL Ultralytics vs permissive-only) | **Resolved, OR documented-open** with named owner + deadline (before the first detector-integration unit of Phase 1) + consequences. **Documented-open at Phase 0-F completion; since resolved at the Phase 1 boundary — now Accepted (permissive-only, RT-DETR primary); see [ADR-001](adr/ADR-001.md).** Did **not** block detector-independent Phase 1 work; blocked detector integration until resolution (now lifted). |
 | ADR-002 | Storage (SQLite + filesystem artifacts + Parquet logs) | Accepted |
 | ADR-003 | Offline-first + labeled near-real-time demo mode | Accepted |
 | ADR-004 | Reprocessing / event-identity semantics | **Proposed** allowed |

@@ -54,19 +54,27 @@ def test_adr004_at_least_proposed() -> None:
     assert _status(_read(ADR_DIR / "ADR-004.md")) in {"Proposed", "Accepted"}
 
 
-def test_adr001_documented_open_with_required_elements() -> None:
+def test_adr001_accepted_permissive_posture() -> None:
+    # ADR-001 was resolved at its deadline (before the first detector-integration
+    # unit of Phase 1): Accepted, permissive-only, RT-DETR primary, detector behind
+    # the frozen U2 ``Detection`` contract. This test enforces the *resolved*
+    # current status; the prior open-state contract lived here before resolution.
     text = _read(ADR_DIR / "ADR-001.md")
-    status = _status(text).lower()
-    assert "proposed" in status or "documented-open" in status or "unresolved" in status
-    # (a) unresolved status is explicit
-    assert "documented-open" in text.lower() or "unresolved" in text.lower()
-    # (b) named decision owner
+    lower = text.lower()
+    # Status is now Accepted (no lingering open/unresolved current status).
+    assert _status(text) == "Accepted", f"ADR-001 not Accepted: {_status(text)!r}"
+    # Permissive-only posture with RT-DETR as the primary integration direction.
+    assert "permissive-only" in lower
+    assert "rt-detr" in lower
+    # Detector stays behind the frozen U2 Detection contract (bounded seam).
+    assert "u2" in lower and "detection" in lower and "contract" in lower
+    # Required ADR record elements preserved.
     assert "Decision owner" in text
-    # (c) decision deadline set at the required point
-    assert "before the first detector-integration unit of Phase 1" in text
-    # (d) consequences recorded
     assert "## Consequences" in text
-    assert "blocked" in text.lower()
+    # The open->resolved history and its deadline are preserved, not erased.
+    assert "before the first detector-integration unit of Phase 1" in text
+    # The consequence that matters for Phase 1: the integration gate is lifted.
+    assert "lifted" in lower
 
 
 def test_architecture_confirms_canonical_reference_and_links_adrs() -> None:

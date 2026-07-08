@@ -150,7 +150,16 @@ Licence column [V] = fetched from the official repository during review.
 
 **Compute reality [E, must be measured — none of these is a measured claim]:** all listed models train at the proposed sizes on 8 GB with fp16; detector + tracker + rules on a single 1080p stream is expected to support a near-real-time demo mode; the full concurrent stack (detector + helmet + occupancy + signal + ANPR) is not expected to run in real time — this is the evidence for offline-first (§22). **Windows [K]:** avoid mmcv; run PP-OCR via ONNX Runtime; PyAV for PTS-accurate decode; WSL2 acceptable for training only, demo stays native.
 
-## 11. Licensing considerations & ADR-001 (unresolved)
+## 11. Licensing considerations & ADR-001 (resolved 2026-07-08 — see ADR-001)
+
+> **Update 2026-07-08 (post-review):** ADR-001 is now **Accepted** — TrafficPulse
+> adopts a **permissive-only** detector posture (**RT-DETR** primary direction,
+> D-FINE alternative), with the detector behind the U2 `Detection` contract.
+> Ultralytics' AGPL coupling of *trained weights* was re-verified from the official
+> licensing page (2026-07-08) and confirmed, which strengthened the permissive
+> decision. The analysis below is preserved as the Phase 0-R review record that led
+> to that decision; read its present-tense "unresolved" wording as historical. See
+> [ADR-001](adr/ADR-001.md).
 
 Ultralytics is AGPL-3.0 [V] and effectively couples the repository to AGPL (Ultralytics' stated position is that trained weights inherit it [K]). The fully permissive alternative is RT-DETR/D-FINE (Apache [V]) + timm (Apache [V]) + ByteTrack/OC-SORT (MIT [V]) + PaddleOCR (Apache [V]).
 
@@ -327,7 +336,7 @@ Reviewer test: every directory in the repo contains code exercised by at least o
 **Unresolved [U]:** AI City T5 access; which sites secured by when (elevated view + visible signal head); ADR-001 licence posture; feasibility of a GNSS speed field day; reprocessing/event-identity semantics (ADR-004).
 
 **Decisions requiring ADRs:**
-- **ADR-001** detector/licence posture — **unresolved**; may remain unresolved at the end of Phase 0-F **only** with a documented owner, deadline, and consequences; **must be resolved before detector integration** in Phase 1; does **not** block detector-independent Phase 1 work (§11).
+- **ADR-001** detector/licence posture — unresolved *at review time*; may remain unresolved at the end of Phase 0-F **only** with a documented owner, deadline, and consequences; **must be resolved before detector integration** in Phase 1; does **not** block detector-independent Phase 1 work (§11). **[Resolved 2026-07-08 — Accepted: permissive-only posture, RT-DETR primary; the detector-integration gate is lifted. See [ADR-001](adr/ADR-001.md).]**
 - **ADR-002** storage (SQLite + filesystem artifacts + Parquet logs) — expected Accepted.
 - **ADR-003** offline-first + labeled near-real-time demo mode — expected Accepted.
 - **ADR-004** reprocessing/event identity — may remain **proposed**.

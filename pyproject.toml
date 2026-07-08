@@ -26,10 +26,11 @@ dependencies = [
   "numpy>=1.26,<2.2",
 ]
 
-# NOTE: no `license` field is declared yet. The detector/licence posture
-# (permissive vs AGPL) is ADR-001, which is intentionally unresolved at the
-# end of Phase 0-F (see docs/architecture-review.md §11, §27). Declaring a
-# project licence here would pre-empt that open architectural decision.
+# NOTE: no `license` field is declared yet. The detector-stack licence posture
+# (permissive vs AGPL) is settled by ADR-001, now Accepted (permissive-only; see
+# docs/adr/ADR-001.md, docs/architecture-review.md §11). That is a separate
+# question from the project's own SPDX/distribution licence, which has not yet
+# been declared — so the field remains omitted pending that distinct decision.
 
 [project.optional-dependencies]
 dev = [
