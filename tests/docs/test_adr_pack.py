@@ -108,11 +108,22 @@ def test_only_sanctioned_runtime_packages() -> None:
     # Permitted so far: the U2 ``contracts`` layer plus the detector-independent
     # Phase 1 layers ``geometry`` (P1-U1), ``synth`` (P1-U2), ``rules`` (P1-U3),
     # ``observations`` (P1-U4), and ``ingestion`` (P1-U5), which ADR-001/003 and
-    # architecture-review §25 sanction as non-blocked Phase 1 work; and the
+    # architecture-review §25 sanction as non-blocked Phase 1 work; the
     # ``detector`` integration foundation (P1-U6), unblocked by ADR-001's Accepted
-    # permissive-only posture and kept behind the frozen U2 ``Detection`` contract.
-    # Any other package (tracking, events, evidence, ...) would be premature scope.
-    allowed = {"contracts", "geometry", "synth", "rules", "observations", "ingestion", "detector"}
+    # permissive-only posture and kept behind the frozen U2 ``Detection`` contract;
+    # and the ``tracking`` integration foundation (P1-U8), the tracking analogue,
+    # kept behind the frozen U2 ``TrackState`` contract and carrying no tracker
+    # dependency. Any other package (events, evidence, ...) would be premature scope.
+    allowed = {
+        "contracts",
+        "geometry",
+        "synth",
+        "rules",
+        "observations",
+        "ingestion",
+        "detector",
+        "tracking",
+    }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
     assert subdirs <= allowed, f"unexpected package dirs: {subdirs - allowed}"
