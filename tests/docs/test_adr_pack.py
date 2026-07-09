@@ -4,8 +4,9 @@ Validates the actual artifacts required by the Phase 0-F U6 acceptance criteria:
 the ADR files exist with required metadata/sections and correct statuses, the
 architecture document confirms the canonical reference and links every ADR, and
 only sanctioned runtime packages have appeared under ``src/trafficpulse`` (the
-U2 ``contracts`` layer and the detector-independent ``geometry`` layer of P1-U1;
-no forbidden Phase 1 package such as detectors, tracking, or rules).
+U2 ``contracts`` layer, the detector-independent Phase 1 layers P1-U1..U5, and the
+detector-integration foundation P1-U6 that ADR-001 unblocked; no unsanctioned
+Phase 1 package such as tracking, events, or evidence).
 """
 
 import re
@@ -92,9 +93,11 @@ def test_only_sanctioned_runtime_packages() -> None:
     # Permitted so far: the U2 ``contracts`` layer plus the detector-independent
     # Phase 1 layers ``geometry`` (P1-U1), ``synth`` (P1-U2), ``rules`` (P1-U3),
     # ``observations`` (P1-U4), and ``ingestion`` (P1-U5), which ADR-001/003 and
-    # architecture-review §25 sanction as non-blocked Phase 1 work. Any other
-    # package (detectors, tracking, events, ...) would be premature scope.
-    allowed = {"contracts", "geometry", "synth", "rules", "observations", "ingestion"}
+    # architecture-review §25 sanction as non-blocked Phase 1 work; and the
+    # ``detector`` integration foundation (P1-U6), unblocked by ADR-001's Accepted
+    # permissive-only posture and kept behind the frozen U2 ``Detection`` contract.
+    # Any other package (tracking, events, evidence, ...) would be premature scope.
+    allowed = {"contracts", "geometry", "synth", "rules", "observations", "ingestion", "detector"}
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
     assert subdirs <= allowed, f"unexpected package dirs: {subdirs - allowed}"
