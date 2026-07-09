@@ -11,9 +11,11 @@ orchestration, and a ``TrackerError`` taxonomy.
 
 This foundation carries **no** ML / tracker-framework dependency and implements no
 association logic (IoU, Kalman, Hungarian, re-ID). A real detection-based tracker
-(P1-U9, e.g. permissive ByteTrack behind this same seam) plugs in without an API
-change: it emits ``TrackAssignment`` values from its own native objects inside
-``update``, and those native objects never escape. Downstream layers consume
+(P1-U9) plugs in without an API change: it emits ``TrackAssignment`` values from
+its own native objects inside ``update``, and those native objects never escape.
+The first such backend is :class:`IouTracker`, a dependency-free greedy-IoU
+associator (the permissive fallback the plan authorises when the audited external
+ByteTrack path is blocked). Downstream layers consume
 ``trafficpulse.contracts.TrackState`` only.
 """
 
@@ -27,6 +29,7 @@ from .errors import (
     TrackerError,
 )
 from .interface import Tracker
+from .iou_tracker import IouTracker, IouTrackerConfig
 from .raw import TrackAssignment
 from .sequencing import FrameKey, FrameProgress, single_frame_key
 from .stub import ScriptedAssignment, StubTracker
@@ -36,6 +39,9 @@ __all__ = [
     "Tracker",
     "StubTracker",
     "ScriptedAssignment",
+    # real backend (P1-U9)
+    "IouTracker",
+    "IouTrackerConfig",
     # conversion
     "TrackAdapter",
     # configuration
