@@ -53,6 +53,33 @@ dev = [
   "pyyaml>=6",
 ]
 
+# --- Real detector backend (optional; ADR-001 permissive-only) ----------------
+# The RT-DETR backend (src/trafficpulse/detector/rtdetr.py) integrates the
+# Apache-2.0 HuggingFace Transformers RT-DETR port. It is OPTIONAL and kept out of
+# the base install and CI: torch/transformers are imported lazily and only when the
+# real backend is constructed, so the base package, its import graph, and every
+# unit test stay ML-free and network-free. No model weights are vendored or
+# downloaded by installing this extra; checkpoint acquisition is an explicit,
+# operator-driven step (RTDetrConfig.local_files_only defaults to offline).
+#
+# torchvision + pillow are REQUIRED at runtime by the transformers RT-DETR image
+# processor (AutoImageProcessor); they are permissive (torchvision BSD-3-Clause,
+# pillow HPND), ADR-001-compatible, and add no AGPL/GPL coupling.
+#
+# Version floors: the lower bounds are conservative minimums. They were validated
+# by the dependency resolver and exercised at runtime on CPython 3.13 during the
+# P1-U7 acquisition step (resolved: torch 2.13.0, torchvision 0.28.0, transformers
+# 5.13.0, pillow 12.3.0), with numpy held at 2.1.3 (the <2.2 base pin preserved).
+# NOTE: this validates the CURRENT interpreter (3.13) only -- the >=3.11 floor is
+# still asserted statically (mypy py311) but was not runtime-tested here. Weight/
+# pretraining-data provenance remains a per-artifact review (docs/adr/ADR-001.md).
+rtdetr = [
+  "torch>=2.0",
+  "torchvision>=0.15",
+  "transformers>=4.45",
+  "pillow>=10",
+]
+
 # --- Version single-source: read from src/trafficpulse/__init__.py -----------
 [tool.hatch.version]
 path = "src/trafficpulse/__init__.py"
@@ -80,6 +107,19 @@ python_version = "3.11"
 strict = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
+
+# torch / transformers are the optional 'rtdetr' extra, imported lazily inside the
+# RT-DETR backend. They ship no/only-partial type information. Treat them as untyped
+# regardless of whether they are installed: `ignore_missing_imports` covers the
+# base/CI case (extra not installed) and `follow_imports = skip` covers the case
+# where they ARE installed (e.g. the P1-U7 verification env) so their untyped
+# from_pretrained/etc. calls do not trip strict `disallow_untyped_calls`. This
+# narrows only those third-party modules to Any; it does NOT relax strictness for
+# any TrafficPulse module.
+[[tool.mypy.overrides]]
+module = ["torch.*", "transformers.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 # --- pytest ------------------------------------------------------------------
 [tool.pytest.ini_options]
