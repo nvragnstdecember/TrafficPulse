@@ -248,7 +248,8 @@ detector-stack licence posture — not the project licence.
 - [`TRAFFICPULSE_MASTER_SPEC.md`](TRAFFICPULSE_MASTER_SPEC.md) — product/research specification
 - [`docs/architecture-review.md`](docs/architecture-review.md) — **canonical** architecture & feasibility reference
 - [`docs/architecture.md`](docs/architecture.md) — entry point + ADR index
-- [`docs/phase-0-plan.md`](docs/phase-0-plan.md) — foundation plan
+- [`docs/phase-0-plan.md`](docs/phase-0-plan.md) — Phase 0-F foundation plan
+- [`docs/phase-1-plan.md`](docs/phase-1-plan.md) — authoritative Phase 1 unit plan (completed P1-U1…P1-U7; forward critical path from P1-U8)
 - [`docs/ontology.md`](docs/ontology.md) · [`docs/dataset-policy.md`](docs/dataset-policy.md) · [`docs/evaluation-protocol.md`](docs/evaluation-protocol.md) · [`docs/scene-configuration.md`](docs/scene-configuration.md)
 - [`docs/adr/`](docs/adr/) — architecture decision records (ADR-001..004)
 - [`docs/windows-verification.md`](docs/windows-verification.md) — native-Windows check record

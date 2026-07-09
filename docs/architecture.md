@@ -14,6 +14,12 @@ the Phase 1 agent has one place to start.
 `TRAFFICPULSE_MASTER_SPEC.md` remains the product/research specification;
 `docs/architecture-review.md` interprets and constrains it without modifying it.
 
+**Phase planning:** [`docs/phase-0-plan.md`](phase-0-plan.md) is the authoritative
+plan for **Phase 0-F** (foundations); [`docs/phase-1-plan.md`](phase-1-plan.md) is
+the authoritative plan for **Phase 1** (behavioral units), recording completed units
+P1-U1…P1-U7 and the forward critical path from P1-U8 (tracker integration). Note the
+two distinct identifier namespaces: Phase 0-F `U#` vs Phase 1 `P1-U#`.
+
 ## ADR index
 
 | ADR | Topic | Status |

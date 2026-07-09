@@ -16,10 +16,25 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ADR_DIR = REPO_ROOT / "docs" / "adr"
 ARCHITECTURE = REPO_ROOT / "docs" / "architecture.md"
 ARCHITECTURE_REVIEW = REPO_ROOT / "docs" / "architecture-review.md"
+PHASE0_PLAN = REPO_ROOT / "docs" / "phase-0-plan.md"
+PHASE1_PLAN = REPO_ROOT / "docs" / "phase-1-plan.md"
 
 ADR_IDS = ("ADR-001", "ADR-002", "ADR-003", "ADR-004")
 ACCEPTED_ADRS = ("ADR-002", "ADR-003")
 REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
+
+# Retrospective Phase 1 completed-unit -> commit-hash mapping (Git history through
+# HEAD 8b6d51f). The Phase 1 plan must record each unit against its commit; this
+# guards the mapping from silently drifting away from Git history.
+PHASE1_COMPLETED_UNITS = {
+    "P1-U1": "0dfc774",
+    "P1-U2": "0ff1bc0",
+    "P1-U3": "7ad37c6",
+    "P1-U4": "4651ffb",
+    "P1-U5": "dd70edd",
+    "P1-U6": "07f8baa",
+    "P1-U7": "8b6d51f",
+}
 
 
 def _read(path: Path) -> str:
@@ -101,3 +116,48 @@ def test_only_sanctioned_runtime_packages() -> None:
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
     assert subdirs <= allowed, f"unexpected package dirs: {subdirs - allowed}"
+
+
+# --- Phase 1 plan governance -------------------------------------------------
+# The authoritative Phase 1 unit plan must exist, must declare its authority and
+# the Phase 0/Phase 1 namespace separation, must record the completed P1-U1..P1-U7
+# units against Git history, and must name the next unit — so the plan cannot
+# silently disappear or drift.
+def test_phase1_plan_exists() -> None:
+    assert PHASE1_PLAN.is_file(), "missing docs/phase-1-plan.md (authoritative Phase 1 plan)"
+
+
+def test_phase1_plan_declares_authority_and_namespaces() -> None:
+    text = _read(PHASE1_PLAN)
+    lower = text.lower()
+    # It is the authoritative Phase 1 plan.
+    assert "authoritative phase 1 unit plan" in lower
+    # Phase 0-F stays governed by its own document (not superseded).
+    assert "Phase 0-F remains governed by" in text
+    # The two identifier namespaces (U# vs P1-U#) are kept distinct.
+    assert "separate identifier namespaces" in lower
+
+
+def test_phase1_plan_records_completed_units_with_commits() -> None:
+    text = _read(PHASE1_PLAN)
+    for unit, commit in PHASE1_COMPLETED_UNITS.items():
+        assert unit in text, f"Phase 1 plan does not record {unit}"
+        assert commit in text, f"Phase 1 plan does not cite {unit} commit {commit}"
+
+
+def test_phase1_plan_defines_next_unit() -> None:
+    text = _read(PHASE1_PLAN)
+    # The next unit is unambiguous: P1-U8 tracker integration foundation.
+    assert "P1-U8" in text
+    assert "Tracker integration foundation" in text
+
+
+def test_phase0_plan_remains_phase0_scoped() -> None:
+    # Phase 0-F plan is left historically intact and still disclaims Phase 1 detail.
+    assert PHASE0_PLAN.is_file(), "docs/phase-0-plan.md must remain present"
+    assert "It does not plan Phase 1 in detail" in _read(PHASE0_PLAN)
+
+
+def test_architecture_links_phase1_plan() -> None:
+    # The entry-point doc must point to the Phase 1 plan for discoverability.
+    assert "phase-1-plan.md" in _read(ARCHITECTURE)
