@@ -19,11 +19,13 @@ to P1-U11 and are intentionally not part of this layer.
 """
 
 from .errors import PipelineError, SceneConfigurationError
+from .provenance import normalize_model_refs
 from .wrong_way import WrongWayPipeline, frame_record_to_frame
 
 __all__ = [
     "WrongWayPipeline",
     "frame_record_to_frame",
+    "normalize_model_refs",
     "PipelineError",
     "SceneConfigurationError",
 ]

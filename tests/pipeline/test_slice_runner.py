@@ -262,6 +262,43 @@ def test_cli_success_path_with_injected_detector(tmp_path, capsys, monkeypatch) 
     assert report["run_id"] == "cli-1"
 
 
+def test_cli_composition_root_stamps_truthful_model_provenance(
+    tmp_path, capsys, monkeypatch
+) -> None:
+    # The composition root (P2-U1) must construct honest ModelRefs and wire them so
+    # the persisted event + manifest carry truthful detector/tracker provenance:
+    # detector name = the --checkpoint actually passed, tracker = the in-repo IoU
+    # associator, weights_hash None everywhere (nothing hashed). The injected stub
+    # replaces only real inference; the provenance wiring is the production path.
+    import trafficpulse.pipeline.runner as runner
+
+    monkeypatch.setattr(runner, "_build_rtdetr_detector", lambda **_: scripted_down_detector())
+    clip = write_wrong_way_clip(tmp_path / "clip.mp4")
+    code = main(
+        [
+            "--clip", str(clip),
+            "--scene", str(SCENE_PATH),
+            "--output-dir", str(tmp_path / "runs"),
+            "--run-id", "prov-1",
+            "--checkpoint", "cp-test-checkpoint",
+            "--direction-id", NORTH,
+        ]
+    )
+    assert code == 0
+    stored = EventStore(tmp_path / "runs").load("prov-1")[0]
+    expected = (
+        runner._IOU_TRACKER_MODEL_REF,
+        runner._rtdetr_model_ref("cp-test-checkpoint"),
+    )
+    # Sorted/de-duped: "cp-test-checkpoint" sorts before "iou-tracker".
+    from trafficpulse.pipeline import normalize_model_refs
+
+    assert stored.event.models == normalize_model_refs(expected)
+    assert stored.manifest.models == stored.event.models
+    assert all(ref.weights_hash is None for ref in stored.event.models)
+    assert {ref.name for ref in stored.event.models} == {"iou-tracker", "cp-test-checkpoint"}
+
+
 def test_cli_reports_typed_error_for_missing_scene(tmp_path, capsys) -> None:
     code = main(
         [

@@ -79,6 +79,7 @@ from ..contracts import (
     ConfirmedEvent,
     HeadingVsLaneObservation,
     MeasuredValue,
+    ModelRef,
     ParameterStatus,
     SceneConfig,
 )
@@ -161,12 +162,19 @@ class WrongWayReasoner:
         scene_config_hash: str | None = None,
         rule_id: str = RULE_ID,
         rule_version: str | None = RULE_VERSION,
+        models: tuple[ModelRef, ...] = (),
     ) -> None:
         self._engine = engine
         self._params = params
         self._scene_hash = scene_config_hash
         self._rule_id = rule_id
         self._rule_version = rule_version
+        # Run-level provenance stamped onto every minted event (P2-U1). Pure
+        # metadata: no rule predicate, threshold, or timer ever reads it, and it
+        # is deliberately absent from ``_event_id``, so the *decision* (which
+        # events, ids, timing) is byte-identical with or without it. The caller
+        # (the composition boundary) supplies the sorted/de-duplicated tuple.
+        self._models = models
         self._runs: dict[tuple[str, str], _Run] = {}
         self._events: list[ConfirmedEvent] = []
 
@@ -298,6 +306,7 @@ class WrongWayReasoner:
             rule_id=self._rule_id,
             rule_version=self._rule_version,
             scene_config_hash=self._scene_hash,
+            models=self._models,  # run-level provenance; never enters _event_id
             source_hypothesis_id=record.hypothesis_id,
             created_at=trigger_at,  # deterministic data timestamp, never wall-clock
             measurements=(

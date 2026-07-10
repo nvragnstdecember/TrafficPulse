@@ -76,7 +76,14 @@ orchestration to a replayable initial state.
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 
-from ..contracts import ConfirmedEvent, Detection, SceneConfig, TrackState, scene_config_hash
+from ..contracts import (
+    ConfirmedEvent,
+    Detection,
+    ModelRef,
+    SceneConfig,
+    TrackState,
+    scene_config_hash,
+)
 from ..contracts.scene import DirectionVector, LegalDirection
 from ..detector.adapter import DetectionAdapter
 from ..detector.config import DetectorConfig
@@ -88,6 +95,7 @@ from ..rules.engine import RuleEngine
 from ..rules.wrong_way import WrongWayReasoner, wrong_way_parameters
 from ..tracking.interface import Tracker
 from .errors import SceneConfigurationError
+from .provenance import normalize_model_refs
 
 # Fixed media-time anchor: media-relative PTS seconds are added to this epoch to
 # form the timezone-aware datetime the detector/contract seams require. It is a
@@ -180,6 +188,13 @@ class WrongWayPipeline:
         self._legal_direction, self._lane_id = _resolve_legal_direction(scene, direction_id)
         self._scene_hash = scene_config_hash(scene)
         self._history: dict[tuple[str, str], list[TrackState]] = {}
+        # Run-level model provenance accumulated across frames (P2-U1): the
+        # distinct truthful ``ModelRef``s the detector/tracker adapters stamp onto
+        # ``Detection.source_model`` / ``TrackState.tracker``. Collected here at the
+        # composition boundary (the only place that sees both), de-duplicated and
+        # ordered in :meth:`finalize`, and stamped onto every minted event. Never
+        # read by any reasoning predicate.
+        self._model_refs: list[ModelRef] = []
 
     @property
     def lane_id(self) -> str:
@@ -198,6 +213,7 @@ class WrongWayPipeline:
 
         self._tracker.reset()
         self._history = {}
+        self._model_refs = []
 
     def process_frame(self, frame_record: FrameRecord) -> tuple[TrackState, ...]:
         """Detect + track one frame, accumulate its states, and return them.
@@ -215,6 +231,12 @@ class WrongWayPipeline:
         frame = frame_record_to_frame(frame_record, camera_id=camera_id)
         detections: tuple[Detection, ...] = self._adapter.adapt_from(self._detector, frame)
         states = self._tracker.update(detections)
+        # Collect truthful run-level provenance from the two seams (P2-U1): the
+        # detector's stamped ``source_model`` and the tracker's stamped
+        # ``tracker``. ``None`` (a stub that supplied no ref) contributes nothing;
+        # de-duplication/ordering is deferred to :meth:`finalize`.
+        self._model_refs.extend(d.source_model for d in detections if d.source_model is not None)
+        self._model_refs.extend(s.tracker for s in states if s.tracker is not None)
         for state in states:
             self._history.setdefault((state.camera_id, state.track_id), []).append(state)
         return tuple(states)
@@ -226,13 +248,20 @@ class WrongWayPipeline:
         ``derive_heading_observations_with_taint`` per track (with the scene's lane
         legal direction and deviation threshold), feeds each derivation -- taint
         restarts included -- to a fresh ``WrongWayReasoner``, and returns the
-        confirmed events sorted by ``(trigger_at, event_id)``. Idempotent: it is a
-        pure function of the accumulated history (the reasoner is rebuilt here, not
-        held across frames).
+        confirmed events sorted by ``(trigger_at, event_id)``. The reasoner is
+        built with the run-level ``models`` provenance -- the de-duplicated, sorted
+        union of the ``ModelRef``s collected during :meth:`process_frame` -- so
+        every minted event carries the truthful detector/tracker refs (or an empty
+        tuple when the injected components supplied none). Idempotent: it is a pure
+        function of the accumulated history + provenance (the reasoner is rebuilt
+        here, not held across frames).
         """
 
         reasoner = WrongWayReasoner(
-            RuleEngine(), self._params, scene_config_hash=self._scene_hash
+            RuleEngine(),
+            self._params,
+            scene_config_hash=self._scene_hash,
+            models=normalize_model_refs(self._model_refs),
         )
         events: list[ConfirmedEvent] = []
         for key in sorted(self._history):

@@ -58,17 +58,38 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ..contracts import ObjectClass, SceneConfig, scene_config_hash
+from ..contracts import ModelRef, ObjectClass, SceneConfig, scene_config_hash
 from ..detector.config import DetectorConfig
 from ..detector.errors import DetectorError
 from ..detector.interface import Detector
 from ..ingestion.video import VideoIngestionError, open_video
 from ..persistence import EventStore
 from ..persistence.errors import PersistenceError
+from ..tracking.config import TrackerConfig
 from ..tracking.interface import Tracker
 from ..tracking.iou_tracker import IouTracker
 from .errors import SceneConfigurationError
 from .wrong_way import WrongWayPipeline
+
+# Honest run-level provenance the composition root stamps (P2-U1). ``weights_hash``
+# stays ``None`` everywhere -- nothing hashes weights in this phase, so a hash would
+# be fabricated. The in-repo greedy-IoU associator is our own deterministic
+# component, named and versioned truthfully as a provisional reference (it is a
+# component/algorithm identity, not a claim of learned weights). The detector ref's
+# ``name`` is the real checkpoint the caller passes; its ``version`` is an explicit
+# provisional marker because no pinned model version is asserted for this slice.
+_IOU_TRACKER_MODEL_REF = ModelRef(name="iou-tracker", version="0.1.0-provisional")
+
+
+def _rtdetr_model_ref(checkpoint: str) -> ModelRef:
+    """Truthful ``ModelRef`` for the real RT-DETR backend built from ``--checkpoint``.
+
+    ``name`` is the checkpoint id/dir actually loaded; ``version`` is a provisional
+    marker (no pinned model version is claimed); ``weights_hash`` stays ``None``
+    (weights are not hashed in this phase).
+    """
+
+    return ModelRef(name=checkpoint, version="provisional")
 
 # Domain error bases the CLI turns into a clean, actionable one-line message + a
 # non-zero exit, instead of an unhandled traceback (fail-fast, but legible).
@@ -330,7 +351,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         scene = _load_scene_config(args.scene)
         detector_config = DetectorConfig(
-            label_map=_parse_label_map(args.label), score_threshold=args.score_threshold
+            label_map=_parse_label_map(args.label),
+            score_threshold=args.score_threshold,
+            # Truthful detector provenance from the real checkpoint; the adapter
+            # stamps it onto every Detection.source_model, and the pipeline collects
+            # it into the confirmed events' models (P2-U1).
+            source_model=_rtdetr_model_ref(args.checkpoint),
         )
         detector = _build_rtdetr_detector(
             checkpoint=args.checkpoint,
@@ -342,7 +368,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             clip=args.clip,
             scene=scene,
             detector=detector,
-            tracker=IouTracker(),
+            # Truthful tracker provenance stamped onto every TrackState.tracker.
+            tracker=IouTracker(tracker_config=TrackerConfig(tracker=_IOU_TRACKER_MODEL_REF)),
             detector_config=detector_config,
             output_dir=args.output_dir,
             run_id=args.run_id,
