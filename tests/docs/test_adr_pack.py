@@ -115,8 +115,12 @@ def test_only_sanctioned_runtime_packages() -> None:
     # kept behind the frozen U2 ``TrackState`` contract and carrying no tracker
     # dependency; and the ``pipeline`` vertical-slice orchestration (P1-U10), a thin
     # composition of those existing seams that depends only on the ``Detector`` /
-    # ``Tracker`` abstractions and the frozen contracts (no backend, no persistence).
-    # Any other package (events, evidence, ...) would be premature scope.
+    # ``Tracker`` abstractions and the frozen contracts (no backend, no persistence);
+    # and the ``persistence`` layer (P1-U11), the minimal event-persistence + evidence
+    # stub that writes ``ConfirmedEvent``s and minimal ``EvidenceManifest``s to
+    # deterministic JSON (ADR-002-authorised storage, no new dependency), depending
+    # only on the frozen contracts (no backend, no ML).
+    # Any other package (evidence engine, review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
         "geometry",
@@ -127,6 +131,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "detector",
         "tracking",
         "pipeline",
+        "persistence",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
