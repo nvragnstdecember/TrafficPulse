@@ -12,10 +12,20 @@ from .heading import (
     derive_heading_observations,
     derive_heading_observations_with_taint,
 )
+from .zones import (
+    DEFAULT_IN_ZONE_PRODUCER,
+    InZoneDerivation,
+    derive_in_zone_observations,
+    derive_in_zone_observations_with_taint,
+)
 
 __all__ = [
     "DEFAULT_PRODUCER",
     "HeadingDerivation",
     "derive_heading_observations",
     "derive_heading_observations_with_taint",
+    "DEFAULT_IN_ZONE_PRODUCER",
+    "InZoneDerivation",
+    "derive_in_zone_observations",
+    "derive_in_zone_observations_with_taint",
 ]
