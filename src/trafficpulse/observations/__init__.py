@@ -12,6 +12,14 @@ from .heading import (
     derive_heading_observations,
     derive_heading_observations_with_taint,
 )
+from .stationary import (
+    DEFAULT_STATIONARY_PRODUCER,
+    STATIONARY_EPSILON_PX,
+    STATIONARY_WINDOW,
+    StationaryDerivation,
+    derive_stationary_observations,
+    derive_stationary_observations_with_taint,
+)
 from .zones import (
     DEFAULT_IN_ZONE_PRODUCER,
     InZoneDerivation,
@@ -28,4 +36,10 @@ __all__ = [
     "InZoneDerivation",
     "derive_in_zone_observations",
     "derive_in_zone_observations_with_taint",
+    "DEFAULT_STATIONARY_PRODUCER",
+    "STATIONARY_EPSILON_PX",
+    "STATIONARY_WINDOW",
+    "StationaryDerivation",
+    "derive_stationary_observations",
+    "derive_stationary_observations_with_taint",
 ]
