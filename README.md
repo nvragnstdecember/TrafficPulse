@@ -188,6 +188,38 @@ python -c "import trafficpulse; print(trafficpulse.__version__)"
 Native-Windows verification steps are recorded in
 [`docs/windows-verification.md`](docs/windows-verification.md).
 
+## Wrong-way vertical-slice demo (offline)
+
+One offline, deterministic command runs the first vertical slice end to end — one
+recorded clip + one `SceneConfig` → PTS-accurate frames → real RT-DETR detection →
+IoU tracking → wrong-way reasoning → a persisted `ConfirmedEvent` with a minimal
+`EvidenceManifest`. It needs the optional detector extra and a locally-available
+checkpoint (nothing is downloaded by default):
+
+```bash
+python -m pip install -e ".[dev,rtdetr]"      # optional torch/transformers extra
+
+python -m trafficpulse.pipeline \
+  --clip path/to/clip.mp4 \
+  --scene configs/scenes/example-scene.yaml \
+  --output-dir runs --run-id demo-1 \
+  --checkpoint <locally-cached-rtdetr-id-or-dir> --device cpu \
+  --direction-id dir-north
+```
+
+It is **fully offline** (pass `--allow-download` only to let `transformers` fetch a
+checkpoint), fails fast with a typed message on a missing clip / invalid scene /
+missing checkpoint, and writes only under `--output-dir/<run-id>` (gitignored). The
+run prints a JSON report (frame/track/event counts, detector/tracker refs, scene
+hash) and makes **no** accuracy claim from a single clip.
+
+A COCO RT-DETR does not fire the vehicle class on synthetic pixels, so a genuine
+wrong-way event requires an **approved real clip**; the whole path (real ingestion,
+real tracker, real rules, real persistence) is otherwise verified deterministically
+on a generated clip in `tests/pipeline/` with injected detections, and real RT-DETR
+inference is proven end to end by the opt-in `tests/pipeline/test_slice_e2e_rtdetr.py`
+(set `TRAFFICPULSE_E2E_MODEL` to a locally-cached checkpoint; skipped by default).
+
 ## Quality gates / testing
 
 - **Lint/format:** `ruff check .`

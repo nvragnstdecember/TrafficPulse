@@ -121,6 +121,14 @@ module = ["torch.*", "transformers.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 
+# PyYAML is a dev-only extra (not a runtime dependency); the P1-U12 runner imports
+# it *lazily* only to load a YAML SceneConfig, falling back to JSON otherwise. It
+# ships no type stubs, so treat it as untyped whether or not it is installed --
+# this narrows only `yaml` to Any and never relaxes strictness for TrafficPulse.
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
+
 # --- pytest ------------------------------------------------------------------
 [tool.pytest.ini_options]
 minversion = "8.0"
