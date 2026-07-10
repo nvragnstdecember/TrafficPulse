@@ -240,6 +240,13 @@ rule_parameters:
         unit: m_per_s
         status: provisional
         note: Provisional (architecture-review ~0.5 m/s); requires tuning on held-out data.
+      - id: max_observation_gap
+        value: 2.0
+        unit: seconds
+        status: provisional
+        note: >
+          Provisional max inter-observation gap tolerance; a wider gap ends a
+          stopped-in-zone run. Requires tuning on held-out data.
       - id: congestion_suppression
         value: null
         unit: status_ref
