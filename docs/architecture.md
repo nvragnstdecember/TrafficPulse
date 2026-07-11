@@ -1,24 +1,25 @@
 # TrafficPulse Architecture (entry point)
 
-- **Status:** current (Phase 0-F complete)
-- **Date:** 2026-07-07
+- **Status:** current (Phase 0-F, Phase 1, and Phase 2 complete)
+- **Date:** 2026-07-11
 
 ## Canonical architecture reference
 
 **[`docs/architecture-review.md`](architecture-review.md) is THE canonical
 architecture reference for TrafficPulse.** It is accepted, current, and not
 superseded. This file is a thin entry point: it confirms that pointer, indexes
-the Architecture Decision Records, and records the Phase 0-F foundation status so
-the Phase 1 agent has one place to start.
+the Architecture Decision Records, and records the phase status so an agent has
+one place to start.
 
 `TRAFFICPULSE_MASTER_SPEC.md` remains the product/research specification;
 `docs/architecture-review.md` interprets and constrains it without modifying it.
 
 **Phase planning:** [`docs/phase-0-plan.md`](phase-0-plan.md) is the authoritative
 plan for **Phase 0-F** (foundations); [`docs/phase-1-plan.md`](phase-1-plan.md) is
-the authoritative plan for **Phase 1** (behavioral units), recording completed units
-P1-U1…P1-U7 and the forward critical path from P1-U8 (tracker integration). Note the
-two distinct identifier namespaces: Phase 0-F `U#` vs Phase 1 `P1-U#`.
+the authoritative plan for **Phase 1** (first vertical slice), completed P1-U1…P1-U12;
+[`docs/phase-2-plan.md`](phase-2-plan.md) is the authoritative plan for **Phase 2**
+(evidence integrity + illegal stopping), completed P2-U1…P2-U7. Note the three
+distinct identifier namespaces: Phase 0-F `U#` vs Phase 1 `P1-U#` vs Phase 2 `P2-U#`.
 
 ## ADR index
 
@@ -75,7 +76,10 @@ Phase 0-F delivers coherent contracts, governance, evaluation *definitions*, and
 configuration boundaries. It does **not** prove — and this repository makes no
 claim about — model accuracy, dataset availability, real-time performance, speed
 accuracy, event-level precision/recall, legal compliance, production readiness, or
-deployment readiness. No behavioral TrafficPulse system exists yet.
+deployment readiness. Phase 0-F on its own delivered no behavioral system; the
+behavioral violation slices (wrong-way in Phase 1, illegal-stopping in Phase 2)
+landed later and are validated on synthetic trajectories and generated synthetic
+clips only — no real footage has been processed and none of the above is claimed.
 
 ## Phase 1 entry conditions
 
