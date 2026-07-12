@@ -12,6 +12,12 @@ from .heading import (
     derive_heading_observations,
     derive_heading_observations_with_taint,
 )
+from .signal import (
+    DEFAULT_SIGNAL_PRODUCER,
+    SignalPhase,
+    derive_signal_state_observations,
+    signal_state_at,
+)
 from .stationary import (
     DEFAULT_STATIONARY_PRODUCER,
     STATIONARY_EPSILON_PX,
@@ -32,6 +38,10 @@ __all__ = [
     "HeadingDerivation",
     "derive_heading_observations",
     "derive_heading_observations_with_taint",
+    "DEFAULT_SIGNAL_PRODUCER",
+    "SignalPhase",
+    "derive_signal_state_observations",
+    "signal_state_at",
     "DEFAULT_IN_ZONE_PRODUCER",
     "InZoneDerivation",
     "derive_in_zone_observations",
