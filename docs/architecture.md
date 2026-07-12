@@ -1,7 +1,7 @@
 # TrafficPulse Architecture (entry point)
 
-- **Status:** current (Phase 0-F, Phase 1, and Phase 2 complete)
-- **Date:** 2026-07-11
+- **Status:** current (Phase 0-F, Phase 1, and Phase 2 complete; Phase 3–5 planned)
+- **Date:** 2026-07-12
 
 ## Canonical architecture reference
 
@@ -18,8 +18,30 @@ one place to start.
 plan for **Phase 0-F** (foundations); [`docs/phase-1-plan.md`](phase-1-plan.md) is
 the authoritative plan for **Phase 1** (first vertical slice), completed P1-U1…P1-U12;
 [`docs/phase-2-plan.md`](phase-2-plan.md) is the authoritative plan for **Phase 2**
-(evidence integrity + illegal stopping), completed P2-U1…P2-U7. Note the three
-distinct identifier namespaces: Phase 0-F `U#` vs Phase 1 `P1-U#` vs Phase 2 `P2-U#`.
+(evidence integrity + illegal stopping), completed P2-U1…P2-U7. The remaining roadmap
+is planned in three authoritative documents:
+[`docs/phase-3-plan.md`](phase-3-plan.md) — **Phase 3** (generalized reasoning +
+pipeline infrastructure, dynamic traffic context, red-light jumping, observation-log
+substrate, event-level evaluation harness; `P3-U#`);
+[`docs/phase-4-plan.md`](phase-4-plan.md) — **Phase 4** (association, quality-weighted
+confidence aggregation, triple riding, no-helmet + the mandatory CNN-vs-ViT experiment;
+`P4-U#`); and [`docs/phase-5-plan.md`](phase-5-plan.md) — **Phase 5** (metric
+calibration, feasibility-gated speeding, retro-upgrade of the provisional pixel gates;
+`P5-U#`). Note the six distinct identifier namespaces: Phase 0-F `U#` vs Phase 1
+`P1-U#` vs Phase 2 `P2-U#` vs Phase 3 `P3-U#` vs Phase 4 `P4-U#` vs Phase 5 `P5-U#`.
+
+**Roadmap basis (accepted design review, 2026-07-12):** the Phase 3–5 plans implement
+an accepted architectural design review — capability-first sequencing; generalized
+reasoning + pipeline infrastructure **by composition, not deep inheritance**; a
+**dynamic traffic context** stream; **association before** helmet/triple riding;
+**calibration before** speeding; the **evaluation harness** and **observation-log
+substrate** as first-class deliverables; **no** speculative architecture and **no**
+monolithic "TrafficSemantics" engine; preserved deterministic replay and frozen
+contracts. The six locked violations are unchanged. Violations are treated as
+conclusions along the chain *Perception → Observations → Scene Semantics → Dynamic
+Context → Rule Reasoning → Evidence → Human Review* (this supersedes, for **sequencing**
+only, the earlier per-violation phase column in `architecture-review.md` §6; the
+capability analysis there is unchanged).
 
 ## ADR index
 

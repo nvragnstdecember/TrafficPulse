@@ -358,3 +358,36 @@ Phase 2 will add a review-UI-framework ADR.
 12. State night = robustness analysis, not a supported condition.
 
 **Recommendation: GO WITH CHANGES.** Adopt the revisions above; keep the speed gate numbers as **candidate provisional targets pending U4 justification**; keep AI City access **unconfirmed**; add the footage-acquisition plan before Phase 1; resolve ADR-001 before detector integration. No fatal flaw; no reason to revise the locked scope or the approved Phase 0-F plan.
+
+## 28. Post-implementation roadmap update (accepted design review, 2026-07-12)
+
+This section is **additive** and records a decision without erasing the review above.
+After Phases 0-F, 1, and 2 shipped (wrong-way and illegal-stopping slices, model-
+provenance propagation), an architectural design review of the remaining roadmap was
+**accepted** and is now the basis for Phases 3–5. It changes **sequencing**, not the
+locked scope or the capability analysis in this document.
+
+**Authoritative remaining-phase plans:** [`phase-3-plan.md`](phase-3-plan.md),
+[`phase-4-plan.md`](phase-4-plan.md), [`phase-5-plan.md`](phase-5-plan.md) (indexed by
+[`architecture.md`](architecture.md)). The six locked violations are unchanged.
+
+**Accepted principles carried into the plans:** capability-first sequencing; generalized
+reasoning + pipeline infrastructure **by composition, not deep inheritance**; a
+**dynamic traffic context** stream (signal state now, congestion later); **association
+before** helmet/triple riding; **calibration before** speeding; the **evaluation
+harness** (§23) and the ADR-002 **observation-log substrate** as first-class
+deliverables; **no** speculative architecture and **no** monolithic "TrafficSemantics"
+engine; preserved deterministic replay (§15) and frozen contracts. Violations are framed
+as conclusions along *Perception → Observations → Scene Semantics → Dynamic Context →
+Rule Reasoning → Evidence → Human Review*.
+
+**Two factual reconciliations (this supersedes the corresponding earlier text for
+accuracy; the historical text is left intact above):**
+- **§6 per-violation phasing** listed red-light jumping under an earlier phase. For
+  **sequencing**, the phase plans are now authoritative: wrong-way = Phase 1,
+  illegal-stopping = Phase 2, **red-light = Phase 3**, triple-riding + no-helmet =
+  Phase 4, speeding = Phase 5. The §6 capability/feasibility analysis is unchanged.
+- **Tracker backend.** Earlier text referenced **ByteTrack** as the planned tracker;
+  Phase 1 shipped a **permissive in-repo greedy-IoU associator** instead (provenance-
+  verifiable offline). ByteTrack remains a possible future audited enhancement, not the
+  current backend.

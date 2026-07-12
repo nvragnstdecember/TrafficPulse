@@ -69,8 +69,6 @@ and is revisitable when the event-store runtime lands. ADR-004's status is not
 changed by this unit.
 """
 
-import hashlib
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -85,8 +83,8 @@ from ..contracts import (
 )
 from ..contracts.enums import ViolationType
 from ..observations.heading import HeadingDerivation
-from .engine import HypothesisRecord, RuleEngine
-from .states import EngineState
+from .engine import RuleEngine
+from .temporal import ConfirmationDetails, TemporalRunReasoner
 
 RULE_ID = "wrong_way"
 RULE_VERSION = "0.1.0-provisional"
@@ -142,17 +140,17 @@ def wrong_way_parameters(scene: SceneConfig) -> WrongWayParameters:
     )
 
 
-# --- per-track run state (engine-internal bookkeeping, not a contract) --------
-@dataclass
-class _Run:
-    hypothesis_id: str
-    start_at: datetime
-    confirmed: bool = False
-    closed: bool = False
-
-
 class WrongWayReasoner:
-    """Deterministic wrong-way temporal reasoner over ``HeadingVsLaneObservation``."""
+    """Deterministic wrong-way temporal reasoner over ``HeadingVsLaneObservation``.
+
+    Wrong-way *semantics* live here: the per-step signal is the observation's
+    ``is_contradiction`` flag, and confirmation records a ``persistence_seconds``
+    measurement against the ``heading_deviation_max`` / ``min_persistence``
+    thresholds. All lifecycle mechanics -- run tracking, taint reset, engine
+    transitions, ``models`` stamping, content-derived ``event_id`` -- are
+    delegated to the shared :class:`TemporalRunReasoner` this reasoner *holds*
+    (P3-U1 composition); the public API is unchanged.
+    """
 
     def __init__(
         self,
@@ -164,27 +162,25 @@ class WrongWayReasoner:
         rule_version: str | None = RULE_VERSION,
         models: tuple[ModelRef, ...] = (),
     ) -> None:
-        self._engine = engine
         self._params = params
-        self._scene_hash = scene_config_hash
-        self._rule_id = rule_id
-        self._rule_version = rule_version
-        # Run-level provenance stamped onto every minted event (P2-U1). Pure
-        # metadata: no rule predicate, threshold, or timer ever reads it, and it
-        # is deliberately absent from ``_event_id``, so the *decision* (which
-        # events, ids, timing) is byte-identical with or without it. The caller
-        # (the composition boundary) supplies the sorted/de-duplicated tuple.
-        self._models = models
-        self._runs: dict[tuple[str, str], _Run] = {}
-        self._events: list[ConfirmedEvent] = []
+        self._machine = TemporalRunReasoner(
+            engine,
+            violation_type=ViolationType.WRONG_WAY,
+            threshold_seconds=params.min_persistence_seconds,
+            detail_builder=self._details,
+            scene_config_hash=scene_config_hash,
+            rule_id=rule_id,
+            rule_version=rule_version,
+            models=models,
+        )
 
     @property
     def engine(self) -> RuleEngine:
-        return self._engine
+        return self._machine.engine
 
     @property
     def events(self) -> tuple[ConfirmedEvent, ...]:
-        return tuple(self._events)
+        return self._machine.events
 
     def observe(
         self, observation: HeadingVsLaneObservation, *, is_taint_restart: bool = False
@@ -199,18 +195,9 @@ class WrongWayReasoner:
         never a restart and keeps its timestamp-driven bridging.
         """
 
-        track_id = observation.track_id
-        if track_id is None:
-            return None  # wrong-way episodes are per-track; ignore untracked facts
-        key = (observation.camera_id, track_id)
-        run = self._runs.get(key)
-        if is_taint_restart:
-            self._on_recovery(run)  # break episode continuity at the taint discontinuity
-            run = self._runs.get(key)
-        if observation.is_contradiction:
-            return self._on_contradiction(key, run, observation)
-        self._on_recovery(run)
-        return None
+        return self._machine.observe(
+            observation, active=observation.is_contradiction, is_taint_restart=is_taint_restart
+        )
 
     def run(
         self,
@@ -226,89 +213,18 @@ class WrongWayReasoner:
         follows the P1-U3 policy, so the outcome is independent of input order.
         """
 
-        restarts = frozenset(taint_restart_ids)
-        ordered = sorted(observations, key=lambda o: (o.timestamp, o.observation_id))
-        seen: set[str] = set()
-        emitted: list[ConfirmedEvent] = []
-        for observation in ordered:
-            if observation.observation_id in seen:
-                continue
-            seen.add(observation.observation_id)
-            event = self.observe(
-                observation, is_taint_restart=observation.observation_id in restarts
-            )
-            if event is not None:
-                emitted.append(event)
-        return tuple(emitted)
+        return self._machine.run(
+            ((o, o.is_contradiction) for o in observations),
+            taint_restart_ids=taint_restart_ids,
+        )
 
     def run_derivation(self, derivation: HeadingDerivation) -> tuple[ConfirmedEvent, ...]:
         """Convenience: run a ``HeadingDerivation`` with its taint restarts."""
 
         return self.run(derivation.observations, taint_restart_ids=derivation.taint_restart_ids)
 
-    def _on_contradiction(
-        self,
-        key: tuple[str, str],
-        run: _Run | None,
-        observation: HeadingVsLaneObservation,
-    ) -> ConfirmedEvent | None:
-        if run is None or run.closed:
-            record = self._engine.ingest(
-                observation,
-                rule_id=self._rule_id,
-                violation_type=ViolationType.WRONG_WAY,
-                rule_version=self._rule_version,
-            )
-            self._engine.promote(record.hypothesis_id)
-            self._runs[key] = _Run(
-                hypothesis_id=record.hypothesis_id, start_at=observation.timestamp
-            )
-            return None
-
-        record = self._engine.ingest(
-            observation, rule_id=self._rule_id, violation_type=ViolationType.WRONG_WAY
-        )
-        if run.confirmed:
-            return None
-        elapsed = (observation.timestamp - run.start_at).total_seconds()
-        if elapsed < self._params.min_persistence_seconds:
-            return None
-        if record.state is EngineState.CANDIDATE:
-            record = self._engine.activate(record.hypothesis_id)
-        event = self._confirm(record, observation)
-        run.confirmed = True
-        self._events.append(event)
-        return event
-
-    def _on_recovery(self, run: _Run | None) -> None:
-        if run is None or run.closed:
-            return
-        if run.confirmed:
-            self._engine.close(run.hypothesis_id)
-        else:
-            self._engine.abandon(run.hypothesis_id)
-        run.closed = True
-
-    def _confirm(
-        self, record: HypothesisRecord, trigger: HeadingVsLaneObservation
-    ) -> ConfirmedEvent:
-        start_at = record.first_at
-        assert start_at is not None  # an attached hypothesis always has a first observation
-        trigger_at = trigger.timestamp
-        return ConfirmedEvent(
-            event_id=self._event_id(record.camera_id, record.track_ids, start_at, trigger_at,
-                                    record.hypothesis_id),
-            violation_type=ViolationType.WRONG_WAY,
-            camera_id=record.camera_id,
-            track_ids=record.track_ids,
-            start_at=start_at,
-            trigger_at=trigger_at,
-            rule_id=self._rule_id,
-            rule_version=self._rule_version,
-            scene_config_hash=self._scene_hash,
-            models=self._models,  # run-level provenance; never enters _event_id
-            source_hypothesis_id=record.hypothesis_id,
-            created_at=trigger_at,  # deterministic data timestamp, never wall-clock
+    def _details(self, start_at: datetime, trigger_at: datetime) -> ConfirmationDetails:
+        return ConfirmationDetails(
             measurements=(
                 MeasuredValue(
                     name="persistence_seconds",
@@ -329,27 +245,3 @@ class WrongWayReasoner:
                 ),
             ),
         )
-
-    def _event_id(
-        self,
-        camera_id: str,
-        track_ids: tuple[str, ...],
-        start_at: datetime,
-        trigger_at: datetime,
-        hypothesis_id: str,
-    ) -> str:
-        material = json.dumps(
-            {
-                "scene_config_hash": self._scene_hash or "",
-                "camera_id": camera_id,
-                "violation_type": ViolationType.WRONG_WAY.value,
-                "rule_id": self._rule_id,
-                "track_ids": list(track_ids),
-                "start_at": start_at.isoformat(),
-                "trigger_at": trigger_at.isoformat(),
-                "source_hypothesis_id": hypothesis_id,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return "evt-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]

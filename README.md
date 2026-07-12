@@ -145,10 +145,15 @@ detections supplied by an injected scripted stub.
 
 ## Planned capabilities / roadmap
 
-Defined by contract or design, **not yet implemented**:
+Defined by contract or design, **not yet implemented** (sequenced across Phases 3–5
+per the accepted design review — see the phase plans in [Documentation](#documentation)):
 
-- **Remaining four violations** — no-helmet (hosts the mandatory CNN-vs-ViT
-  experiment), triple riding, red-light jumping, and feasibility-gated speeding.
+- **Remaining four violations** — red-light jumping (Phase 3), triple riding and
+  no-helmet, the latter hosting the mandatory CNN-vs-ViT experiment (Phase 4), and
+  feasibility-gated speeding (Phase 5). Phases 3–5 also deliver generalized
+  reasoning/pipeline infrastructure (by composition), a dynamic traffic-context stream,
+  the observation-log substrate, the event-level evaluation harness, and metric
+  calibration.
 - **Real-footage validation** — an external, gated activity (permissions/ethics +
   approved footage + a matching validated `SceneConfig`); no real footage has been
   processed, and the shipped pipelines run it with **no** new code once footage is
@@ -344,6 +349,9 @@ detector-stack licence posture — not the project licence.
 - [`docs/phase-0-plan.md`](docs/phase-0-plan.md) — Phase 0-F foundation plan
 - [`docs/phase-1-plan.md`](docs/phase-1-plan.md) — authoritative Phase 1 unit plan (completed P1-U1…P1-U12)
 - [`docs/phase-2-plan.md`](docs/phase-2-plan.md) — authoritative Phase 2 unit plan (evidence integrity + illegal stopping; completed P2-U1…P2-U7)
+- [`docs/phase-3-plan.md`](docs/phase-3-plan.md) — authoritative Phase 3 plan (generalized reasoning/pipeline infrastructure, dynamic traffic context, red-light jumping, observation-log substrate, event-level evaluation harness; planned)
+- [`docs/phase-4-plan.md`](docs/phase-4-plan.md) — authoritative Phase 4 plan (association, quality-weighted confidence aggregation, triple riding, no-helmet + CNN-vs-ViT experiment; planned)
+- [`docs/phase-5-plan.md`](docs/phase-5-plan.md) — authoritative Phase 5 plan (metric calibration, feasibility-gated speeding, retro-upgrade of provisional pixel gates; planned)
 - [`docs/ontology.md`](docs/ontology.md) · [`docs/dataset-policy.md`](docs/dataset-policy.md) · [`docs/evaluation-protocol.md`](docs/evaluation-protocol.md) · [`docs/scene-configuration.md`](docs/scene-configuration.md)
 - [`docs/adr/`](docs/adr/) — architecture decision records (ADR-001..004)
 - [`docs/windows-verification.md`](docs/windows-verification.md) — native-Windows check record

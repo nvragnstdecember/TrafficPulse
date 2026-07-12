@@ -86,8 +86,6 @@ deliberately absent from the id and from every predicate, so the *decision*
 (which events, ids, timing) is byte-identical with or without provenance.
 """
 
-import hashlib
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -103,8 +101,8 @@ from ..contracts import (
 from ..contracts.enums import ViolationType, ZoneKind
 from ..observations.stationary import StationaryDerivation
 from ..observations.zones import InZoneDerivation
-from .engine import HypothesisRecord, RuleEngine
-from .states import EngineState
+from .engine import RuleEngine
+from .temporal import ConfirmationDetails, TemporalRunReasoner
 
 RULE_ID = "illegal_stopping"
 RULE_VERSION = "0.1.0-provisional"
@@ -218,18 +216,18 @@ def join_stopped_in_zone(
     return steps, frozenset(restart_ids)
 
 
-# --- per-track run state (engine-internal bookkeeping, not a contract) --------
-@dataclass
-class _Run:
-    hypothesis_id: str
-    start_at: datetime
-    last_at: datetime
-    confirmed: bool = False
-    closed: bool = False
-
-
 class IllegalStoppingReasoner:
-    """Deterministic illegal-stopping temporal reasoner over joined stopped-in-zone steps."""
+    """Deterministic illegal-stopping temporal reasoner over joined stopped-in-zone steps.
+
+    Illegal-stopping *semantics* live here: the per-step signal is the joined
+    ``stopped_in_zone`` flag, an optional ``max_observation_gap`` breaks a stale
+    dwell run, and confirmation records a ``dwell_seconds`` measurement against the
+    ``stationary_duration`` (and provenance-only ``motion_threshold``) thresholds.
+    All lifecycle mechanics -- run tracking, taint reset, the gap-break, engine
+    transitions, ``models`` stamping, content-derived ``event_id`` -- are delegated
+    to the shared :class:`TemporalRunReasoner` this reasoner *holds* (P3-U1
+    composition); the public API is unchanged.
+    """
 
     def __init__(
         self,
@@ -241,27 +239,26 @@ class IllegalStoppingReasoner:
         rule_version: str | None = RULE_VERSION,
         models: tuple[ModelRef, ...] = (),
     ) -> None:
-        self._engine = engine
         self._params = params
-        self._scene_hash = scene_config_hash
-        self._rule_id = rule_id
-        self._rule_version = rule_version
-        # Run-level provenance stamped onto every minted event (P2-U1 shape). Pure
-        # metadata: no predicate, threshold, dwell timer, or transition ever reads
-        # it, and it is deliberately absent from ``_event_id``, so the *decision* is
-        # byte-identical with or without it. The composition boundary supplies the
-        # sorted/de-duplicated tuple.
-        self._models = models
-        self._runs: dict[tuple[str, str], _Run] = {}
-        self._events: list[ConfirmedEvent] = []
+        self._machine = TemporalRunReasoner(
+            engine,
+            violation_type=ViolationType.ILLEGAL_STOPPING,
+            threshold_seconds=params.stationary_duration_seconds,
+            detail_builder=self._details,
+            scene_config_hash=scene_config_hash,
+            rule_id=rule_id,
+            rule_version=rule_version,
+            models=models,
+            max_observation_gap_seconds=params.max_observation_gap_seconds,
+        )
 
     @property
     def engine(self) -> RuleEngine:
-        return self._engine
+        return self._machine.engine
 
     @property
     def events(self) -> tuple[ConfirmedEvent, ...]:
-        return tuple(self._events)
+        return self._machine.events
 
     def observe(
         self, step: StoppedInZoneStep, *, is_taint_restart: bool = False
@@ -275,19 +272,9 @@ class IllegalStoppingReasoner:
         a restart and keeps its timestamp-driven bridging.
         """
 
-        observation = step.observation
-        track_id = observation.track_id
-        if track_id is None:
-            return None  # illegal-stopping episodes are per-track; ignore untracked facts
-        key = (observation.camera_id, track_id)
-        run = self._runs.get(key)
-        if is_taint_restart:
-            self._on_recovery(run)  # break episode continuity at the taint discontinuity
-            run = self._runs.get(key)
-        if step.stopped_in_zone:
-            return self._on_stopped(key, run, observation)
-        self._on_recovery(run)
-        return None
+        return self._machine.observe(
+            step.observation, active=step.stopped_in_zone, is_taint_restart=is_taint_restart
+        )
 
     def run(
         self,
@@ -303,21 +290,10 @@ class IllegalStoppingReasoner:
         policy, so the outcome is independent of input order.
         """
 
-        restarts = frozenset(taint_restart_ids)
-        ordered = sorted(
-            steps, key=lambda s: (s.observation.timestamp, s.observation.observation_id)
+        return self._machine.run(
+            ((s.observation, s.stopped_in_zone) for s in steps),
+            taint_restart_ids=taint_restart_ids,
         )
-        seen: set[str] = set()
-        emitted: list[ConfirmedEvent] = []
-        for step in ordered:
-            observation_id = step.observation.observation_id
-            if observation_id in seen:
-                continue
-            seen.add(observation_id)
-            event = self.observe(step, is_taint_restart=observation_id in restarts)
-            if event is not None:
-                emitted.append(event)
-        return tuple(emitted)
 
     def run_join(
         self, in_zone: InZoneDerivation, stationary: StationaryDerivation
@@ -327,70 +303,7 @@ class IllegalStoppingReasoner:
         steps, restart_ids = join_stopped_in_zone(in_zone, stationary)
         return self.run(steps, taint_restart_ids=restart_ids)
 
-    def _on_stopped(
-        self,
-        key: tuple[str, str],
-        run: _Run | None,
-        observation: StationaryObservation,
-    ) -> ConfirmedEvent | None:
-        # An over-wide inter-observation gap (provisional tolerance) ends a stale
-        # run; a fresh run may then open at this observation below.
-        max_gap = self._params.max_observation_gap_seconds
-        if (
-            run is not None
-            and not run.closed
-            and max_gap is not None
-            and (observation.timestamp - run.last_at).total_seconds() > max_gap
-        ):
-            self._on_recovery(run)
-            run = None
-
-        if run is None or run.closed:
-            record = self._engine.ingest(
-                observation,
-                rule_id=self._rule_id,
-                violation_type=ViolationType.ILLEGAL_STOPPING,
-                rule_version=self._rule_version,
-            )
-            self._engine.promote(record.hypothesis_id)
-            self._runs[key] = _Run(
-                hypothesis_id=record.hypothesis_id,
-                start_at=observation.timestamp,
-                last_at=observation.timestamp,
-            )
-            return None
-
-        record = self._engine.ingest(
-            observation, rule_id=self._rule_id, violation_type=ViolationType.ILLEGAL_STOPPING
-        )
-        run.last_at = observation.timestamp
-        if run.confirmed:
-            return None
-        elapsed = (observation.timestamp - run.start_at).total_seconds()
-        if elapsed < self._params.stationary_duration_seconds:
-            return None
-        if record.state is EngineState.CANDIDATE:
-            record = self._engine.activate(record.hypothesis_id)
-        event = self._confirm(record, observation)
-        run.confirmed = True
-        self._events.append(event)
-        return event
-
-    def _on_recovery(self, run: _Run | None) -> None:
-        if run is None or run.closed:
-            return
-        if run.confirmed:
-            self._engine.close(run.hypothesis_id)
-        else:
-            self._engine.abandon(run.hypothesis_id)
-        run.closed = True
-
-    def _confirm(
-        self, record: HypothesisRecord, trigger: StationaryObservation
-    ) -> ConfirmedEvent:
-        start_at = record.first_at
-        assert start_at is not None  # an attached hypothesis always has a first observation
-        trigger_at = trigger.timestamp
+    def _details(self, start_at: datetime, trigger_at: datetime) -> ConfirmationDetails:
         thresholds = [
             MeasuredValue(
                 name="stationary_duration",
@@ -405,21 +318,7 @@ class IllegalStoppingReasoner:
                     name="motion_threshold", value=self._params.motion_threshold, unit="m_per_s"
                 )
             )
-        return ConfirmedEvent(
-            event_id=self._event_id(
-                record.camera_id, record.track_ids, start_at, trigger_at, record.hypothesis_id
-            ),
-            violation_type=ViolationType.ILLEGAL_STOPPING,
-            camera_id=record.camera_id,
-            track_ids=record.track_ids,
-            start_at=start_at,
-            trigger_at=trigger_at,
-            rule_id=self._rule_id,
-            rule_version=self._rule_version,
-            scene_config_hash=self._scene_hash,
-            models=self._models,  # run-level provenance; never enters _event_id
-            source_hypothesis_id=record.hypothesis_id,
-            created_at=trigger_at,  # deterministic data timestamp, never wall-clock
+        return ConfirmationDetails(
             measurements=(
                 MeasuredValue(
                     name="dwell_seconds",
@@ -429,27 +328,3 @@ class IllegalStoppingReasoner:
             ),
             thresholds=tuple(thresholds),
         )
-
-    def _event_id(
-        self,
-        camera_id: str,
-        track_ids: tuple[str, ...],
-        start_at: datetime,
-        trigger_at: datetime,
-        hypothesis_id: str,
-    ) -> str:
-        material = json.dumps(
-            {
-                "scene_config_hash": self._scene_hash or "",
-                "camera_id": camera_id,
-                "violation_type": ViolationType.ILLEGAL_STOPPING.value,
-                "rule_id": self._rule_id,
-                "track_ids": list(track_ids),
-                "start_at": start_at.isoformat(),
-                "trigger_at": trigger_at.isoformat(),
-                "source_hypothesis_id": hypothesis_id,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return "evt-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
