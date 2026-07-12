@@ -6,6 +6,12 @@ contracts that the reasoning layer consumes; it performs no detection, tracking,
 or rule reasoning.
 """
 
+from .crossing import (
+    DEFAULT_CROSSING_PRODUCER,
+    CrossingDerivation,
+    derive_crossing_observations,
+    derive_crossing_observations_with_taint,
+)
 from .heading import (
     DEFAULT_PRODUCER,
     HeadingDerivation,
@@ -34,6 +40,10 @@ from .zones import (
 )
 
 __all__ = [
+    "DEFAULT_CROSSING_PRODUCER",
+    "CrossingDerivation",
+    "derive_crossing_observations",
+    "derive_crossing_observations_with_taint",
     "DEFAULT_PRODUCER",
     "HeadingDerivation",
     "derive_heading_observations",
