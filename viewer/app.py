@@ -52,7 +52,7 @@ import traceback
 import uuid
 import webbrowser
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -73,33 +73,6 @@ for _p in (str(_SRC), str(_FIXTURES_DIR)):
 import av  # noqa: E402  (base dep; used only to render preview frames)
 import yaml  # noqa: E402  (dev dep; scene loading, mirrors run_demo.py)
 
-from trafficpulse.contracts import (  # noqa: E402
-    ConfirmedEvent,
-    ObjectClass,
-    SceneConfig,
-)
-from trafficpulse.detector import DetectorConfig  # noqa: E402
-from trafficpulse.persistence import EventStore  # noqa: E402
-from trafficpulse.tracking import IouTracker  # noqa: E402
-from trafficpulse.tracking.config import TrackerConfig  # noqa: E402
-
-# --- reused, already-tested composition roots (NO reasoning duplicated here) ---
-from trafficpulse.pipeline.runner import (  # noqa: E402
-    SliceRunReport,
-    run_wrong_way_slice,
-)
-from trafficpulse.pipeline.illegal_stopping_runner import (  # noqa: E402
-    run_illegal_stopping_slice,
-)
-
-# Private composition helpers reused so the RT-DETR backend is built exactly the
-# way the shipped CLI builds it (we do NOT re-implement detector construction).
-from trafficpulse.pipeline.runner import (  # noqa: E402
-    _IOU_TRACKER_MODEL_REF,
-    _build_rtdetr_detector,
-    _rtdetr_model_ref,
-)
-
 # Repository's own synthetic-clip + scripted-detector fixtures (built-in demos).
 from _slice_fixtures import (  # noqa: E402
     scripted_down_detector,
@@ -112,12 +85,36 @@ from _stopping_fixtures import (  # noqa: E402
     write_illegal_stopping_clip,
 )
 
+from trafficpulse.contracts import (  # noqa: E402
+    ConfirmedEvent,
+    ObjectClass,
+    SceneConfig,
+)
+from trafficpulse.detector import DetectorConfig  # noqa: E402
+from trafficpulse.persistence import EventStore  # noqa: E402
+from trafficpulse.pipeline.illegal_stopping_runner import (  # noqa: E402
+    run_illegal_stopping_slice,
+)
+
+# --- reused, already-tested composition roots (NO reasoning duplicated here) ---
+# Private composition helpers reused so the RT-DETR backend is built exactly the
+# way the shipped CLI builds it (we do NOT re-implement detector construction).
+from trafficpulse.pipeline.runner import (  # noqa: E402  # noqa: E402
+    _IOU_TRACKER_MODEL_REF,
+    SliceRunReport,
+    _build_rtdetr_detector,
+    _rtdetr_model_ref,
+    run_wrong_way_slice,
+)
+from trafficpulse.tracking import IouTracker  # noqa: E402
+from trafficpulse.tracking.config import TrackerConfig  # noqa: E402
+
 _EXAMPLE_SCENE_PATH = REPO_ROOT / "configs" / "scenes" / "example-scene.yaml"
 _WRONG_WAY_DIRECTION_ID = "dir-north"  # example scene's legal north (see README)
 _RUN_ROOT = REPO_ROOT / "runs" / "viewer"
 _UPLOAD_DIR = REPO_ROOT / "runs" / "viewer" / "_uploads"
 _DEFAULT_RTDETR_CHECKPOINT = "PekingU/rtdetr_r50vd"  # locally-cached HF id
-_MEDIA_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)  # media-PTS anchor
+_MEDIA_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)  # media-PTS anchor
 
 # clip_id -> path on disk, so the browser can request the raw video / frames.
 _CLIP_REGISTRY: dict[str, Path] = {}
@@ -157,7 +154,9 @@ def _analyze_builtin_wrong_way(run_id: str) -> _Analysis:
         run_id=run_id,
         direction_id=_WRONG_WAY_DIRECTION_ID,
     )
-    events = tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
     return _Analysis(report=report, events=events, clip_path=clip)
 
 
@@ -173,7 +172,9 @@ def _analyze_builtin_illegal_stopping(run_id: str) -> _Analysis:
         output_dir=_RUN_ROOT,
         run_id=run_id,
     )
-    events = tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
     return _Analysis(report=report, events=events, clip_path=clip)
 
 
@@ -206,7 +207,9 @@ def _analyze_upload(run_id: str, clip_path: Path) -> _Analysis:
         checkpoint=_DEFAULT_RTDETR_CHECKPOINT,
         device="cpu",
     )
-    events = tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
     return _Analysis(report=report, events=events, clip_path=clip_path)
 
 
@@ -360,7 +363,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _sse_event(self, payload: dict[str, object]) -> None:
-        self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+        self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
         self.wfile.flush()
 
     # -- routing ------------------------------------------------------------
