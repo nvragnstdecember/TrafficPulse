@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrafficPulse Viewer v0.1</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171d2b; --panel-2:#1e2637; --line:#2a3446;
+    --text:#e7ecf3; --muted:#96a2b6; --accent:#3b82f6; --accent-2:#2563eb;
+    --ok:#22c55e; --ok-bg:#14311f; --warn:#f59e0b; --danger:#ef4444;
+    --chip:#243049; --radius:12px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f4f6fa; --panel:#ffffff; --panel-2:#f7f9fc; --line:#e2e8f0;
+      --text:#0f172a; --muted:#5b6675; --chip:#eef2f9; --ok-bg:#e7f7ed;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.5;font-size:15px}
+  .wrap{max-width:1040px;margin:0 auto;padding:24px 20px 64px}
+  header.app{display:flex;align-items:center;gap:14px;padding:6px 0 20px;border-bottom:1px solid var(--line);margin-bottom:24px}
+  .logo{width:42px;height:42px;flex:0 0 auto}
+  .brand h1{font-size:20px;margin:0;font-weight:650;letter-spacing:.2px}
+  .brand p{margin:2px 0 0;color:var(--muted);font-size:12.5px}
+  .grid{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:820px){.grid.two{grid-template-columns:1.15fr .85fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 18px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:0 0 14px;font-weight:650}
+  label.field{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+  select,input[type=file]{width:100%;background:var(--panel-2);color:var(--text);border:1px solid var(--line);
+       border-radius:9px;padding:10px 12px;font-size:14px}
+  .radios{display:flex;flex-direction:column;gap:9px;margin-bottom:16px}
+  .radio{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);
+       border-radius:10px;background:var(--panel-2);cursor:pointer}
+  .radio input{margin-top:3px}
+  .radio .t{font-weight:600;font-size:14px}
+  .radio .d{color:var(--muted);font-size:12.5px}
+  .sub{margin:12px 0 0;padding-left:2px}
+  .btnrow{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+  button{font:inherit;font-weight:600;border:none;border-radius:9px;padding:11px 20px;cursor:pointer}
+  button.primary{background:var(--accent);color:#fff}
+  button.primary:hover{background:var(--accent-2)}
+  button.primary:disabled{opacity:.45;cursor:not-allowed;background:#41506b}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  .status{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+  .status .line{display:flex;gap:9px;align-items:center;padding:3px 0;color:var(--muted)}
+  .status .line.done{color:var(--text)}
+  .status .dot{width:8px;height:8px;border-radius:50%;background:var(--line);flex:0 0 auto}
+  .status .line.done .dot{background:var(--ok)}
+  .status .line.active .dot{background:var(--accent)}
+  .status .idle{color:var(--muted)}
+  .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  @media(min-width:560px){.stat-grid{grid-template-columns:repeat(4,1fr)}}
+  .stat{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .stat .n{font-size:26px;font-weight:700;letter-spacing:.3px}
+  .stat .l{font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-top:3px}
+  .pill{display:inline-block;font-size:11.5px;font-weight:650;padding:3px 9px;border-radius:999px}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)}
+  .pill.zero{background:var(--chip);color:var(--muted)}
+  .vcard{border:1px solid var(--line);border-radius:11px;padding:18px 18px 16px;background:var(--panel-2);margin-bottom:14px}
+  .vcard .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+  .vcard .vt{font-size:16px;font-weight:700}
+  .vcard .meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 20px}
+  @media(min-width:520px){.vcard .meta{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .kv{min-width:0}
+  .kv .k{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:2px}
+  /* One clean line per value; long ids/labels ellipsize instead of wrapping.
+     The full value is preserved in the element's title (hover) + data-full. */
+  .kv .v{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  details.more{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
+  details.more summary{cursor:pointer;color:var(--muted);font-size:12.5px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--muted)}
+  table.m{width:100%;border-collapse:collapse;margin-top:8px;font-size:12.5px}
+  table.m th,table.m td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+  table.m th{color:var(--muted);font-weight:600}
+  .filmstrip{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}
+  .filmstrip img{height:104px;border-radius:8px;border:1px solid var(--line);flex:0 0 auto}
+  video{width:100%;border-radius:10px;border:1px solid var(--line);background:#000;margin-bottom:10px}
+  .note{font-size:12.5px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);
+        border-left:3px solid var(--accent);border-radius:8px;padding:10px 12px;margin-top:14px}
+  .hidden{display:none}
+  .err{color:var(--danger);font-size:13px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.35);
+       border-radius:9px;padding:12px}
+  footer{margin-top:32px;color:var(--muted);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="app">
+    <svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="2" y="2" width="44" height="44" rx="11" fill="#3b82f6"/>
+      <circle cx="24" cy="14" r="4.4" fill="#ef4444"/>
+      <circle cx="24" cy="24" r="4.4" fill="#f59e0b"/>
+      <circle cx="24" cy="34" r="4.4" fill="#22c55e"/>
+      <rect x="14" y="6" width="20" height="36" rx="8" stroke="#fff" stroke-width="2.4" opacity=".85"/>
+    </svg>
+    <div class="brand">
+      <h1>TrafficPulse Viewer <span style="color:var(--muted);font-weight:500">v0.1</span></h1>
+      <p>Offline demonstration layer &middot; visualizes the existing TrafficPulse backend</p>
+    </div>
+  </header>
+
+  <div class="grid two">
+    <!-- LEFT: controls -->
+    <section class="card">
+      <h2>Analyze</h2>
+
+      <div class="radios">
+        <label class="radio">
+          <input type="radio" name="source" value="builtin" checked>
+          <span>
+            <div class="t">Built-in demo clip</div>
+            <div class="d">Runs the repository's offline scripted-detector slice &rarr; real confirmed events.</div>
+          </span>
+        </label>
+        <div class="sub" id="scenarioWrap">
+          <label class="field" for="scenario">Scenario</label>
+          <select id="scenario">
+            <option value="wrong_way">Wrong Way</option>
+            <option value="illegal_stopping">Illegal Stopping</option>
+          </select>
+        </div>
+
+        <label class="radio">
+          <input type="radio" name="source" value="upload">
+          <span>
+            <div class="t">Upload a video</div>
+            <div class="d">Runs the <b>real RT-DETR</b> offline slice on your clip (genuine inference).</div>
+          </span>
+        </label>
+        <div class="sub hidden" id="uploadWrap">
+          <label class="field" for="file">Video file (short clips recommended)</label>
+          <input type="file" id="file" accept="video/*">
+          <div id="uploadStatus" class="mono" style="margin-top:6px"></div>
+        </div>
+      </div>
+
+      <div class="btnrow">
+        <button class="primary" id="analyzeBtn">Analyze</button>
+        <button class="ghost" id="resetBtn">Reset</button>
+      </div>
+
+      <div class="note">
+        This viewer adds no detection or reasoning of its own. Detection, tracking,
+        reasoning &amp; persistence run as one deterministic backend pass; confirmed
+        events are read back from the existing <span class="mono">EventStore</span> output.
+      </div>
+    </section>
+
+    <!-- RIGHT: status -->
+    <section class="card">
+      <h2>Status</h2>
+      <div class="status" id="status"><div class="idle">Idle &mdash; choose a source and click Analyze.</div></div>
+    </section>
+  </div>
+
+  <!-- RESULTS -->
+  <section id="results" class="hidden" style="margin-top:22px">
+    <div class="card" style="margin-bottom:18px">
+      <h2>Summary</h2>
+      <div class="stat-grid">
+        <div class="stat"><div class="n" id="sVehicles">0</div><div class="l">Vehicles Processed</div></div>
+        <div class="stat"><div class="n" id="sViolations">0</div><div class="l">Violations Found</div></div>
+        <div class="stat"><div class="n" id="sFrames">0</div><div class="l">Frames Processed</div></div>
+        <div class="stat"><div class="n" id="sStatus">&mdash;</div><div class="l">Processing Status</div></div>
+      </div>
+      <div class="mono" id="sMeta" style="margin-top:14px;color:var(--muted)"></div>
+    </div>
+
+    <div class="grid two">
+      <div class="card">
+        <h2>Detected Violations</h2>
+        <div id="violations"></div>
+      </div>
+      <div class="card">
+        <h2>Analyzed Video</h2>
+        <video id="clipVideo" class="hidden" controls playsinline preload="none"></video>
+        <div class="filmstrip" id="filmstrip"></div>
+        <div class="mono" id="clipMeta" style="margin-top:10px;color:var(--muted)"></div>
+        <div id="clipDownload" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <div id="errBox" class="err hidden" style="margin-top:20px"></div>
+
+  <footer>TrafficPulse Viewer v0.1 &middot; developer demo &middot; fully offline &middot; backend unchanged</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let uploadedClipId = null;
+
+// --- presentation-only helpers (no logic, no backend values changed) ---
+function humanize(s){ return (s||'').replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()); }
+// Shorten a long id for display (evt-453a...) while the full value is kept in
+// the element's title (hover) and data-full attribute.
+function truncId(s){ return (s && s.length > 11) ? s.slice(0, 8) + '...' : (s || '-'); }
+function attr(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+
+function sourceValue(){ return document.querySelector('input[name=source]:checked').value; }
+
+function syncSourceUI(){
+  const isUpload = sourceValue() === 'upload';
+  $('scenarioWrap').classList.toggle('hidden', isUpload);
+  $('uploadWrap').classList.toggle('hidden', !isUpload);
+}
+document.querySelectorAll('input[name=source]').forEach(r => r.addEventListener('change', syncSourceUI));
+
+$('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if(!f) return;
+  $('uploadStatus').textContent = 'Uploading ' + f.name + ' ...';
+  try{
+    const res = await fetch('/api/upload', {method:'POST', headers:{'X-Filename': f.name}, body: f});
+    const j = await res.json();
+    if(j.clip_id){ uploadedClipId = j.clip_id;
+      $('uploadStatus').textContent = 'Ready: ' + j.name + ' (' + j.bytes.toLocaleString() + ' bytes)'; }
+    else { $('uploadStatus').textContent = 'Upload failed.'; }
+  }catch(err){ $('uploadStatus').textContent = 'Upload error: ' + err; }
+});
+
+function setStatus(lines){
+  const el = $('status'); el.innerHTML = '';
+  lines.forEach((ln) => {
+    const d = document.createElement('div');
+    d.className = 'line ' + (ln.state || '');
+    d.innerHTML = '<span class="dot"></span><span>' + ln.text + '</span>';
+    el.appendChild(d);
+  });
+}
+
+function renderResult(r){
+  $('errBox').classList.add('hidden');
+  const s = r.summary;
+  $('sVehicles').textContent = s.vehicles_processed;
+  $('sViolations').textContent = s.violations_found;
+  $('sFrames').textContent = s.frames_processed;
+  $('sStatus').innerHTML = '<span class="pill ok">' + s.processing_status + '</span>';
+  $('sMeta').textContent =
+    'source: ' + s.source + '   |   detector: ' + s.detector + '   |   tracker: ' + s.tracker +
+    '   |   track-states: ' + s.track_states_emitted + '   |   run: ' + s.run_id;
+
+  const vwrap = $('violations'); vwrap.innerHTML = '';
+  if(!r.violations.length){
+    vwrap.innerHTML = '<div class="mono" style="color:var(--muted)">No violations confirmed on this clip. ' +
+      '(An honest zero-result &mdash; e.g. real RT-DETR on footage that does not match the demo scene calibration.)</div>';
+  }
+  r.violations.forEach((v) => {
+    const rows = (arr) => arr.map(m =>
+      '<tr><td>'+m.name+'</td><td>'+m.value+'</td><td>'+(m.unit||'')+'</td></tr>').join('');
+    const card = document.createElement('div');
+    card.className = 'vcard';
+    card.innerHTML =
+      '<div class="top"><div class="vt">'+v.violation_type+'</div>'+
+        '<span class="pill ok">'+v.status+'</span></div>'+
+      '<div class="meta">'+
+        '<div class="kv"><div class="k">Vehicle</div><div class="v" title="'+attr(v.vehicle_id)+'">'+v.vehicle_id+'</div></div>'+
+        '<div class="kv"><div class="k">Time</div><div class="v">'+v.timestamp+'</div></div>'+
+        '<div class="kv"><div class="k">Rule</div><div class="v" title="'+attr(v.rule_id)+'">'+humanize(v.rule_id)+'</div></div>'+
+        '<div class="kv"><div class="k">Camera</div><div class="v" title="'+attr(v.camera_id)+'">'+v.camera_id+'</div></div>'+
+        '<div class="kv"><div class="k">Rule ver.</div><div class="v" title="'+attr(v.rule_version||'-')+'">'+(v.rule_version||'-')+'</div></div>'+
+        '<div class="kv"><div class="k">Event ID</div><div class="v mono" title="'+attr(v.event_id)+'" data-full="'+attr(v.event_id)+'">'+truncId(v.event_id)+'</div></div>'+
+      '</div>'+
+      '<details class="more"><summary>Evidence &amp; measurements</summary>'+
+        '<table class="m"><tr><th>Measurement</th><th>Value</th><th>Unit</th></tr>'+rows(v.measurements)+'</table>'+
+        '<table class="m"><tr><th>Threshold</th><th>Value</th><th>Unit</th></tr>'+rows(v.thresholds)+'</table>'+
+        '<div class="mono" style="margin-top:8px;word-break:break-all">scene_config_hash: '+(v.scene_config_hash||'-')+'</div>'+
+      '</details>';
+    vwrap.appendChild(card);
+  });
+
+  const c = r.clip;
+  const vid = $('clipVideo');
+  const clipUrl = '/api/clip?id=' + c.clip_id;
+  // Only mount the inline player for codecs browsers can decode; the synthetic
+  // demo clips are MPEG-4 Part 2 (not playable in <video>), so we show the
+  // extracted preview frames + a download link instead of a hung player.
+  if(c.playable){ vid.src = clipUrl; vid.classList.remove('hidden'); }
+  else { vid.removeAttribute('src'); vid.classList.add('hidden'); }
+  const fs = $('filmstrip'); fs.innerHTML = '';
+  (c.frames||[]).forEach(src => { const im = document.createElement('img'); im.src = src; fs.appendChild(im); });
+  const codecNote = c.playable ? '' : ' — not inline-playable; frames + download shown';
+  $('clipMeta').textContent = c.width + 'x' + c.height + '  |  ' + (c.fps? c.fps.toFixed(2)+' fps' : '') +
+    '  |  codec: ' + c.codec + codecNote;
+  $('clipDownload').innerHTML = '<a href="' + clipUrl + '" download class="mono" style="color:var(--accent)">Download analyzed clip</a>';
+  $('results').classList.remove('hidden');
+}
+
+function showError(msg){
+  $('errBox').textContent = 'Backend error: ' + msg;
+  $('errBox').classList.remove('hidden');
+}
+
+$('analyzeBtn').addEventListener('click', () => {
+  const source = sourceValue();
+  if(source === 'upload' && !uploadedClipId){
+    $('uploadStatus').textContent = 'Please choose a video file first.'; return;
+  }
+  $('analyzeBtn').disabled = true;
+  $('results').classList.add('hidden');
+  $('errBox').classList.add('hidden');
+
+  const params = new URLSearchParams({source});
+  if(source === 'builtin') params.set('scenario', $('scenario').value);
+  else params.set('clip', uploadedClipId);
+
+  const shown = [];
+  setStatus([{text:'Starting analysis...', state:'active'}]);
+  const es = new EventSource('/api/analyze?' + params.toString());
+
+  es.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if(msg.type === 'progress'){
+      // mark previous lines done, current active
+      shown.forEach(l => l.state = 'done');
+      shown.push({text: msg.message, state:'active'});
+      if(msg.message === 'Analysis complete.') shown.forEach(l => l.state='done');
+      setStatus(shown);
+    } else if(msg.type === 'result'){
+      renderResult(msg);
+    } else if(msg.type === 'error'){
+      shown.forEach(l => l.state='done');
+      setStatus(shown.concat([{text:'Failed.', state:''}]));
+      showError(msg.message);
+    } else if(msg.type === 'done'){
+      es.close();
+      $('analyzeBtn').disabled = false;
+    }
+  };
+  es.onerror = () => { es.close(); $('analyzeBtn').disabled = false; };
+});
+
+$('resetBtn').addEventListener('click', () => {
+  $('results').classList.add('hidden');
+  $('errBox').classList.add('hidden');
+  setStatus([{text:'Idle — choose a source and click Analyze.'}]);
+  $('status').innerHTML = '<div class="idle">Idle &mdash; choose a source and click Analyze.</div>';
+});
+
+syncSourceUI();
+</script>
+</body>
+</html>
