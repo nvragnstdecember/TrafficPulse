@@ -128,7 +128,8 @@
           <input type="radio" name="source" value="upload">
           <span>
             <div class="t">Upload a video</div>
-            <div class="d">Runs the <b>real RT-DETR</b> offline slice on your clip (genuine inference).</div>
+            <div class="d">Runs the <b>real RT-DETR</b> offline slice on your clip (genuine inference),
+              auto-calibrating the scene to the clip's own frame &amp; observed traffic flow.</div>
           </span>
         </label>
         <div class="sub hidden" id="uploadWrap">
@@ -167,7 +168,7 @@
         <div class="stat"><div class="n" id="sFrames">0</div><div class="l">Frames Processed</div></div>
         <div class="stat"><div class="n" id="sStatus">&mdash;</div><div class="l">Processing Status</div></div>
       </div>
-      <div class="mono" id="sMeta" style="margin-top:14px;color:var(--muted)"></div>
+      <div class="mono" id="sMeta" style="margin-top:14px;color:var(--muted);white-space:pre-line"></div>
     </div>
 
     <div class="grid two">
@@ -240,14 +241,20 @@ function renderResult(r){
   $('sViolations').textContent = s.violations_found;
   $('sFrames').textContent = s.frames_processed;
   $('sStatus').innerHTML = '<span class="pill ok">' + s.processing_status + '</span>';
-  $('sMeta').textContent =
+  let meta =
     'source: ' + s.source + '   |   detector: ' + s.detector + '   |   tracker: ' + s.tracker +
     '   |   track-states: ' + s.track_states_emitted + '   |   run: ' + s.run_id;
+  if(s.calibration){
+    meta += '\nscene: auto-calibrated ' + s.calibration.frame +
+      '   |   legal flow: ' + s.calibration.flow_heading_degrees + '° (from ' +
+      s.calibration.mover_count + ' moving tracks)   |   ' + s.calibration.scene_id;
+  }
+  $('sMeta').textContent = meta;
 
   const vwrap = $('violations'); vwrap.innerHTML = '';
   if(!r.violations.length){
     vwrap.innerHTML = '<div class="mono" style="color:var(--muted)">No violations confirmed on this clip. ' +
-      '(An honest zero-result &mdash; e.g. real RT-DETR on footage that does not match the demo scene calibration.)</div>';
+      '(An honest zero-result &mdash; no vehicle sustainedly opposed the scene\'s legal direction.)</div>';
   }
   r.violations.forEach((v) => {
     const rows = (arr) => arr.map(m =>

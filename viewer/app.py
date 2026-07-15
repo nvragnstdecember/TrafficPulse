@@ -14,10 +14,15 @@ already-tested backend* and *displays whatever the backend produced*:
   exactly as ``demo/run_demo.py`` does -- so the offline scripted-detector slices
   confirm the same real ``ConfirmedEvent``s the CLI/tests already produce;
 * uploaded clips are run through the **real RT-DETR** offline slice (genuine
-  inference behind the P1-U6 seam), and the honest result is displayed -- which,
-  on footage that does not match the demo scene's calibration, is commonly
-  "no violations found". Nothing is fabricated: the stub replays a caller-authored
-  script; RT-DETR runs real inference.
+  inference behind the P1-U6 seam) against a **per-clip auto-calibrated scene**
+  (``viewer/calibration.py``): one real inference pass derives the clip's own
+  frame geometry and its observed dominant traffic-flow direction, a validated
+  ``SceneConfig`` is built from them, and the *unchanged* ``run_wrong_way_slice``
+  reasons over the recorded real detections against that scene. The honest result
+  is displayed: zero events when every vehicle travels with the flow, and a
+  genuine ``ConfirmedEvent`` when a vehicle sustainedly opposes it. Nothing is
+  fabricated: the stub replays a caller-authored script; RT-DETR runs real
+  inference; the upload replay re-emits recorded real RT-DETR output verbatim.
 
 Confirmed events are read back from the unmodified ``EventStore`` output location,
 so the reviewer never has to open a JSON file by hand.
@@ -85,6 +90,16 @@ from _stopping_fixtures import (  # noqa: E402
     write_illegal_stopping_clip,
 )
 
+# Per-clip upload scene calibration (viewer demonstration layer; backend unchanged).
+from calibration import (  # noqa: E402
+    OBSERVED_DIRECTION_ID,
+    RTDetrCapturedReplay,
+    build_calibrated_scene,
+    calibrate_and_capture,
+    default_upload_detector_config,
+    upload_camera_id,
+)
+
 from trafficpulse.contracts import (  # noqa: E402
     ConfirmedEvent,
     ObjectClass,
@@ -133,6 +148,8 @@ class _Analysis:
     report: SliceRunReport
     events: tuple[ConfirmedEvent, ...]
     clip_path: Path
+    # Upload-only: what the per-clip auto-calibration observed (shown in the UI).
+    calibration: dict[str, object] | None = None
 
 
 def _register_clip(path: Path) -> str:
@@ -181,9 +198,19 @@ def _analyze_builtin_illegal_stopping(run_id: str) -> _Analysis:
 def _analyze_upload(run_id: str, clip_path: Path) -> _Analysis:
     """Run the REAL RT-DETR wrong-way slice on an uploaded clip (genuine inference).
 
-    Uses the example scene and the shipped CLI's detector construction. This is the
-    honest perception path: whatever RT-DETR + the reasoner produce is what shows --
-    commonly zero events on footage that does not match the demo scene's geometry.
+    Two stages, both honest (see ``viewer/calibration.py``):
+
+    1. **Calibration pass** -- one genuine RT-DETR inference pass over the whole
+       clip records the per-frame detections and derives the clip's own scene:
+       real frame dimensions + legal direction = the observed dominant traffic
+       flow (previously the upload path reasoned against the *synthetic* example
+       scene, whose 1920x1080 "north is up" geometry matches no real footage).
+    2. **Slice pass** -- the unchanged ``run_wrong_way_slice`` reasons over the
+       *recorded real detections* (replayed verbatim by ``RTDetrCapturedReplay``)
+       against the calibrated scene, and persists via the unchanged ``EventStore``.
+
+    The result is the reasoner's own: zero events when all traffic moves with the
+    flow; a genuine ``ConfirmedEvent`` for a vehicle sustainedly opposing it.
     """
     detector = _build_rtdetr_detector(
         checkpoint=_DEFAULT_RTDETR_CHECKPOINT,
@@ -191,26 +218,46 @@ def _analyze_upload(run_id: str, clip_path: Path) -> _Analysis:
         score_threshold=0.5,
         local_files_only=True,
     )
+    detector_config = default_upload_detector_config(
+        _rtdetr_model_ref(_DEFAULT_RTDETR_CHECKPOINT)
+    )
+    calibration = calibrate_and_capture(
+        clip=clip_path,
+        detector=detector,
+        detector_config=detector_config,
+        camera_id=upload_camera_id(clip_path),
+    )
+    scene = build_calibrated_scene(calibration, clip_label=clip_path.name)
     report = run_wrong_way_slice(
         clip=clip_path,
-        scene=_load_example_scene(),
-        detector=detector,
+        scene=scene,
+        detector=RTDetrCapturedReplay(per_frame=calibration.per_frame_raw),
         tracker=IouTracker(tracker_config=TrackerConfig(tracker=_IOU_TRACKER_MODEL_REF)),
-        detector_config=DetectorConfig(
-            label_map={"car": ObjectClass.CAR},
-            score_threshold=0.5,
-            source_model=_rtdetr_model_ref(_DEFAULT_RTDETR_CHECKPOINT),
-        ),
+        detector_config=detector_config,
         output_dir=_RUN_ROOT,
         run_id=run_id,
-        direction_id=_WRONG_WAY_DIRECTION_ID,
+        direction_id=OBSERVED_DIRECTION_ID,
+        camera_id=calibration.camera_id,
         checkpoint=_DEFAULT_RTDETR_CHECKPOINT,
         device="cpu",
     )
     events = (
         tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
     )
-    return _Analysis(report=report, events=events, clip_path=clip_path)
+    return _Analysis(
+        report=report,
+        events=events,
+        clip_path=clip_path,
+        calibration={
+            "flow_heading_degrees": round(calibration.flow_heading_degrees, 1),
+            "flow_vector": {"dx": calibration.flow_dx, "dy": calibration.flow_dy},
+            "mover_count": calibration.mover_count,
+            "track_count": calibration.track_count,
+            "frame": f"{calibration.width}x{calibration.height}",
+            "camera_id": calibration.camera_id,
+            "scene_id": scene.scene.scene_id,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,21 +347,24 @@ def _extract_frames(path: Path, count: int = 6, max_decode: int = 900) -> list[s
 def _build_result_payload(analysis: _Analysis, source_label: str) -> dict[str, object]:
     report = analysis.report
     clip_id = _register_clip(analysis.clip_path)
+    summary: dict[str, object] = {
+        "vehicles_processed": report.unique_tracks,
+        "violations_found": report.event_count,
+        "frames_processed": report.frames_processed,
+        "track_states_emitted": report.track_states_emitted,
+        "processing_status": "Complete",
+        "detector": report.detector_kind,
+        "tracker": report.tracker_kind,
+        "source": source_label,
+        "run_id": report.run_id,
+        "output_dir": report.output_dir,
+        "scene_config_hash": report.scene_config_hash,
+    }
+    if analysis.calibration is not None:
+        summary["calibration"] = analysis.calibration
     return {
         "type": "result",
-        "summary": {
-            "vehicles_processed": report.unique_tracks,
-            "violations_found": report.event_count,
-            "frames_processed": report.frames_processed,
-            "track_states_emitted": report.track_states_emitted,
-            "processing_status": "Complete",
-            "detector": report.detector_kind,
-            "tracker": report.tracker_kind,
-            "source": source_label,
-            "run_id": report.run_id,
-            "output_dir": report.output_dir,
-            "scene_config_hash": report.scene_config_hash,
-        },
+        "summary": summary,
         "clip": {
             "clip_id": clip_id,
             "width": report.width,
@@ -342,6 +392,18 @@ _INDEX_HTML = (_VIEWER_DIR / "index.html").read_text(encoding="utf-8")
 _STAGES = [
     "Reading video...",
     "Loading detector...",
+    "Running tracker...",
+    "Applying reasoning...",
+    "Generating evidence...",
+]
+
+# Upload runs add the genuine calibration stage: one real RT-DETR pass records
+# detections and derives the clip's own scene before the slice pass reasons.
+_UPLOAD_STAGES = [
+    "Reading video...",
+    "Loading detector...",
+    "Running RT-DETR inference (calibration pass)...",
+    "Calibrating scene from observed traffic flow...",
     "Running tracker...",
     "Applying reasoning...",
     "Generating evidence...",
@@ -462,7 +524,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     if not path:
                         raise ValueError("uploaded clip not found; please re-upload")
                     box["result"] = _analyze_upload(run_id, path)
-                    box["label"] = "Uploaded video (real RT-DETR inference)"
+                    box["label"] = "Uploaded video (real RT-DETR + auto-calibrated scene)"
                 elif scenario == "illegal_stopping":
                     box["result"] = _analyze_builtin_illegal_stopping(run_id)
                     box["label"] = "Built-in synthetic clip (illegal stopping)"
@@ -476,11 +538,12 @@ class ViewerHandler(BaseHTTPRequestHandler):
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
 
+        stages = _UPLOAD_STAGES if source == "upload" else _STAGES
         try:
             # Emit staged messages; pace them but never outrun the worker.
-            for idx, stage in enumerate(_STAGES):
+            for idx, stage in enumerate(stages):
                 self._sse_event({"type": "progress", "message": stage,
-                                 "step": idx + 1, "total": len(_STAGES) + 1})
+                                 "step": idx + 1, "total": len(stages) + 1})
                 waited = 0.0
                 while thread.is_alive() and waited < 0.5:
                     time.sleep(0.1)
@@ -492,7 +555,7 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 analysis = box["result"]  # type: ignore[assignment]
                 payload = _build_result_payload(analysis, str(box["label"]))
                 self._sse_event({"type": "progress", "message": "Analysis complete.",
-                                 "step": len(_STAGES) + 1, "total": len(_STAGES) + 1})
+                                 "step": len(stages) + 1, "total": len(stages) + 1})
                 self._sse_event(payload)
             self._sse_event({"type": "done"})
         except (BrokenPipeError, ConnectionResetError):  # pragma: no cover

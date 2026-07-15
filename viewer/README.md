@@ -23,11 +23,37 @@ violations **in a browser — without opening any JSON by hand**.
 | Source | What runs | Typical result |
 |---|---|---|
 | **Built-in demo clip** (Wrong Way / Illegal Stopping) | The repository's own offline scripted-detector slice — the exact runners `demo/run_demo.py` and the pipeline tests use (`run_wrong_way_slice` / `run_illegal_stopping_slice`), real `IouTracker`, real rule engine, real `EventStore`. | A real `ConfirmedEvent` (e.g. **Wrong Way · iou-1 · 00:01.10 · Confirmed**). |
-| **Upload a video** | The **real RT-DETR** offline slice (genuine inference behind the P1-U6 seam) on your clip, against the example scene. | Honest — commonly *no violations* on footage that does not match the demo scene's calibration; requires the RT-DETR checkpoint cached locally. |
+| **Upload a video** | The **real RT-DETR** offline slice (genuine inference behind the P1-U6 seam) against a **per-clip auto-calibrated scene** (`viewer/calibration.py`): one real inference pass records the detections and derives the clip's own frame geometry + legal direction (= the observed dominant traffic flow); the unchanged `run_wrong_way_slice` then reasons over those recorded detections against that scene. | Honest — *zero violations* when every vehicle travels with the flow; a genuine `ConfirmedEvent` for a vehicle that sustainedly opposes it. Requires the RT-DETR checkpoint cached locally. |
 
 Neither path fabricates a detection: the built-in stub replays a caller-authored
 script matched to a synthetic clip (a COCO RT-DETR does not fire the vehicle class
-on synthetic pixels — see the CLI README), and the upload path runs real inference.
+on synthetic pixels — see the CLI README), and the upload path runs real inference
+(the slice pass replays the calibration pass's *recorded* real RT-DETR output
+verbatim — `detector_kind: RTDetrCapturedReplay` — so the clip is inferred once,
+not twice).
+
+### Upload scene calibration (why it exists)
+
+The upload path previously reasoned every clip against the repository's *synthetic*
+example scene (1920×1080, legal direction "up"), which matches no real footage and
+structurally produced zero events. `viewer/calibration.py` fixes this at the
+demonstration layer — the backend is untouched: it derives the clip's real frame
+size and its observed dominant traffic-flow direction from substantial tracks
+(alive ≥ 1 s, net motion ≥ 40 px), authors a validated `SceneConfig` in the clip's
+own pixel space (provenance `auto_calibration`, status `draft`, no metric
+calibration claimed), and feeds it to the existing runner. Wrong-way under this
+calibration means exactly: *a vehicle sustainedly opposing the dominant traffic
+stream* (>120° deviation for ≥1.0 s — the same provisional thresholds as the
+example scene).
+
+To positively verify the wrong-way path end-to-end, generate a validation clip
+(a real vehicle crop from your footage composited moving *against* the flow — a
+constructed scenario, genuinely analyzed; see the script's docstring):
+
+```bash
+./.venv/Scripts/python.exe demo/make_wrong_way_upload_clip.py
+# writes runs/demo/clips/wrong_way_upload_validation.mp4 — upload it in the Viewer
+```
 
 > **Note on inline video:** the built-in synthetic clips are encoded as MPEG-4
 > Part 2 (`mpeg4`), which browsers cannot decode in `<video>`. For those clips the
