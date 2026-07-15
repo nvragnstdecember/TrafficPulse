@@ -1,7 +1,8 @@
 import subprocess
-import time
-import webview
 import sys
+import time
+
+import webview
 
 # Start the TrafficPulse viewer
 server = subprocess.Popen([sys.executable, "viewer/app.py"])
