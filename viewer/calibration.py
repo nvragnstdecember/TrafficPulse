@@ -86,6 +86,17 @@ OBSERVED_LANE_ZONE_ID = "zone-lane-observed"
 MIN_TRACK_LIFETIME_SECONDS = 1.0
 MIN_NET_DISPLACEMENT_PX = 40.0
 
+# Only *vehicle* tracks define the dominant traffic flow. P4-U1 added ``person`` to
+# the upload label map (helmet reasoning needs riders), but pedestrians do not
+# define a roadway's legal direction -- a pedestrian crossing or walking a footpath
+# would drag the estimated flow vector off the traffic axis and corrupt the
+# calibrated scene for every wrong-way run. Restricting the estimate to vehicles
+# preserves the pre-P4 flow semantics (previously car-only by construction) while
+# letting the broader label map serve perception.
+FLOW_CLASSES: frozenset[ObjectClass] = frozenset(
+    {ObjectClass.CAR, ObjectClass.MOTORCYCLE}
+)
+
 # Fixed timestamp stamped on generated scenes so the scene hash — and therefore
 # the content-derived event ids — stay deterministic across repeated runs of the
 # same clip (no wall-clock in the decision path, matching the backend's rule).
@@ -169,6 +180,8 @@ def calibrate_and_capture(
             per_frame_raw[frame_record.frame_index] = raws
             frames_seen += 1
             for state in tracker.update(adapter.adapt(frame, raws)):
+                if state.object_class not in FLOW_CLASSES:
+                    continue  # pedestrians do not define traffic flow (see FLOW_CLASSES)
                 box = state.bbox
                 centers.setdefault(state.track_id, []).append(
                     (
@@ -360,10 +373,27 @@ def build_calibrated_scene(
 
 
 def default_upload_detector_config(checkpoint_model_ref: ModelRef) -> DetectorConfig:
-    """The adapter config the upload path uses (car >= 0.5, real provenance stamp)."""
+    """The adapter config the upload path uses (>= 0.5, real provenance stamp).
+
+    Extended in P4-U1 (Gate 0) from ``car``-only to the classes Phase 4 needs.
+    Validated by ``demo/gate0_rtdetr_validation.py`` on real Delhi traffic footage:
+    RT-DETR detects all three classes reliably at score >= 0.5.
+
+    Both motorcycle spellings are mapped deliberately. Checkpoints disagree on the
+    native ``id2label`` vocabulary: ``PekingU/rtdetr_r50vd`` emits **"motorbike"**,
+    other ports emit "motorcycle". An unmapped native label is silently dropped by
+    the adapter (P1-U6 behaviour), so mapping only "motorcycle" against this
+    checkpoint detects **zero** motorcycles with no error. Mapping both is safe: a
+    spelling the checkpoint never emits simply never matches.
+    """
 
     return DetectorConfig(
-        label_map={"car": ObjectClass.CAR},
+        label_map={
+            "car": ObjectClass.CAR,
+            "motorbike": ObjectClass.MOTORCYCLE,
+            "motorcycle": ObjectClass.MOTORCYCLE,
+            "person": ObjectClass.PERSON,
+        },
         score_threshold=0.5,
         source_model=checkpoint_model_ref,
     )
