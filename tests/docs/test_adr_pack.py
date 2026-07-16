@@ -119,7 +119,11 @@ def test_only_sanctioned_runtime_packages() -> None:
     # and the ``persistence`` layer (P1-U11), the minimal event-persistence + evidence
     # stub that writes ``ConfirmedEvent``s and minimal ``EvidenceManifest``s to
     # deterministic JSON (ADR-002-authorised storage, no new dependency), depending
-    # only on the frozen contracts (no backend, no ML).
+    # only on the frozen contracts (no backend, no ML); and the ``classifier``
+    # integration foundation (P4-U2), the crop-classification analogue of the P1-U6
+    # detector seam -- a framework-neutral ``HelmetClassifier`` interface, boundary
+    # types, and a scripted stub, kept behind the frozen U2 ``HelmetStateObservation``
+    # contract and carrying no ML dependency (ADR-001 permissive-only; no AGPL).
     # Any other package (evidence engine, review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
@@ -132,6 +136,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "tracking",
         "pipeline",
         "persistence",
+        "classifier",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
