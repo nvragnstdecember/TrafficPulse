@@ -11,18 +11,22 @@ or removing it is a localized change. Downstream layers depend on this interface
 and on the frozen U2 ``HelmetStateObservation`` contract -- never on an ML
 framework.
 
-This foundation carries **no** ML dependency: importing this package pulls in no
-torch, no transformers, and loads no weights. A real backend (P4-U3) will import
-its framework lazily, exactly as ``detector/rtdetr.py`` does, so the base install
-and every unit test stay ML-free and network-free.
+The P4-U2 foundation (interface, boundary types, stub) carries **no** ML
+dependency. The P4-U3 :class:`ZeroShotHelmetClassifier` is the first *real*
+backend: it integrates the Apache-2.0 HuggingFace ``transformers`` CLIP-family
+image-text port (ADR-001 permissive-only; **no Ultralytics / AGPL**), but imports
+torch/transformers **lazily**, so importing this package still pulls in no ML
+framework. Its prompt vocabulary travels in ``RawHelmetPrediction.label`` and its
+pixels arrive through the existing ``Crop.image`` slot -- no API change to the
+seam.
 
-Scope boundary (what this unit does NOT do)
--------------------------------------------
-It performs no inference and defines no model, label vocabulary, head-crop
-geometry, rider-slot attribution, quality gate, or observation. Cropping and
-``HelmetStateObservation`` production are P4-U4; temporal aggregation and the
-no-helmet rule are P4-U5; a real backend is P4-U3. Rules never call a classifier:
-models produce observations, and the reasoning layer decides violations.
+Scope boundary (what this package does NOT do)
+----------------------------------------------
+It defines no head-crop geometry, rider-slot attribution, quality gate, label map,
+or observation. Cropping and ``HelmetStateObservation`` production are P4-U4;
+temporal aggregation, abstention, and the no-helmet rule are P4-U5. Rules never
+call a classifier: models produce observations, and the reasoning layer decides
+violations.
 """
 
 from .crop import Crop
@@ -30,16 +34,43 @@ from .errors import HelmetClassifierError
 from .interface import HelmetClassifier
 from .raw import RawHelmetPrediction
 from .stub import UNCERTAIN, StubHelmetClassifier
+from .zeroshot import (
+    DEFAULT_HELMET_PROMPTS,
+    BackendDependencyError,
+    BackendInferenceError,
+    InvalidDeviceError,
+    MalformedBackendOutputError,
+    MissingCropImageError,
+    ModelArtifactUnavailableError,
+    ZeroShotBackendError,
+    ZeroShotHelmetClassifier,
+    ZeroShotHelmetConfig,
+    ZeroShotInferenceEngine,
+)
 
 __all__ = [
     # interface + implementations
     "HelmetClassifier",
     "StubHelmetClassifier",
+    "ZeroShotHelmetClassifier",
     # boundary types
     "Crop",
     "RawHelmetPrediction",
+    # configuration
+    "ZeroShotHelmetConfig",
+    "DEFAULT_HELMET_PROMPTS",
+    # internal engine seam (fakeable; no framework type crosses it)
+    "ZeroShotInferenceEngine",
     # stub conveniences
     "UNCERTAIN",
     # errors
     "HelmetClassifierError",
+    # zero-shot backend errors
+    "ZeroShotBackendError",
+    "BackendDependencyError",
+    "ModelArtifactUnavailableError",
+    "InvalidDeviceError",
+    "MissingCropImageError",
+    "MalformedBackendOutputError",
+    "BackendInferenceError",
 ]

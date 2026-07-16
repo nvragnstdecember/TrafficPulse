@@ -53,14 +53,25 @@ dev = [
   "pyyaml>=6",
 ]
 
-# --- Real detector backend (optional; ADR-001 permissive-only) ----------------
-# The RT-DETR backend (src/trafficpulse/detector/rtdetr.py) integrates the
-# Apache-2.0 HuggingFace Transformers RT-DETR port. It is OPTIONAL and kept out of
-# the base install and CI: torch/transformers are imported lazily and only when the
-# real backend is constructed, so the base package, its import graph, and every
-# unit test stay ML-free and network-free. No model weights are vendored or
-# downloaded by installing this extra; checkpoint acquisition is an explicit,
-# operator-driven step (RTDetrConfig.local_files_only defaults to offline).
+# --- Real model backends (optional; ADR-001 permissive-only) ------------------
+# Despite its name (kept stable for compatibility), this extra now powers BOTH
+# permissive real backends, which share the same torch/transformers floor and add
+# no dependency of their own:
+#   * RT-DETR object detection  (src/trafficpulse/detector/rtdetr.py, P1-U7)
+#     — the Apache-2.0 HuggingFace Transformers RT-DETR port;
+#   * zero-shot helmet classification (src/trafficpulse/classifier/zeroshot.py,
+#     P4-U3) — the Apache-2.0 Transformers CLIP-family image-text port, driven
+#     through AutoModel/AutoProcessor so the checkpoint (CLIP: MIT, SigLIP:
+#     Apache-2.0, ...) is configuration rather than code.
+# NEITHER involves AGPL model code: Ultralytics — and hence YOLO11/YOLO12 and
+# their trained weights — remains excluded from the integrated path by ADR-001.
+#
+# It is OPTIONAL and kept out of the base install and CI: torch/transformers are
+# imported lazily and only when a real backend is constructed, so the base
+# package, its import graph, and every unit test stay ML-free and network-free.
+# No model weights are vendored or downloaded by installing this extra; checkpoint
+# acquisition is an explicit, operator-driven step (both backends' configs default
+# local_files_only to offline, and neither ships a default checkpoint).
 #
 # torchvision + pillow are REQUIRED at runtime by the transformers RT-DETR image
 # processor (AutoImageProcessor); they are permissive (torchvision BSD-3-Clause,
