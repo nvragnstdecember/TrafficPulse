@@ -63,11 +63,47 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..contracts import ConfirmedEvent, MeasuredValue, ModelRef
+from ..contracts import ConfidenceBreakdown, ConfirmedEvent, MeasuredValue, ModelRef
 from ..contracts.enums import ViolationType
 from ..contracts.observations import ObservationBase
 from .engine import HypothesisRecord, RuleEngine
 from .states import EngineState
+
+
+@dataclass(frozen=True)
+class EpisodeExtras:
+    """Optional per-episode enrichment supplied by an injected enricher (P4-U5).
+
+    The base assembles every violation-invariant field of a ``ConfirmedEvent``
+    itself. Three things it cannot know generically:
+
+    * **related track ids** -- an episode is keyed by *one* track, but a violation
+      may legitimately involve more. No-helmet is the first such case: the episode
+      is per *rider* (helmet state is the rider's), yet the event must also name
+      the *motorcycle* the rider was associated with. This has to be resolved
+      **before** ``event_id`` is computed, because ``track_ids`` is an
+      identity-bearing field: patching it afterwards would leave the id
+      contradicting its own content.
+    * **a confidence breakdown** -- how per-observation evidence aggregates over an
+      episode is rule-specific (architecture-review §13).
+    * **extra measurements** -- values derived from the episode's observations
+      rather than from its timing alone (which is all ``DetailBuilder`` sees).
+
+    Every field is empty/``None`` by default, so an enricher may supply only what
+    it has. No enricher at all (the default) reproduces the pre-P4-U5 behaviour
+    exactly.
+    """
+
+    related_track_ids: tuple[str, ...] = ()
+    confidence: ConfidenceBreakdown | None = None
+    measurements: tuple[MeasuredValue, ...] = ()
+
+
+# Given a confirmed episode's own ``track_id`` and its ``(start_at, trigger_at)``
+# window, return the episode's enrichment. Pure: no wall-clock, no shared mutable
+# state; a pure function of the episode identity and window (plus whatever the
+# reasoner closed over).
+EpisodeEnricher = Callable[[str, datetime, datetime], EpisodeExtras]
 
 
 @dataclass(frozen=True)
@@ -116,6 +152,7 @@ class TemporalRunReasoner:
         rule_version: str | None,
         models: tuple[ModelRef, ...] = (),
         max_observation_gap_seconds: float | None = None,
+        episode_enricher: EpisodeEnricher | None = None,
     ) -> None:
         self._engine = engine
         self._violation_type = violation_type
@@ -132,6 +169,12 @@ class TemporalRunReasoner:
         # tuple.
         self._models = models
         self._max_gap = max_observation_gap_seconds
+        # Optional per-episode enrichment (P4-U5). ``None`` -- the default, and the
+        # case for every reasoner shipped before Phase 4 -- means the base assembles
+        # the event exactly as it did pre-P4-U5: track_ids from the record alone, a
+        # default (all-``None``) confidence breakdown, and only the detail builder's
+        # measurements. See :class:`EpisodeExtras`.
+        self._enricher = episode_enricher
         self._runs: dict[tuple[str, str], _Run] = {}
         self._events: list[ConfirmedEvent] = []
 
@@ -267,13 +310,26 @@ class TemporalRunReasoner:
         assert start_at is not None  # an attached hypothesis always has a first observation
         trigger_at = trigger.timestamp
         details = self._detail_builder(start_at, trigger_at)
+
+        # Per-episode enrichment (P4-U5), resolved BEFORE the id is computed:
+        # ``track_ids`` is identity-bearing, so a related track added afterwards
+        # would leave ``event_id`` contradicting its own content.
+        extras = EpisodeExtras()
+        if self._enricher is not None and record.track_id is not None:
+            extras = self._enricher(record.track_id, start_at, trigger_at)
+        track_ids = record.track_ids
+        if extras.related_track_ids:
+            # Sorted union: the engine already keeps ``track_ids`` sorted, so the
+            # result stays order-independent and therefore id-stable.
+            track_ids = tuple(sorted(set(track_ids) | set(extras.related_track_ids)))
+
         return ConfirmedEvent(
             event_id=self._event_id(
-                record.camera_id, record.track_ids, start_at, trigger_at, record.hypothesis_id
+                record.camera_id, track_ids, start_at, trigger_at, record.hypothesis_id
             ),
             violation_type=self._violation_type,
             camera_id=record.camera_id,
-            track_ids=record.track_ids,
+            track_ids=track_ids,
             start_at=start_at,
             trigger_at=trigger_at,
             rule_id=self._rule_id,
@@ -282,7 +338,12 @@ class TemporalRunReasoner:
             models=self._models,  # run-level provenance; never enters _event_id
             source_hypothesis_id=record.hypothesis_id,
             created_at=trigger_at,  # deterministic data timestamp, never wall-clock
-            measurements=details.measurements,
+            # Absent an enricher this is ``ConfidenceBreakdown()`` -- identical to the
+            # contract's own default, so pre-P4-U5 events are byte-identical.
+            confidence=(
+                extras.confidence if extras.confidence is not None else ConfidenceBreakdown()
+            ),
+            measurements=details.measurements + extras.measurements,
             thresholds=details.thresholds,
         )
 
