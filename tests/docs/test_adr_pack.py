@@ -123,7 +123,11 @@ def test_only_sanctioned_runtime_packages() -> None:
     # integration foundation (P4-U2), the crop-classification analogue of the P1-U6
     # detector seam -- a framework-neutral ``HelmetClassifier`` interface, boundary
     # types, and a scripted stub, kept behind the frozen U2 ``HelmetStateObservation``
-    # contract and carrying no ML dependency (ADR-001 permissive-only; no AGPL).
+    # contract and carrying no ML dependency (ADR-001 permissive-only; no AGPL);
+    # and the ``association`` derivation (P4-U4), the first implementation of the
+    # frozen U2 ``Association`` contract and of the one architecture-review §14
+    # data-flow box (Detection -> TrackState -> Association -> Observation) that had
+    # a contract but no code, depending only on geometry and the frozen contracts.
     # Any other package (evidence engine, review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
@@ -137,6 +141,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "pipeline",
         "persistence",
         "classifier",
+        "association",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
