@@ -7,12 +7,16 @@ logic of its own. It is a thin presentation shell that *invokes the existing,
 already-tested backend* and *displays whatever the backend produced*:
 
 * built-in demo clips reuse the repository's own test fixtures
-  (``tests/pipeline/_slice_fixtures.py`` and ``tests/pipeline/_stopping_fixtures.py``)
-  and the already-shipped composition roots
-  (``trafficpulse.pipeline.runner.run_wrong_way_slice`` and
-  ``trafficpulse.pipeline.illegal_stopping_runner.run_illegal_stopping_slice``),
-  exactly as ``demo/run_demo.py`` does -- so the offline scripted-detector slices
-  confirm the same real ``ConfirmedEvent``s the CLI/tests already produce;
+  (``tests/pipeline/_slice_fixtures.py``, ``_stopping_fixtures.py``, and
+  ``_helmet_fixtures.py``) and the already-shipped composition roots
+  (``trafficpulse.pipeline.runner.run_wrong_way_slice``,
+  ``...illegal_stopping_runner.run_illegal_stopping_slice`` and
+  ``...no_helmet_runner.run_no_helmet_slice``), exactly as ``demo/run_demo.py``
+  does -- so the offline scripted-perception slices confirm the same real
+  ``ConfirmedEvent``s the CLI/tests already produce. The no-helmet demo
+  additionally injects a scripted ``StubHelmetClassifier`` (no classifier can read
+  a helmet off a coloured rectangle); the run report's ``classifier_kind`` states
+  that truthfully;
 * uploaded clips are run through the **real RT-DETR** offline slice (genuine
   inference behind the P1-U6 seam) against a **per-clip auto-calibrated scene**
   (``viewer/calibration.py``): one real inference pass derives the clip's own
@@ -77,6 +81,13 @@ for _p in (str(_SRC), str(_FIXTURES_DIR)):
 
 import av  # noqa: E402  (base dep; used only to render preview frames)
 import yaml  # noqa: E402  (dev dep; scene loading, mirrors run_demo.py)
+from _helmet_fixtures import (  # noqa: E402
+    helmet_detector_config,
+    helmet_example_scene,
+    scripted_helmet_classifier,
+    scripted_rider_detector,
+    write_no_helmet_clip,
+)
 
 # Repository's own synthetic-clip + scripted-detector fixtures (built-in demos).
 from _slice_fixtures import (  # noqa: E402
@@ -108,7 +119,12 @@ from trafficpulse.contracts import (  # noqa: E402
 from trafficpulse.detector import DetectorConfig  # noqa: E402
 from trafficpulse.persistence import EventStore  # noqa: E402
 from trafficpulse.pipeline.illegal_stopping_runner import (  # noqa: E402
+    IllegalStoppingSliceRunReport,
     run_illegal_stopping_slice,
+)
+from trafficpulse.pipeline.no_helmet_runner import (  # noqa: E402
+    NoHelmetSliceRunReport,
+    run_no_helmet_slice,
 )
 
 # --- reused, already-tested composition roots (NO reasoning duplicated here) ---
@@ -145,7 +161,10 @@ def _load_example_scene() -> SceneConfig:
 
 @dataclass
 class _Analysis:
-    report: SliceRunReport
+    # Any slice's run report. The three report types are distinct dataclasses (one
+    # per thin-sibling runner) but share the fields the presentation layer reads,
+    # so _build_result_payload stays violation-agnostic.
+    report: SliceRunReport | NoHelmetSliceRunReport | IllegalStoppingSliceRunReport
     events: tuple[ConfirmedEvent, ...]
     clip_path: Path
     # Upload-only: what the per-clip auto-calibration observed (shown in the UI).
@@ -186,6 +205,35 @@ def _analyze_builtin_illegal_stopping(run_id: str) -> _Analysis:
         detector=scripted_stopping_detector(),
         tracker=IouTracker(),
         detector_config=stopping_detector_config(),
+        output_dir=_RUN_ROOT,
+        run_id=run_id,
+    )
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
+    return _Analysis(report=report, events=events, clip_path=clip)
+
+
+def _analyze_builtin_no_helmet(run_id: str) -> _Analysis:
+    """Run the offline no-helmet slice on the repo's synthetic clip.
+
+    Structurally identical to the two sibling built-in demos: the same composition
+    root pattern, the same unmodified ``EventStore``, and the same violation card
+    renderer. The helmet slice additionally injects a scripted
+    ``StubHelmetClassifier`` -- a COCO RT-DETR does not fire on synthetic pixels, and
+    no classifier can read a helmet off a coloured rectangle, so both perception
+    seams replay caller-authored scripts here exactly as the wrong-way and
+    illegal-stopping demos do. The report's ``classifier_kind`` states that
+    truthfully, so a scripted run can never be mistaken for a real model.
+    """
+    clip = write_no_helmet_clip(_RUN_ROOT / "clips" / f"{run_id}.mp4")
+    report = run_no_helmet_slice(
+        clip=clip,
+        scene=helmet_example_scene(),
+        detector=scripted_rider_detector(),
+        tracker=IouTracker(),
+        classifier=scripted_helmet_classifier(),
+        detector_config=helmet_detector_config(),
         output_dir=_RUN_ROOT,
         run_id=run_id,
     )
@@ -397,6 +445,19 @@ _STAGES = [
     "Generating evidence...",
 ]
 
+# The no-helmet slice adds two genuine stages the geometry-only slices do not run:
+# rider<->motorcycle association (P4-U4) and head-crop helmet classification behind
+# the P4-U2 seam. Naming them keeps the narration truthful rather than generic.
+_HELMET_STAGES = [
+    "Reading video...",
+    "Loading detector...",
+    "Running tracker...",
+    "Associating riders with motorcycles...",
+    "Classifying helmet state on head crops...",
+    "Applying reasoning...",
+    "Generating evidence...",
+]
+
 # Upload runs add the genuine calibration stage: one real RT-DETR pass records
 # detections and derives the clip's own scene before the slice pass reasons.
 _UPLOAD_STAGES = [
@@ -528,6 +589,9 @@ class ViewerHandler(BaseHTTPRequestHandler):
                 elif scenario == "illegal_stopping":
                     box["result"] = _analyze_builtin_illegal_stopping(run_id)
                     box["label"] = "Built-in synthetic clip (illegal stopping)"
+                elif scenario == "no_helmet":
+                    box["result"] = _analyze_builtin_no_helmet(run_id)
+                    box["label"] = "Built-in synthetic clip (no helmet, scripted classifier)"
                 else:
                     box["result"] = _analyze_builtin_wrong_way(run_id)
                     box["label"] = "Built-in synthetic clip (wrong way)"
@@ -538,7 +602,12 @@ class ViewerHandler(BaseHTTPRequestHandler):
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
 
-        stages = _UPLOAD_STAGES if source == "upload" else _STAGES
+        if source == "upload":
+            stages = _UPLOAD_STAGES
+        elif scenario == "no_helmet":
+            stages = _HELMET_STAGES
+        else:
+            stages = _STAGES
         try:
             # Emit staged messages; pace them but never outrun the worker.
             for idx, stage in enumerate(stages):

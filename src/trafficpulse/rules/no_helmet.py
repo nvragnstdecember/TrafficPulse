@@ -210,6 +210,21 @@ def _mean(values: Sequence[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def exempt_riders(observations: Iterable[HelmetStateObservation]) -> frozenset[str]:
+    """The riders a ``turban`` observation exempts (the latching rule; see module docs).
+
+    The single source of truth for the exemption rule: :class:`NoHelmetReasoner`
+    uses it to decide, and a caller (e.g. a run report) uses it to *describe* what
+    was exempted -- so the description can never drift from the decision.
+    """
+
+    return frozenset(
+        o.track_id
+        for o in observations
+        if o.track_id is not None and o.helmet_state is HelmetState.TURBAN
+    )
+
+
 class NoHelmetReasoner:
     """Deterministic no-helmet temporal reasoner over ``HelmetStateObservation``.
 
@@ -319,14 +334,12 @@ class NoHelmetReasoner:
     ) -> None:
         self._by_rider = {}
         self._bikes_by_rider = {}
-        self._exempt = set()
+        self._exempt = set(exempt_riders(observations))  # latching (see module docs)
         for observation in observations:
             track_id = observation.track_id
             if track_id is None:
                 continue
             self._by_rider.setdefault(track_id, []).append(observation)
-            if observation.helmet_state is HelmetState.TURBAN:
-                self._exempt.add(track_id)  # latching exemption (see module docs)
         for association in associations:
             if association.association_type is not AssociationType.RIDER_OF_MOTORCYCLE:
                 continue
