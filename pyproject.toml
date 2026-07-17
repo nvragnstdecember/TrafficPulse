@@ -84,11 +84,20 @@ dev = [
 # NOTE: this validates the CURRENT interpreter (3.13) only -- the >=3.11 floor is
 # still asserted statically (mypy py311) but was not runtime-tested here. Weight/
 # pretraining-data provenance remains a per-artifact review (docs/adr/ADR-001.md).
+# sentencepiece + protobuf are REQUIRED at runtime by the transformers SigLIP
+# tokenizer (SiglipTokenizer); without them AutoProcessor.from_pretrained raises
+# ImportError. They are permissive (both Apache-2.0), ADR-001-compatible, and add
+# no AGPL/GPL coupling. Verified needed when the zero-shot helmet backend was first
+# executed against google/siglip-base-patch16-224 (resolved: sentencepiece 0.2.2,
+# protobuf 7.35.1). A CLIP-family checkpoint that ships a BPE tokenizer does not
+# need them, but the extra installs them so the documented default works.
 rtdetr = [
   "torch>=2.0",
   "torchvision>=0.15",
   "transformers>=4.45",
   "pillow>=10",
+  "sentencepiece>=0.1.99",
+  "protobuf>=4.25",
 ]
 
 # --- Version single-source: read from src/trafficpulse/__init__.py -----------

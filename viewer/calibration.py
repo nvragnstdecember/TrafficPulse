@@ -372,6 +372,131 @@ def build_calibrated_scene(
     return SceneConfig.model_validate(raw)
 
 
+HELMET_ZONE_ID = "zone-roadway-observed"
+
+
+def build_helmet_scene(
+    *, width: int, height: int, camera_id: str, clip_label: str = "uploaded clip"
+) -> SceneConfig:
+    """Author a validated ``SceneConfig`` for running the no-helmet slice on a clip.
+
+    Declarative data only, in the clip's **own pixel space**.
+
+    Why this is not :func:`build_calibrated_scene`
+    ----------------------------------------------
+    Wrong-way reasoning is direction-gated, so its scene must be *calibrated*: an
+    inference pass has to observe the dominant traffic flow before the scene can be
+    authored, which is why the upload path pays two passes. No-helmet reasoning is
+    **neither zone- nor direction-gated** -- it reasons over rider observations and
+    time only. The single thing it needs from the clip is its frame size, which the
+    P1-U5 ingestion metadata reports **without any inference**. So this scene is a
+    pure function of the clip's dimensions, and the helmet upload path runs **one**
+    inference pass rather than two.
+
+    A full-frame zone is declared because ``SceneConfig`` structurally requires at
+    least one; the no-helmet slice never reads it. No ``legal_direction`` is
+    declared (nothing consumes one) and ``calibration.type`` is ``none`` because no
+    metric calibration is claimed.
+
+    The ``no_helmet`` rule parameters mirror the committed example scene's
+    (provisional, untuned) values verbatim, so an uploaded clip is reasoned over on
+    exactly the same policy the tests and the built-in demo use.
+    """
+
+    raw = {
+        "scene": {
+            "scene_id": f"scene-helmet-{camera_id.removeprefix('cam-upload-')}",
+            "scene_name": "Uploaded CCTV (no-helmet slice)",
+            "config_version": "0.1.0-autocal",
+            "schema_version": "1.0.0",
+            "status": "draft",  # derived, not operator-validated
+            "camera_id": camera_id,
+            "site_id": "site-upload-01",
+            "description": (
+                f"Scene for {clip_label}: frame {width}x{height}. No-helmet reasoning "
+                "is neither zone- nor direction-gated, so only the frame size is "
+                "derived from the clip; no traffic-flow calibration is performed or "
+                "claimed."
+            ),
+            "created_at": _SCENE_TIMESTAMP,
+            "updated_at": _SCENE_TIMESTAMP,
+            "provenance": {
+                "origin": "auto_calibration",
+                "purpose": "uploaded_clip_no_helmet_analysis",
+                "synthetic": False,
+                "author_role": "viewer_auto_calibrator",
+                "source_reference": "clip-frame-metadata",
+                "notes": (
+                    "Frame size read from the clip's ingestion metadata; no "
+                    "operator-verified deployment calibration."
+                ),
+            },
+        },
+        "frame": {
+            "reference_width": width,
+            "reference_height": height,
+            "coordinate_space": "pixel",
+            "origin": "top_left",
+            "x_axis_direction": "right",
+            "y_axis_direction": "down",
+            "polygon_point_ordering": "ordered_ring",
+        },
+        "zones": [
+            {
+                "zone_id": HELMET_ZONE_ID,
+                "zone_type": "roi",
+                "enabled": True,
+                "description": (
+                    "Whole-frame monitored roadway. Declared because SceneConfig "
+                    "requires at least one zone; the no-helmet slice does not read it "
+                    "(helmet reasoning is not zone-gated)."
+                ),
+                "polygon": [
+                    [0.0, 0.0],
+                    [float(width), 0.0],
+                    [float(width), float(height)],
+                    [0.0, float(height)],
+                ],
+                "applicable_violations": ["no_helmet"],
+                "observation_consumers": ["helmet_state"],
+            }
+        ],
+        "calibration": {
+            "calibration_id": "cal-none-upload",
+            "type": "none",  # no metric/world calibration is claimed
+            "status": "absent",
+            "verification_status": "unverified",
+            "source": "auto_calibration",
+            "created_at": _SCENE_TIMESTAMP,
+            "world_unit": "meters",
+            "quality_metrics": {"reprojection_rmse_px": None, "status": "unset"},
+            "notes": "No homography/world calibration; the no-helmet slice needs none.",
+        },
+        "rule_parameters": [
+            {
+                "violation_type": "no_helmet",
+                "parameters": [
+                    {
+                        "id": "min_persistence",
+                        "value": 1.0,
+                        "unit": "seconds",
+                        "status": "provisional",
+                        "note": "Mirrors the example scene's provisional value; not tuned.",
+                    },
+                    {
+                        "id": "max_observation_gap",
+                        "value": 2.0,
+                        "unit": "seconds",
+                        "status": "provisional",
+                        "note": "Mirrors the example scene's provisional value; not tuned.",
+                    },
+                ],
+            }
+        ],
+    }
+    return SceneConfig.model_validate(raw)
+
+
 def default_upload_detector_config(checkpoint_model_ref: ModelRef) -> DetectorConfig:
     """The adapter config the upload path uses (>= 0.5, real provenance stamp).
 
