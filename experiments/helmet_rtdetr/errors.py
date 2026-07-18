@@ -132,3 +132,54 @@ class InconsistentProvenanceError(SplitError):
 
 class InvalidManifestError(SplitError):
     """A split manifest document is malformed."""
+
+
+# --- training infrastructure (H4A) --------------------------------------------
+class TrainingError(HelmetDataError):
+    """Base for training-infrastructure failures."""
+
+
+class InvalidTrainingConfigError(TrainingError):
+    """A training configuration is semantically invalid (cross-field rule).
+
+    Field-level bounds (a negative epoch count, an out-of-range fraction) surface
+    as pydantic ``ValidationError`` at construction, as everywhere else in this
+    package; this typed error is for rules a single field cannot express.
+    """
+
+
+class DuplicateExperimentError(TrainingError):
+    """An experiment run directory already exists and resume is not enabled."""
+
+
+class TrainerStateError(TrainingError):
+    """A lifecycle method was called out of order (e.g. ``end_epoch`` before
+    ``begin_epoch``, or ``begin`` twice)."""
+
+
+class ResumeError(TrainingError):
+    """A resume was requested but cannot proceed safely.
+
+    Covers a stored config that does not match the current one, an unreadable
+    stored config, and resuming an experiment that already finished.
+    """
+
+
+class CheckpointError(TrainingError):
+    """A checkpoint could not be written, read, or interpreted."""
+
+
+class CheckpointNotFoundError(CheckpointError):
+    """The requested checkpoint (id / latest / best) does not exist."""
+
+
+class InvalidMetricNameError(TrainingError):
+    """A metric name does not match the sanctioned pattern."""
+
+
+class InvalidMetricValueError(TrainingError):
+    """A metric value is not a finite number (NaN/inf are never recorded)."""
+
+
+class MetricNotFoundError(TrainingError):
+    """A metric was requested that has never been recorded."""
