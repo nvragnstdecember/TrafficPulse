@@ -103,3 +103,32 @@ class FrameNumberingError(ConversionError):
 
 class MissingImageError(ConversionError):
     """A unified object references an image file that does not exist on disk."""
+
+
+# --- dataset splitting (H3) ---------------------------------------------------
+class SplitError(HelmetDataError):
+    """Base for dataset-splitting failures."""
+
+
+class InvalidRatioError(SplitError):
+    """Split ratios are out of range or do not sum to 1.0."""
+
+
+class LeakageError(SplitError):
+    """The same group (or image) appears in more than one split.
+
+    The highest-priority failure the splitter guards against: frames from one
+    video, or a single image, must never straddle train/val/test.
+    """
+
+
+class EmptySplitError(SplitError):
+    """A split with a positive requested ratio ended up empty (or the corpus is)."""
+
+
+class InconsistentProvenanceError(SplitError):
+    """One image path is associated with more than one dataset id."""
+
+
+class InvalidManifestError(SplitError):
+    """A split manifest document is malformed."""

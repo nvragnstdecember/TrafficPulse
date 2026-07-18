@@ -9,6 +9,12 @@ conversion, training, evaluation, and the inference backend are later units.
 
 from __future__ import annotations
 
+from .builder import (
+    SplitBuilder,
+    SplitResult,
+    SplitValidator,
+    export_splits,
+)
 from .convert import (
     AnnotationAdapter,
     CocoAdapter,
@@ -31,18 +37,25 @@ from .errors import (
     DatasetNotFoundError,
     DuplicateAnnotationError,
     DuplicateDatasetIdError,
+    EmptySplitError,
     FrameNumberingError,
     HelmetDataError,
+    InconsistentProvenanceError,
     IngestionError,
     InvalidLicenseError,
+    InvalidManifestError,
+    InvalidRatioError,
+    LeakageError,
     MalformedAnnotationError,
     MalformedRegistryError,
     MissingImageError,
     RegistryValidationError,
+    SplitError,
     UnknownHelmetLayoutError,
     UnsupportedLabelError,
     UnsupportedRegistryVersionError,
 )
+from .grouping import GroupingStrategy, ImageGrouping, VideoAwareGrouping
 from .ingestion import (
     IngestionReport,
     IngestionStatus,
@@ -51,6 +64,15 @@ from .ingestion import (
     ready_datasets,
 )
 from .layout import DEFAULT_DATA_ROOT, DatasetLayout
+from .manifest import (
+    GENERATOR_VERSION,
+    DatasetStats,
+    SplitCounts,
+    SplitManifest,
+    SplitStatistics,
+    build_manifest,
+    compute_statistics,
+)
 from .models import (
     ATTRIBUTION_REQUIRED,
     CURRENT_SCHEMA_VERSION,
@@ -67,6 +89,7 @@ from .models import (
     VerificationStatus,
 )
 from .registry import default_helmet_registry, load_registry
+from .split import SPLIT_ORDER, SplitName, SplitRatios
 from .unified import BBox, ObjectProvenance, UnifiedClass, UnifiedObject
 
 __all__ = [
@@ -116,6 +139,24 @@ __all__ = [
     "export_corpus",
     "validate_image_references",
     "require_image_references",
+    # splitting (H3)
+    "SplitName",
+    "SplitRatios",
+    "SPLIT_ORDER",
+    "GroupingStrategy",
+    "VideoAwareGrouping",
+    "ImageGrouping",
+    "SplitBuilder",
+    "SplitValidator",
+    "SplitResult",
+    "export_splits",
+    "SplitManifest",
+    "SplitStatistics",
+    "SplitCounts",
+    "DatasetStats",
+    "compute_statistics",
+    "build_manifest",
+    "GENERATOR_VERSION",
     # errors
     "HelmetDataError",
     "RegistryValidationError",
@@ -132,4 +173,10 @@ __all__ = [
     "DuplicateAnnotationError",
     "FrameNumberingError",
     "MissingImageError",
+    "SplitError",
+    "InvalidRatioError",
+    "LeakageError",
+    "EmptySplitError",
+    "InconsistentProvenanceError",
+    "InvalidManifestError",
 ]
