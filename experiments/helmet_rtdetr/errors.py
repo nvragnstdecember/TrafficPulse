@@ -65,3 +65,41 @@ class IngestionError(HelmetDataError):
     Missing directories/files are reported as data (an ``IngestionReport``), not
     raised; this is reserved for genuine ingestion faults.
     """
+
+
+# --- annotation conversion (H2) ----------------------------------------------
+class ConversionError(HelmetDataError):
+    """Base for annotation-conversion failures."""
+
+
+class MalformedAnnotationError(ConversionError):
+    """A source annotation file is structurally invalid (missing keys, bad rows)."""
+
+
+class UnsupportedLabelError(ConversionError):
+    """A source label is not in the adapter's label map.
+
+    Raised rather than guessed -- the P4-U1 ``motorbike`` lesson: an unmapped
+    vocabulary must fail loudly, never be silently dropped or mis-assigned.
+    """
+
+
+class UnknownHelmetLayoutError(ConversionError):
+    """No registered HELMET layout adapter recognises the given directory.
+
+    The HELMET dataset ships in more than one annotation layout across mirrors and
+    reimplementations; the pipeline sniffs for a matching adapter and refuses to
+    parse an unrecognised layout rather than mis-parse it.
+    """
+
+
+class DuplicateAnnotationError(ConversionError):
+    """Two annotations share a content-derived ``object_id`` (same image+box+label)."""
+
+
+class FrameNumberingError(ConversionError):
+    """A video's objects have inconsistent frame numbering."""
+
+
+class MissingImageError(ConversionError):
+    """A unified object references an image file that does not exist on disk."""

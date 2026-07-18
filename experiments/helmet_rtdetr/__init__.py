@@ -9,14 +9,38 @@ conversion, training, evaluation, and the inference backend are later units.
 
 from __future__ import annotations
 
+from .convert import (
+    AnnotationAdapter,
+    CocoAdapter,
+    HelmetFlatCsvAdapter,
+    HelmetLayoutAdapter,
+    HelmetTrackCsvAdapter,
+    map_label,
+    sniff_helmet_layout,
+)
+from .corpus import (
+    CorpusBuilder,
+    DuplicatePolicy,
+    UnifiedCorpus,
+    export_corpus,
+    require_image_references,
+    validate_image_references,
+)
 from .errors import (
+    ConversionError,
     DatasetNotFoundError,
+    DuplicateAnnotationError,
     DuplicateDatasetIdError,
+    FrameNumberingError,
     HelmetDataError,
     IngestionError,
     InvalidLicenseError,
+    MalformedAnnotationError,
     MalformedRegistryError,
+    MissingImageError,
     RegistryValidationError,
+    UnknownHelmetLayoutError,
+    UnsupportedLabelError,
     UnsupportedRegistryVersionError,
 )
 from .ingestion import (
@@ -43,6 +67,7 @@ from .models import (
     VerificationStatus,
 )
 from .registry import default_helmet_registry, load_registry
+from .unified import BBox, ObjectProvenance, UnifiedClass, UnifiedObject
 
 __all__ = [
     # models
@@ -71,6 +96,26 @@ __all__ = [
     "discover",
     "inspect_dataset",
     "ready_datasets",
+    # unified schema (H2)
+    "UnifiedObject",
+    "UnifiedClass",
+    "BBox",
+    "ObjectProvenance",
+    # converters (H2)
+    "AnnotationAdapter",
+    "map_label",
+    "CocoAdapter",
+    "HelmetLayoutAdapter",
+    "HelmetTrackCsvAdapter",
+    "HelmetFlatCsvAdapter",
+    "sniff_helmet_layout",
+    # corpus (H2)
+    "CorpusBuilder",
+    "UnifiedCorpus",
+    "DuplicatePolicy",
+    "export_corpus",
+    "validate_image_references",
+    "require_image_references",
     # errors
     "HelmetDataError",
     "RegistryValidationError",
@@ -80,4 +125,11 @@ __all__ = [
     "MalformedRegistryError",
     "DatasetNotFoundError",
     "IngestionError",
+    "ConversionError",
+    "MalformedAnnotationError",
+    "UnsupportedLabelError",
+    "UnknownHelmetLayoutError",
+    "DuplicateAnnotationError",
+    "FrameNumberingError",
+    "MissingImageError",
 ]
