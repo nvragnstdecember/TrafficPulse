@@ -91,6 +91,13 @@ dev = [
 # executed against google/siglip-base-patch16-224 (resolved: sentencepiece 0.2.2,
 # protobuf 7.35.1). A CLIP-family checkpoint that ships a BPE tokenizer does not
 # need them, but the extra installs them so the documented default works.
+# scipy is REQUIRED by the transformers RT-DETR **training** path only: the
+# Hungarian matcher in its loss (transformers/loss/loss_rt_detr.py) imports it,
+# while pure inference never does — which is why P1-U7 never needed it. It is
+# BSD-3-Clause, ADR-001-compatible, and used exclusively by the experiments/
+# training pipeline (H4B); the runtime inference path is unchanged. Verified
+# needed empirically when the first training forward pass raised ImportError
+# (resolved: scipy 1.16.x).
 rtdetr = [
   "torch>=2.0",
   "torchvision>=0.15",
@@ -98,6 +105,7 @@ rtdetr = [
   "pillow>=10",
   "sentencepiece>=0.1.99",
   "protobuf>=4.25",
+  "scipy>=1.11",
 ]
 
 # --- Version single-source: read from src/trafficpulse/__init__.py -----------

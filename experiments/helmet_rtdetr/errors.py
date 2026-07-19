@@ -183,3 +183,20 @@ class InvalidMetricValueError(TrainingError):
 
 class MetricNotFoundError(TrainingError):
     """A metric was requested that has never been recorded."""
+
+
+# --- RT-DETR integration (H4B) -------------------------------------------------
+class BackendUnavailableError(TrainingError):
+    """torch / transformers (the optional training backend) are not installed."""
+
+
+class ModelIOError(TrainingError):
+    """A model checkpoint could not be loaded or saved."""
+
+
+class DatasetIOError(TrainingError):
+    """A training dataset could not be constructed (missing split/images, bad rows)."""
+
+
+class PayloadNotFoundError(TrainingError):
+    """A checkpoint's weight payload (.pt) is absent although its metadata exists."""

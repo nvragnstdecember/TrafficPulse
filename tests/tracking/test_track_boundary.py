@@ -34,9 +34,20 @@ _FORBIDDEN_MODULES = (
 
 
 def test_importing_tracking_package_pulls_in_no_ml_or_tracker_framework() -> None:
-    importlib.reload(importlib.import_module("trafficpulse.tracking"))
-    imported = set(sys.modules)
-    assert not (imported & set(_FORBIDDEN_MODULES))
+    # Evict-first so the assertion reflects this package's OWN import graph
+    # (other suites legitimately import torch/scipy into the shared process);
+    # the causal pattern from the classifier boundary test (P4-U2).
+    evicted = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name.split(".")[0] in _FORBIDDEN_MODULES
+    }
+    try:
+        importlib.reload(importlib.import_module("trafficpulse.tracking"))
+        leaked = [n for n in sys.modules if n.split(".")[0] in _FORBIDDEN_MODULES]
+        assert leaked == [], f"tracking import pulled in: {leaked}"
+    finally:
+        sys.modules.update(evicted)
 
 
 def test_tracker_output_is_only_the_frozen_contract() -> None:
