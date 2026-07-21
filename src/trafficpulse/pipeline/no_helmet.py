@@ -118,6 +118,29 @@ class _NoHelmetFinalize:
         )
 
 
+def no_helmet_finalize_strategy(
+    scene: SceneConfig,
+    *,
+    classifier: HelmetClassifier,
+    observation_config: HelmetObservationConfig | None = None,
+) -> tuple[_NoHelmetFinalize, HelmetFrameObserver]:
+    """Build the no-helmet back half for one scene (public factory).
+
+    Returns the reasoning strategy **and** the pixel observer it reads, because a
+    caller composing this rule onto a shared ``CompositionPipeline`` (the
+    real-time engine) must register the observer as the pipeline's frame observer
+    -- the strategy alone never sees pixels. Applies the same fail-fast scene
+    resolution as the pipeline constructor.
+
+    Raises:
+        ValueError: if the scene declares no usable ``no_helmet`` parameter block.
+    """
+
+    params = no_helmet_parameters(scene)
+    observer = HelmetFrameObserver(classifier=classifier, config=observation_config)
+    return _NoHelmetFinalize(params=params, observer=observer), observer
+
+
 class NoHelmetPipeline:
     """Deterministic offline orchestration for the no-helmet vertical slice.
 
@@ -140,17 +163,17 @@ class NoHelmetPipeline:
         detector_config: DetectorConfig,
         observation_config: HelmetObservationConfig | None = None,
     ) -> None:
-        params = no_helmet_parameters(scene)
-        self._observer = HelmetFrameObserver(
-            classifier=classifier, config=observation_config
+        strategy, observer = no_helmet_finalize_strategy(
+            scene, classifier=classifier, observation_config=observation_config
         )
+        self._observer = observer
         self._core = CompositionPipeline(
             detector=detector,
             tracker=tracker,
             scene=scene,
             detector_config=detector_config,
-            finalize_strategy=_NoHelmetFinalize(params=params, observer=self._observer),
-            frame_observer=self._observer,
+            finalize_strategy=strategy,
+            frame_observer=observer,
         )
 
     @property

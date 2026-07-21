@@ -127,8 +127,14 @@ def test_only_sanctioned_runtime_packages() -> None:
     # and the ``association`` derivation (P4-U4), the first implementation of the
     # frozen U2 ``Association`` contract and of the one architecture-review §14
     # data-flow box (Detection -> TrackState -> Association -> Observation) that had
-    # a contract but no code, depending only on geometry and the frozen contracts.
-    # Any other package (evidence engine, review, penalty, ...) would be premature scope.
+    # a contract but no code, depending only on geometry and the frozen contracts;
+    # and the ``engine`` real-time inference layer (H6), a composition of the
+    # shipped seams (sources over P1-U5 ingestion, scheduling, batched/timed
+    # inference behind the P1-U6 Detector abstraction, multi-rule reasoning via
+    # the existing pipeline strategies, evidence frame references, P1-U11
+    # persistence) that adds no reasoning and imports no ML framework (backends
+    # are built lazily by its composition roots only).
+    # Any other package (review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
         "geometry",
@@ -142,6 +148,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "persistence",
         "classifier",
         "association",
+        "engine",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
