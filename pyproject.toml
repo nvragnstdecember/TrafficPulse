@@ -51,6 +51,23 @@ dev = [
   # to a runtime dependency) is deferred to Phase 1, keeping runtime deps
   # limited to pydantic.
   "pyyaml>=6",
+  # httpx backs starlette's TestClient, which the H7A application-API tests use
+  # to drive the FastAPI app in-process (no running server). Test-only.
+  "httpx>=0.27",
+]
+
+# --- Application API layer (H7A; optional) ------------------------------------
+# The FastAPI application layer (src/trafficpulse/app) that exposes the H6
+# inference engine over HTTP. It is OPTIONAL and kept out of the base install:
+# the core library, its import graph, and every non-API unit test stay free of a
+# web framework. FastAPI pulls in starlette + pydantic (pydantic is already a
+# base dependency); python-multipart is required by starlette to parse the
+# multipart/form-data video upload. No ASGI server is declared here -- the app is
+# exposed as an ASGI application (trafficpulse.app.asgi:app) for the operator's
+# server of choice (uvicorn/hypercorn), and host/port travel in AppConfig.
+api = [
+  "fastapi>=0.115",
+  "python-multipart>=0.0.9",
 ]
 
 # --- Real model backends (optional; ADR-001 permissive-only) ------------------

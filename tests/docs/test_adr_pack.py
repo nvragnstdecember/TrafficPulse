@@ -133,7 +133,13 @@ def test_only_sanctioned_runtime_packages() -> None:
     # inference behind the P1-U6 Detector abstraction, multi-rule reasoning via
     # the existing pipeline strategies, evidence frame references, P1-U11
     # persistence) that adds no reasoning and imports no ML framework (backends
-    # are built lazily by its composition roots only).
+    # are built lazily by its composition roots only); and the ``app``
+    # application-API layer (H7A), a thin FastAPI HTTP surface + services over
+    # the H6 engine (upload, process-job lifecycle, event/evidence retrieval,
+    # metrics) that adds no reasoning/detection/tracking of its own -- it wires
+    # H6 behind HTTP so the frontend depends only on JSON, never on an engine
+    # class. FastAPI is an optional extra; importing the base package pulls in no
+    # web framework.
     # Any other package (review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
@@ -149,6 +155,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "classifier",
         "association",
         "engine",
+        "app",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}
