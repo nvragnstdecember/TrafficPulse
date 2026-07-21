@@ -200,3 +200,37 @@ class DatasetIOError(TrainingError):
 
 class PayloadNotFoundError(TrainingError):
     """A checkpoint's weight payload (.pt) is absent although its metadata exists."""
+
+
+# --- evaluation framework (H5) --------------------------------------------------
+class EvaluationError(HelmetDataError):
+    """Base for evaluation-framework failures."""
+
+
+class InvalidEvaluationConfigError(EvaluationError):
+    """An evaluation configuration is semantically invalid (cross-field rule).
+
+    Field-level bounds surface as pydantic ``ValidationError`` at construction,
+    as everywhere else in this package; this typed error is for rules a single
+    field cannot express (e.g. an unsorted IoU-threshold ladder).
+    """
+
+
+class InvalidPredictionError(EvaluationError):
+    """A prediction is not evaluable.
+
+    Raised for a prediction whose class is outside the detector's binary label
+    space (e.g. ``motorcycle``, which is a context class, never a detection
+    target), for a decoded label id the label map does not contain, and for a
+    prediction that references an image the evaluation universe does not know —
+    each a symptom of mismatched inputs that must fail loudly, never be
+    silently dropped.
+    """
+
+
+class EvaluationDataError(EvaluationError):
+    """Evaluation inputs could not be loaded or are inconsistent.
+
+    Covers a missing split manifest, a malformed manifest line, and duplicate
+    ground-truth objects (same content-derived ``object_id``).
+    """
