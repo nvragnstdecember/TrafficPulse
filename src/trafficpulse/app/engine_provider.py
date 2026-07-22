@@ -32,9 +32,7 @@ from .errors import EngineUnavailableError
 class EngineProvider(Protocol):
     """Creates a configured H6 engine for one job; the injectable backend seam."""
 
-    def create(
-        self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]
-    ) -> InferenceEngine:
+    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
         """Build an engine for ``scene`` running ``rules``.
 
         May raise the composed layers' typed errors (scene/rule validation, or a
@@ -53,9 +51,7 @@ class RealEngineProvider:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
-    def create(
-        self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]
-    ) -> InferenceEngine:
+    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
         if self._config.inference is None:
             raise EngineUnavailableError(
                 "no inference backend is configured; set AppConfig.inference to "
@@ -70,14 +66,29 @@ class RealEngineProvider:
         framework-free test suite, whose provider is a stub -- see the module
         docstring). Its typed ``DetectorError`` on a missing extra/checkpoint is
         translated to a 503 by the processing service, which *is* tested with a
-        stub that raises the same error without importing any ML framework."""
+        stub that raises the same error without importing any ML framework.
+
+        When a ``no_helmet`` rule is present the engine also needs a
+        ``HelmetClassifier``; it is built here from ``AppConfig.helmet_classifier``
+        (lazily loading transformers) and injected. If that config is absent the
+        classifier stays ``None`` and the engine's rule registry fails the
+        ``no_helmet`` rule fast -- a clean configuration error, never a silent
+        miss."""
+
+        from ..classifier import ZeroShotHelmetClassifier
 
         engine_config = EngineConfig(rules=rules, inference=self._config.inference)
+        classifier = (
+            ZeroShotHelmetClassifier(self._config.helmet_classifier)
+            if self._config.helmet_classifier is not None
+            else None
+        )
         # build_engine also mints an EventStore; the processing service owns
         # persistence (one store rooted at runs_dir), so only the engine is kept.
         engine, _store = build_engine(
             scene=scene,
             config=engine_config,
+            classifier=classifier,
             output_root=self._config.runs_dir,
             perf=time.perf_counter,  # real wall-clock FPS for live job metrics
         )

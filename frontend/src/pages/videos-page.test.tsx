@@ -98,6 +98,8 @@ describe('VideosPage (video workspace)', () => {
 
     expect(screen.getByRole('heading', { name: 'Video workspace' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Upload a video' })).toBeInTheDocument();
+    // Demo readiness (H8): a first-run "how it works" hint accompanies the dropzone.
+    expect(screen.getByRole('region', { name: 'How it works' })).toBeInTheDocument();
     expect(eventsService.list).not.toHaveBeenCalled();
   });
 

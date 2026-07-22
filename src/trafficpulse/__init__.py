@@ -7,6 +7,6 @@ package version for smoke testing. Domain contracts (the ``contracts``
 package) first appear in U2; other modules appear only when a unit needs them.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 
 __all__ = ["__version__"]

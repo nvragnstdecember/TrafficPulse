@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from trafficpulse.app import AppConfig, SynchronousJobExecutor, create_app
 from trafficpulse.app.registry import JobExecutor, JobWork
+from trafficpulse.classifier.interface import HelmetClassifier
 from trafficpulse.contracts import SceneConfig
 from trafficpulse.detector import DetectorConfig
 from trafficpulse.detector.interface import Detector
@@ -73,21 +74,24 @@ class StubEngineProvider:
         detector_factory: Callable[[], Detector] = scripted_down_detector,
         *,
         detector_config: DetectorConfig = DETECTOR_CONFIG,
+        classifier: HelmetClassifier | None = None,
         readiness: str = "ready",
     ) -> None:
         self._detector_factory = detector_factory
         self._detector_config = detector_config
+        self._classifier = classifier
         self._readiness = readiness
 
-    def create(
-        self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]
-    ) -> InferenceEngine:
+    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
+        # The classifier is injected only when supplied; a no_helmet rule without
+        # one fails fast in the engine's rule registry (same as the real backend).
         return InferenceEngine(
             scene=scene,
             detector=self._detector_factory(),
             tracker=IouTracker(),
             detector_config=self._detector_config,
             config=EngineConfig(rules=rules),
+            classifier=self._classifier,
         )
 
     def describe(self) -> str:
@@ -131,9 +135,7 @@ def upload_wrong_way_video(client: TestClient, tmp_path: Path, *, name: str = "c
 
     clip = write_wrong_way_clip(tmp_path / name)
     data = clip.read_bytes()
-    response = client.post(
-        "/api/video/upload", files={"file": (name, data, "video/mp4")}
-    )
+    response = client.post("/api/video/upload", files={"file": (name, data, "video/mp4")})
     assert response.status_code == 201, response.text
     video_id: str = response.json()["video_id"]
     return video_id

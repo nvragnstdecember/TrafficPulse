@@ -37,13 +37,28 @@ only. Concretely:
   stationary observation derivation, an illegal-stopping temporal reasoner, an
   illegal-stopping pipeline, and a recorded-clip end-to-end illegal-stopping slice
   runner.
+- **Evaluation + real-time engine (H5–H6): complete** — a pure evaluation
+  framework and a deterministic real-time inference engine that composes the
+  shipped seams (ingestion → detection → tracking → reasoning → confirmation →
+  evidence → persistence) with scheduling, batching, metrics, and structured logs.
+- **Web application (H7A–H7E): complete** — a FastAPI HTTP API over the engine
+  (upload, processing jobs, events, evidence, metrics) and a React single-page app:
+  a video workspace (upload → live processing → frame-accurate review), a resilient
+  live lifecycle (polling, cancellation, recovery, graceful failures), and an
+  analyst review layer (severity, multi-select, an evidence viewer, notes, and
+  JSON/CSV export). See [`frontend/README.md`](frontend/README.md) and the
+  [Deployment guide](docs/deployment.md).
+- **Release hardening (H8): complete** — deployment configuration (opt-in CORS +
+  single-process SPA serving), production documentation, and a demo-ready first-run
+  experience.
 - **Not started:** the remaining four locked violations, real-footage validation,
-  the full evidence-rendering engine, human review, and simulated penalties (see
+  the full evidence-rendering engine, and simulated penalties (see
   [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), and **946 passing tests** (4
-opt-in real-model tests skipped by default) on the current tree, with
-single-environment Linux CI and a native-Windows verification checklist.
+Quality gates are green: `ruff`, `mypy src` (strict), **1840 passing backend tests**
+(8 opt-in real-model/GPU tests skipped by default) plus **279 passing frontend
+tests**, on the current tree, with single-environment Linux CI and a
+native-Windows verification checklist.
 
 > This is **not** a production enforcement system and makes **no** validated
 > real-world accuracy claim. See [Limitations](#research--deployment-limitations).
@@ -217,7 +232,7 @@ source .venv/bin/activate            # Windows PowerShell: .\.venv\Scripts\Activ
 
 # 2. Install the package (editable) plus the dev tooling
 python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,api]"   # 'api' enables the FastAPI web layer
 
 # 3. Run the quality gates
 ruff check .
@@ -230,6 +245,25 @@ python -c "import trafficpulse; print(trafficpulse.__version__)"
 
 Native-Windows verification steps are recorded in
 [`docs/windows-verification.md`](docs/windows-verification.md).
+
+### Run the web application
+
+Start the API (a scene is required before processing) and the SPA dev server:
+
+```bash
+# API — terminal 1
+export TRAFFICPULSE_APP_SCENE=configs/scenes/example-scene.yaml
+uvicorn trafficpulse.app.asgi:app --reload --port 8000
+
+# SPA — terminal 2 (proxies /api to the API)
+cd frontend && npm install && npm run dev      # http://localhost:5173
+```
+
+The full setup, environment variables, production topologies (reverse-proxy or
+single-process SPA serving), real-inference configuration, demo workflow, and
+troubleshooting are in the **[Deployment & Operations guide](docs/deployment.md)**.
+The frontend architecture and scripts are in
+[`frontend/README.md`](frontend/README.md).
 
 ## Vertical-slice demos (offline)
 
@@ -276,12 +310,22 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 ## Quality gates / testing
 
+**Backend**
+
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 946 passing; 4 opt-in real-model tests skipped
-  by default).
-- **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the same
-  three checks on Linux for every push to `main` and every pull request.
+- **Tests:** `pytest -q` (currently 1840 passing; 8 opt-in real-model/GPU tests
+  skipped by default). Install the `api` extra so the web layer is type-checked and
+  tested: `pip install -e ".[dev,api]"`.
+
+**Frontend** (from `frontend/`)
+
+- **Types:** `npm run typecheck` · **Lint:** `npm run lint` · **Build:**
+  `npm run build` · **Tests:** `npm run test` (279 passing, jsdom, mocked API — no
+  backend). Coverage via `npm run coverage`.
+
+- **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the backend
+  checks on Linux for every push to `main` and every pull request.
 
 Every source package is exercised by at least one test; the ADR/architecture
 invariants themselves are checked by `tests/docs/test_adr_pack.py`.
@@ -344,6 +388,8 @@ detector-stack licence posture — not the project licence.
 ## Documentation
 
 - [`TRAFFICPULSE_MASTER_SPEC.md`](TRAFFICPULSE_MASTER_SPEC.md) — product/research specification
+- [`docs/deployment.md`](docs/deployment.md) — **deployment & operations guide** (setup, run, env, CORS/static, health, demo, troubleshooting)
+- [`frontend/README.md`](frontend/README.md) — frontend architecture, workspace, live processing, review workflow, keyboard shortcuts
 - [`docs/architecture-review.md`](docs/architecture-review.md) — **canonical** architecture & feasibility reference
 - [`docs/architecture.md`](docs/architecture.md) — entry point + ADR index
 - [`docs/phase-0-plan.md`](docs/phase-0-plan.md) — Phase 0-F foundation plan

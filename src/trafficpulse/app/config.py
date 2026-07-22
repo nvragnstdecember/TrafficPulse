@@ -32,6 +32,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ..classifier import ZeroShotHelmetConfig
 from ..engine import InferenceConfig, RuleConfig
 
 # Container formats PyAV's bundled FFmpeg decodes on every platform; the upload
@@ -64,6 +65,18 @@ class AppConfig(BaseModel):
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     allowed_extensions: frozenset[str] = DEFAULT_ALLOWED_EXTENSIONS
 
+    cors_allow_origins: tuple[str, ...] = ()
+    """Browser origins permitted for cross-origin API calls (H8, deployment).
+    Empty (default) adds no CORS middleware -- correct for same-origin and
+    dev-proxy deployments; set it only when the SPA is served from a different
+    origin than the API."""
+
+    static_dir: Path | None = None
+    """Directory of a built SPA to serve from the API (H8, deployment). ``None``
+    (default) serves the JSON API only; when set to a Vite ``dist`` directory the
+    app serves the SPA at ``/`` with an index.html fallback for client-side
+    routes, so a single process serves both. ``/api/*`` always takes precedence."""
+
     default_rules: tuple[RuleConfig, ...] = ()
     """The rule set applied when a processing request supplies none (H6 configs)."""
 
@@ -71,6 +84,15 @@ class AppConfig(BaseModel):
     """The real RT-DETR backend the production engine provider builds. ``None``
     leaves the server able to serve every read endpoint and to run stub-injected
     jobs, while real processing reports the backend as unconfigured."""
+
+    helmet_classifier: ZeroShotHelmetConfig | None = None
+    """The real zero-shot helmet classifier the production engine provider builds
+    for the ``no_helmet`` rule (v1.1 U2). ``None`` leaves helmet reasoning
+    unavailable: a ``no_helmet`` rule then fails fast in the engine's rule
+    registry (a clean 400), exactly as an unconfigured detector does. Constructing
+    this config loads no ML framework -- the classifier's backend is built lazily,
+    only when a ``no_helmet`` job runs. Code-configured, like ``inference``
+    (checkpoint provenance is a per-artifact review, not an env string)."""
 
     @field_validator("allowed_extensions", mode="before")
     @classmethod
@@ -106,16 +128,20 @@ class AppConfig(BaseModel):
 
         Recognised: ``TRAFFICPULSE_APP_STORAGE`` (default ``trafficpulse-data``),
         ``TRAFFICPULSE_APP_SCENE``, ``TRAFFICPULSE_APP_HOST``,
-        ``TRAFFICPULSE_APP_PORT``, ``TRAFFICPULSE_APP_MAX_UPLOAD_BYTES``. Unknown
-        variables are ignored; malformed numeric values raise ``ValueError`` via
-        pydantic. No absolute path is ever assumed.
+        ``TRAFFICPULSE_APP_PORT``, ``TRAFFICPULSE_APP_MAX_UPLOAD_BYTES``,
+        ``TRAFFICPULSE_APP_CORS_ORIGINS`` (comma-separated), and
+        ``TRAFFICPULSE_APP_STATIC_DIR``. Unknown variables are ignored; malformed
+        numeric values raise ``ValueError`` via pydantic. No absolute path is ever
+        assumed.
         """
 
         env = os.environ if environ is None else environ
         scene = env.get("TRAFFICPULSE_APP_SCENE")
+        static_dir = env.get("TRAFFICPULSE_APP_STATIC_DIR")
         fields: dict[str, object] = {
             "storage_dir": Path(env.get("TRAFFICPULSE_APP_STORAGE", _DEFAULT_STORAGE)),
             "scene_path": Path(scene) if scene else None,
+            "static_dir": Path(static_dir) if static_dir else None,
         }
         if "TRAFFICPULSE_APP_HOST" in env:
             fields["host"] = env["TRAFFICPULSE_APP_HOST"]
@@ -123,6 +149,11 @@ class AppConfig(BaseModel):
             fields["port"] = int(env["TRAFFICPULSE_APP_PORT"])
         if "TRAFFICPULSE_APP_MAX_UPLOAD_BYTES" in env:
             fields["max_upload_bytes"] = int(env["TRAFFICPULSE_APP_MAX_UPLOAD_BYTES"])
+        origins = env.get("TRAFFICPULSE_APP_CORS_ORIGINS")
+        if origins:
+            fields["cors_allow_origins"] = tuple(
+                origin.strip() for origin in origins.split(",") if origin.strip()
+            )
         return cls(**fields)
 
 

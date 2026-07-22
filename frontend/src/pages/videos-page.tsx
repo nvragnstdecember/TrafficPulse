@@ -3,6 +3,7 @@ import { Video } from 'lucide-react';
 import { PageHeader } from '@/components/common/page-header';
 import { PlayerProvider } from '@/components/workspace/player-context';
 import { UploadDropzone } from '@/components/workspace/upload-dropzone';
+import { WorkspaceIntro } from '@/components/workspace/workspace-intro';
 import { WorkspaceView } from '@/components/workspace/workspace-view';
 import { useProcessing } from '@/hooks/use-processing';
 import { useUploadStore } from '@/store/upload-store';
@@ -34,11 +35,14 @@ export default function VideosPage() {
           <WorkspaceView processing={processing} objectUrl={objectUrl} />
         </PlayerProvider>
       ) : (
-        <UploadDropzone
-          onFileSelected={processing.actions.selectAndUpload}
-          disabled={processing.isBusy}
-          error={processing.error}
-        />
+        <div className="space-y-6">
+          <UploadDropzone
+            onFileSelected={processing.actions.selectAndUpload}
+            disabled={processing.isBusy}
+            error={processing.error}
+          />
+          <WorkspaceIntro />
+        </div>
       )}
     </div>
   );

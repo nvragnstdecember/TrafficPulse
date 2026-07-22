@@ -133,7 +133,12 @@ def test_only_sanctioned_runtime_packages() -> None:
     # inference behind the P1-U6 Detector abstraction, multi-rule reasoning via
     # the existing pipeline strategies, evidence frame references, P1-U11
     # persistence) that adds no reasoning and imports no ML framework (backends
-    # are built lazily by its composition roots only); and the ``app``
+    # are built lazily by its composition roots only); the ``perception``
+    # motorcycle foundation (v1.1 U1), a pure aggregation over the frozen
+    # ``TrackState`` / ``Association`` contracts that packages the reused
+    # detector/tracker/association outputs into stable per-motorcycle perception
+    # observations (no detection, tracking, reasoning, or ML dependency of its
+    # own); and the ``app``
     # application-API layer (H7A), a thin FastAPI HTTP surface + services over
     # the H6 engine (upload, process-job lifecycle, event/evidence retrieval,
     # metrics) that adds no reasoning/detection/tracking of its own -- it wires
@@ -155,6 +160,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "classifier",
         "association",
         "engine",
+        "perception",
         "app",
     }
     package = REPO_ROOT / "src" / "trafficpulse"

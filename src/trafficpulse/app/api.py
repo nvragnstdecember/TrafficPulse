@@ -17,10 +17,16 @@ reaches a client.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from .. import __version__
 from .config import AppConfig, load_scene
@@ -82,6 +88,29 @@ def _register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(AppError, handle_app_error)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, handle_validation_error)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, handle_unexpected)
+
+
+class _SpaStaticFiles(StaticFiles):
+    """Static files with an SPA fallback: a 404 serves ``index.html`` (H8).
+
+    So a client-side route (e.g. a refresh on ``/videos``) loads the app shell
+    and lets the router resolve the path, instead of returning a bare 404. The
+    API routers are registered before this mount, so ``/api/*`` never reaches it.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+def _mount_spa(app: FastAPI, static_dir: Path) -> None:
+    """Serve a built SPA from ``static_dir`` at ``/`` (mounted last)."""
+
+    app.mount("/", _SpaStaticFiles(directory=static_dir, html=True), name="spa")
 
 
 def _build_context(
@@ -149,6 +178,23 @@ def create_app(
         job_store=JobStore(),
     )
     _register_error_handlers(app)
+
+    # CORS is opt-in: added only when explicit origins are configured, so the
+    # default same-origin / dev-proxy deployment carries no CORS surface.
+    if config.cors_allow_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(config.cors_allow_origins),
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
     for router in (health, upload, process, events, evidence, metrics):
         app.include_router(router.router)
+
+    # The SPA mount is registered last so every /api route matches first; it is
+    # opt-in and only mounted when the built assets actually exist on disk.
+    if config.static_dir is not None and config.static_dir.is_dir():
+        _mount_spa(app, config.static_dir)
+
     return app
