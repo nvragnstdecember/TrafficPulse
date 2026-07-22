@@ -1,13 +1,14 @@
-# TrafficPulse Frontend (H7B · H7C · H7D)
+# TrafficPulse Frontend (H7B · H7C · H7D · H7E)
 
 The TrafficPulse web client: the reusable application architecture (shell,
 routing, theming, design system, typed API infrastructure, state, and testing)
 from **H7B**, the **H7C video workspace** (upload → process → frame-accurate
-review), and the **H7D live processing integration** — a resilient end-to-end
-lifecycle over the FastAPI backend with live polling, cancellation, recovery, and
-graceful failure handling. It talks to the H7A HTTP API over JSON only — it never
-imports backend code, and no component calls `fetch` directly (pages → hooks →
-services → typed client).
+review), the **H7D live processing integration** (a resilient end-to-end lifecycle
+over the FastAPI backend with live polling, cancellation, recovery, and graceful
+failure handling), and the **H7E review workflow & evidence experience** (severity,
+multi-select, an evidence viewer, analyst notes, and export). It talks to the H7A
+HTTP API over JSON only — it never imports backend code, and no component calls
+`fetch` directly (pages → hooks → services → typed client).
 
 ## Stack
 
@@ -152,3 +153,53 @@ the `video_id` the conflict carries.
 `JobStatus.CANCELLED`; an optional `should_cancel` predicate on the engine run;
 `video_id` on the `duplicate_video` error envelope (omitted otherwise); and a
 `jobs_cancelled` metric. No existing endpoint contract changed.
+
+## Review workflow & evidence (H7E)
+
+H7E turns the workspace into an analyst review tool. It is **entirely frontend** —
+no backend changes; exports reuse the existing JSON endpoints.
+
+**Event review.** The list keeps its search / violation / confidence filters and
+adds a **severity** badge and sort (`lib/workspace.ts` ranks each violation
+high/medium/low), plus a **multi-select** mode with a bulk bar (select-all, clear,
+count) driven by a `Set` in the selection store — memoized `EventCard`s and the
+virtual list keep this smooth on long lists. The active selection stays
+synchronized across the list, timeline, player, and detail panel as before.
+
+**Keyboard.** In the list: `↑`/`↓` move the active event (the virtual list scrolls
+it into view), `Home`/`End` jump to the ends, and `Space` toggles the active
+event's checkbox in selection mode. The global player shortcuts (H7C) are
+unchanged: `Space`/`K`, `←`/`→`, `,`/`.`, `J`/`L` (prev/next event), `F`. The
+timeline adds **prev/next violation** buttons that seek + select the nearest
+marker.
+
+**Evidence viewer.** A focused modal (`evidence-viewer.tsx`) over the local video
+— the only real pixels, since the backend renders no media — with **zoom** (buttons
+
+- wheel), **pan** (drag when zoomed), **fullscreen**, and **frame navigation**
+  (Before / Trigger / After at the evidence media-times, plus ±1-frame stepping).
+  Alongside sits the manifest's typed references (locators, hashes) and the event's
+  technical metadata with copy affordances. When the local file isn't in the session
+  it still shows the metadata and explains playback is unavailable. Focus is trapped
+  and restored by the Dialog. Detail/evidence keep the H7D loading / unavailable /
+  retry states.
+
+**Detail panel.** Preserves the H7C tabbed layout and adds a severity badge, a
+confidence meter, a plain-language rule explanation, collapsible technical
+metadata, local **analyst notes** (a persisted per-event store, never sent to the
+backend), copy-id buttons, and quick actions (jump, open viewer, export JSON /
+manifest).
+
+**Export.** From the list: **JSON** or **CSV** of the checked events (or the
+visible list when none are checked). From the detail panel: the selected event's
+**JSON** (the backend's confirmed-event contract, reused verbatim) and its
+**evidence manifest**. Serialization is pure (`lib/export.ts`) and downloads go
+through one guarded blob helper — CSV/multi-event JSON are a client presentation
+(no backend equivalent to duplicate); single-event/manifest JSON reuse the
+already-fetched backend response.
+
+**Productivity.** Filters, sort, and selection mode live in a **persisted prefs
+store** (single source, remembered across refreshes); copy buttons for event and
+evidence ids; improved empty ("clear filters"), loading (skeletons), and error
+(retry) states. Everything is keyboard-operable with visible focus rings and
+screen-reader labels.

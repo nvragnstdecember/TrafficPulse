@@ -299,6 +299,16 @@ describe('EventList', () => {
     makeWorkspaceEvent({ event_id: 'b', trigger_at: mediaSeconds(30) }),
   ];
 
+  const selectionProps = {
+    selectionMode: false,
+    onSelectionModeChange: vi.fn(),
+    checkedIds: new Set<string>(),
+    onToggleChecked: vi.fn(),
+    onCheckAll: vi.fn(),
+    onClearChecked: vi.fn(),
+    onExport: vi.fn(),
+  };
+
   function renderList(props: Partial<React.ComponentProps<typeof EventList>> = {}) {
     const onSelect = vi.fn();
     const onRetry = vi.fn();
@@ -316,6 +326,7 @@ describe('EventList', () => {
         isLoading={false}
         isError={false}
         onRetry={onRetry}
+        {...selectionProps}
         {...props}
       />,
     );
@@ -355,6 +366,7 @@ describe('EventList', () => {
         isLoading={false}
         isError={false}
         onRetry={vi.fn()}
+        {...selectionProps}
       />,
     );
     expect(screen.getByText('No violations detected')).toBeInTheDocument();

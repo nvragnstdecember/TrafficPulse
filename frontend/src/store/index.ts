@@ -3,6 +3,8 @@ export { useSettingsStore, type Density, type SettingsState } from './settings-s
 export { useSelectionStore } from './selection-store';
 export { useUploadStore, type UploadPhase } from './upload-store';
 export { useProcessingStore, type LogEntry, type LogLevel } from './processing-store';
+export { useWorkspacePrefsStore } from './workspace-prefs-store';
+export { useNotesStore, useEventNote } from './notes-store';
 export {
   useNotificationsStore,
   notify,

@@ -1,4 +1,4 @@
-import { ZoomIn, ZoomOut } from 'lucide-react';
+import { SkipBack, SkipForward, ZoomIn, ZoomOut } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -58,12 +58,30 @@ export function Timeline({ markers, duration, selectedEventId, onSelect }: Timel
 
   const zoomIndex = ZOOM_LEVELS.indexOf(zoom);
 
+  // Ordered marker times for prev/next violation navigation.
+  const orderedMarkers = useMemo(() => [...markers].sort((a, b) => a.time - b.time), [markers]);
+  const hasMarkers = orderedMarkers.length > 0;
+
   function seekFromClientX(clientX: number) {
     const track = trackRef.current;
     if (!track || !canSeek) return;
     const rect = track.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
     controls.seek(ratio * duration);
+  }
+
+  /** Jump to the nearest violation after (1) or before (-1) the playhead. */
+  function jumpToViolation(direction: 1 | -1) {
+    if (!hasMarkers) return;
+    const now = state.currentTime;
+    const epsilon = 0.05;
+    const target =
+      direction > 0
+        ? orderedMarkers.find((marker) => marker.time > now + epsilon)
+        : [...orderedMarkers].reverse().find((marker) => marker.time < now - epsilon);
+    if (!target) return;
+    onSelect(target.event.id);
+    controls.seek(target.time);
   }
 
   return (
@@ -76,6 +94,25 @@ export function Timeline({ markers, duration, selectedEventId, onSelect }: Timel
           </span>
         </p>
         <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Previous violation"
+            disabled={!hasMarkers}
+            onClick={() => jumpToViolation(-1)}
+          >
+            <SkipBack className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            aria-label="Next violation"
+            disabled={!hasMarkers}
+            onClick={() => jumpToViolation(1)}
+          >
+            <SkipForward className="size-4" />
+          </Button>
+          <div className="mx-0.5 h-5 w-px bg-border" aria-hidden="true" />
           <Button
             variant="outline"
             size="icon"
@@ -154,9 +191,12 @@ export function Timeline({ markers, duration, selectedEventId, onSelect }: Timel
                   onSelect(primary.event.id);
                   controls.seek(primary.time);
                 }}
+                aria-current={isSelected ? 'true' : undefined}
                 className={cn(
-                  'absolute top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ring-offset-background transition-transform hover:scale-110',
-                  isSelected ? 'ring-2 ring-ring ring-offset-2' : '',
+                  'absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ring-offset-background transition-transform hover:scale-110',
+                  isSelected
+                    ? 'z-30 scale-125 ring-2 ring-primary ring-offset-2'
+                    : 'z-20 ring-ring',
                   cluster.markers.length > 1 ? 'size-5' : 'size-3',
                   TONE_MARKER[tone],
                 )}
