@@ -27,10 +27,22 @@ _FORBIDDEN_MODULES = (
 
 
 def test_importing_persistence_pulls_in_no_ml_or_backend() -> None:
-    # Re-import fresh so the assertion reflects this package's own import graph.
-    importlib.reload(importlib.import_module("trafficpulse.persistence"))
-    imported = set(sys.modules)
-    assert not (imported & set(_FORBIDDEN_MODULES))
+    # Test the package's OWN import graph, not the shared process state: other
+    # suites (the H4B training tests) legitimately import torch into this
+    # process, so forbidden modules are EVICTED first, the package re-imported
+    # fresh, and the assertion checks that the import did not re-pull any of
+    # them — the same causal pattern as the classifier boundary test (P4-U2).
+    evicted = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name.split(".")[0] in _FORBIDDEN_MODULES
+    }
+    try:
+        importlib.reload(importlib.import_module("trafficpulse.persistence"))
+        leaked = [n for n in sys.modules if n.split(".")[0] in _FORBIDDEN_MODULES]
+        assert leaked == [], f"persistence import pulled in: {leaked}"
+    finally:
+        sys.modules.update(evicted)
 
 
 def test_persistence_source_names_no_backend_implementation() -> None:

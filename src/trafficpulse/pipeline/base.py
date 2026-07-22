@@ -20,9 +20,19 @@ FrameRecord (P1-U5 ingestion)
   -> detector Frame (frame_record_to_frame; fixed media-time anchor)
   -> Detector + DetectionAdapter (P1-U6 seam)          -> Detection
   -> Tracker (P1-U8 seam)                               -> TrackState
+  -> FrameObserver.observe (P4-U2; optional, pixels)    -> (accumulated externally)
   -> group by (camera_id, track_id) in timestamp order
   -> FinalizeStrategy.build_reasoner + events_for_track -> ConfirmedEvent
 ```
+
+Two injected extension points, deliberately different
+-----------------------------------------------------
+:class:`FinalizeStrategy` is the *reasoning* back half and sees only
+``TrackState``s -- geometry, no pixels -- which is what keeps reasoning replayable
+without a model. :class:`FrameObserver` is an *optional perception* side-channel
+that sees the decoded image while it still exists (finalize cannot: the pipeline
+retains no frames). It is ``None`` for every pre-Phase-4 slice, whose observations
+are pure geometry.
 
 The one conversion this layer owns: FrameRecord -> detector Frame
 -----------------------------------------------------------------
@@ -67,7 +77,7 @@ each call, so it is idempotent over the accumulated history; :meth:`reset` retur
 the orchestration to a replayable initial state.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, TypeVar
 
@@ -114,6 +124,60 @@ def frame_record_to_frame(frame_record: FrameRecord, *, camera_id: str) -> Frame
 ReasonerT = TypeVar("ReasonerT")
 
 
+class FrameObserver(Protocol):
+    """An optional per-frame side-channel with access to **pixels** (P4-U2).
+
+    Why this hook exists
+    --------------------
+    Every observation derivation shipped before Phase 4 -- heading (P1-U4), in-zone
+    (P2-U2), stationary (P2-U3), crossing (P3-U4) -- is pure geometry over
+    ``TrackState``, so :meth:`CompositionPipeline.finalize` needs only boxes and
+    can reason long after the pixels are gone. Helmet state is the project's first
+    observation that requires the **image**, and by finalize time the image no
+    longer exists: :meth:`CompositionPipeline.process_frame` deliberately keeps
+    only ``TrackState``s (retaining decoded frames for a whole clip would be
+    unbounded memory). This hook is the only place where pixels and tracked
+    identity coexist.
+
+    What an implementation may and may not do
+    -----------------------------------------
+    An observer *derives and accumulates*; it does not decide. It may read the
+    frame's pixels and that frame's states and buffer whatever it produces (P4-U4
+    buffers ``HelmetStateObservation``s). It must **not** mutate the frame, the
+    states, or any pipeline state, and it must never confirm, persist, or suppress
+    anything -- the reasoning layer remains the sole authority on violations
+    (architecture-review §14/§15: models produce observations, rules decide).
+
+    Determinism and replay
+    ----------------------
+    :meth:`observe` is called exactly once per :meth:`process_frame`, after
+    tracking, in frame-stream order -- including for frames whose states are empty,
+    so an implementation sees the true frame sequence and never has to infer a gap.
+    Implementations must be deterministic (no wall-clock, no randomness) and must
+    implement :meth:`reset` so a replayed stream reproduces an identical result;
+    :meth:`CompositionPipeline.reset` resets the observer alongside the tracker.
+
+    Optional by construction
+    ------------------------
+    ``frame_observer`` defaults to ``None``. When it is ``None`` this class behaves
+    exactly as it did before P4-U2 -- no call, no branch cost, no ordering change --
+    so the shipped wrong-way and illegal-stopping slices are byte-identical
+    (asserted by ``tests/pipeline/test_frame_observer.py``).
+    """
+
+    def observe(self, frame: Frame, states: Sequence[TrackState]) -> None:
+        """Inspect one frame's pixels + tracked states; accumulate internally.
+
+        Called once per processed frame, after tracking, in stream order. Must not
+        mutate its arguments or any pipeline state.
+        """
+        ...
+
+    def reset(self) -> None:
+        """Return the observer to its initial (pre-stream) state for replay."""
+        ...
+
+
 class FinalizeStrategy(Protocol[ReasonerT]):
     """The injected reasoning back half of :meth:`CompositionPipeline.finalize`.
 
@@ -151,7 +215,9 @@ class CompositionPipeline:
 
     Holds an injected ``Detector`` and ``Tracker`` and a :class:`FinalizeStrategy`
     that supplies the reasoning back half. The ``detector_config`` configures the
-    shared ``DetectionAdapter`` seam (label map + provenance). See the module
+    shared ``DetectionAdapter`` seam (label map + provenance). An optional
+    :class:`FrameObserver` may be injected for pixel-dependent derivation; when it
+    is ``None`` (the default) behaviour is exactly as before P4-U2. See the module
     docstring for the full contract.
     """
 
@@ -163,12 +229,17 @@ class CompositionPipeline:
         scene: SceneConfig,
         detector_config: DetectorConfig,
         finalize_strategy: FinalizeStrategy[Any],
+        frame_observer: FrameObserver | None = None,
     ) -> None:
         self._detector = detector
         self._tracker = tracker
         self._scene = scene
         self._adapter = DetectionAdapter(detector_config)
         self._finalize_strategy = finalize_strategy
+        # Optional pixel-dependent side-channel (P4-U2). ``None`` for every slice
+        # whose observations are pure geometry over TrackState -- i.e. all of them
+        # before Phase 4 -- so those pipelines are unchanged.
+        self._frame_observer = frame_observer
         self._scene_hash = scene_config_hash(scene)
         self._history: dict[tuple[str, str], list[TrackState]] = {}
         # Run-level model provenance accumulated across frames (P2-U1): the
@@ -182,14 +253,16 @@ class CompositionPipeline:
     def reset(self) -> None:
         """Return the orchestration to a replayable initial state.
 
-        Resets the injected (stateful) ``Tracker`` and clears the accumulated
-        per-track history + provenance. The detector needs no reset -- it holds no
-        temporal state across frames -- and the reasoner/engine are ephemeral
-        (rebuilt per :meth:`finalize`), so the same frame stream replays to an equal
-        result.
+        Resets the injected (stateful) ``Tracker`` and the injected
+        :class:`FrameObserver` (if any), and clears the accumulated per-track
+        history + provenance. The detector needs no reset -- it holds no temporal
+        state across frames -- and the reasoner/engine are ephemeral (rebuilt per
+        :meth:`finalize`), so the same frame stream replays to an equal result.
         """
 
         self._tracker.reset()
+        if self._frame_observer is not None:
+            self._frame_observer.reset()
         self._history = {}
         self._model_refs = []
 
@@ -209,6 +282,13 @@ class CompositionPipeline:
         frame = frame_record_to_frame(frame_record, camera_id=camera_id)
         detections: tuple[Detection, ...] = self._adapter.adapt_from(self._detector, frame)
         states = self._tracker.update(detections)
+        # Pixel-dependent side-channel (P4-U2): the only point where the decoded
+        # image and this frame's tracked identities coexist (finalize sees neither).
+        # Called on every processed frame -- including zero-state frames, so an
+        # observer sees the true frame sequence -- and it derives/accumulates only:
+        # it decides nothing and mutates nothing here.
+        if self._frame_observer is not None:
+            self._frame_observer.observe(frame, states)
         # Collect truthful run-level provenance from the two seams (P2-U1): the
         # detector's stamped ``source_model`` and the tracker's stamped
         # ``tracker``. ``None`` (a stub that supplied no ref) contributes nothing;

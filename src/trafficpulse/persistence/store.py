@@ -118,11 +118,33 @@ class EventStore:
         events are never mutated (they are frozen contracts, only read).
         """
 
+        return self.persist_pairs(
+            run_id, ((event, build_evidence_manifest(event)) for event in events)
+        )
+
+    def persist_pairs(
+        self, run_id: str, pairs: Iterable[tuple[ConfirmedEvent, EvidenceManifest]]
+    ) -> tuple[StoredEvent, ...]:
+        """Persist events with **caller-built** manifests; return the stored pairs.
+
+        The seam for producers whose manifests carry more than the P1-U11 stub
+        (e.g. the real-time engine's before/trigger/after frame references built
+        from the actually-processed stream). Each manifest must reference its
+        paired event (``manifest.event_id == event.event_id``) -- a mismatched
+        pair raises ``ValueError`` before anything is written. Ordering and
+        write-once semantics are identical to :meth:`persist`, which delegates
+        here with stub-built manifests.
+        """
+
         events_dir = self.run_dir(run_id) / _EVENTS_DIR
         manifests_dir = self.run_dir(run_id) / _MANIFESTS_DIR
         stored: list[StoredEvent] = []
-        for event in sorted(events, key=lambda e: e.event_id):
-            manifest = build_evidence_manifest(event)
+        for event, manifest in sorted(pairs, key=lambda pair: pair[0].event_id):
+            if manifest.event_id != event.event_id:
+                raise ValueError(
+                    f"manifest {manifest.evidence_package_id!r} references event "
+                    f"{manifest.event_id!r}, not its paired event {event.event_id!r}"
+                )
             self._write_once(
                 events_dir / f"{event.event_id}.json",
                 event.model_dump_json(),

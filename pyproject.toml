@@ -51,16 +51,44 @@ dev = [
   # to a runtime dependency) is deferred to Phase 1, keeping runtime deps
   # limited to pydantic.
   "pyyaml>=6",
+  # httpx backs starlette's TestClient, which the H7A application-API tests use
+  # to drive the FastAPI app in-process (no running server). Test-only.
+  "httpx>=0.27",
 ]
 
-# --- Real detector backend (optional; ADR-001 permissive-only) ----------------
-# The RT-DETR backend (src/trafficpulse/detector/rtdetr.py) integrates the
-# Apache-2.0 HuggingFace Transformers RT-DETR port. It is OPTIONAL and kept out of
-# the base install and CI: torch/transformers are imported lazily and only when the
-# real backend is constructed, so the base package, its import graph, and every
-# unit test stay ML-free and network-free. No model weights are vendored or
-# downloaded by installing this extra; checkpoint acquisition is an explicit,
-# operator-driven step (RTDetrConfig.local_files_only defaults to offline).
+# --- Application API layer (H7A; optional) ------------------------------------
+# The FastAPI application layer (src/trafficpulse/app) that exposes the H6
+# inference engine over HTTP. It is OPTIONAL and kept out of the base install:
+# the core library, its import graph, and every non-API unit test stay free of a
+# web framework. FastAPI pulls in starlette + pydantic (pydantic is already a
+# base dependency); python-multipart is required by starlette to parse the
+# multipart/form-data video upload. No ASGI server is declared here -- the app is
+# exposed as an ASGI application (trafficpulse.app.asgi:app) for the operator's
+# server of choice (uvicorn/hypercorn), and host/port travel in AppConfig.
+api = [
+  "fastapi>=0.115",
+  "python-multipart>=0.0.9",
+]
+
+# --- Real model backends (optional; ADR-001 permissive-only) ------------------
+# Despite its name (kept stable for compatibility), this extra now powers BOTH
+# permissive real backends, which share the same torch/transformers floor and add
+# no dependency of their own:
+#   * RT-DETR object detection  (src/trafficpulse/detector/rtdetr.py, P1-U7)
+#     — the Apache-2.0 HuggingFace Transformers RT-DETR port;
+#   * zero-shot helmet classification (src/trafficpulse/classifier/zeroshot.py,
+#     P4-U3) — the Apache-2.0 Transformers CLIP-family image-text port, driven
+#     through AutoModel/AutoProcessor so the checkpoint (CLIP: MIT, SigLIP:
+#     Apache-2.0, ...) is configuration rather than code.
+# NEITHER involves AGPL model code: Ultralytics — and hence YOLO11/YOLO12 and
+# their trained weights — remains excluded from the integrated path by ADR-001.
+#
+# It is OPTIONAL and kept out of the base install and CI: torch/transformers are
+# imported lazily and only when a real backend is constructed, so the base
+# package, its import graph, and every unit test stay ML-free and network-free.
+# No model weights are vendored or downloaded by installing this extra; checkpoint
+# acquisition is an explicit, operator-driven step (both backends' configs default
+# local_files_only to offline, and neither ships a default checkpoint).
 #
 # torchvision + pillow are REQUIRED at runtime by the transformers RT-DETR image
 # processor (AutoImageProcessor); they are permissive (torchvision BSD-3-Clause,
@@ -73,11 +101,28 @@ dev = [
 # NOTE: this validates the CURRENT interpreter (3.13) only -- the >=3.11 floor is
 # still asserted statically (mypy py311) but was not runtime-tested here. Weight/
 # pretraining-data provenance remains a per-artifact review (docs/adr/ADR-001.md).
+# sentencepiece + protobuf are REQUIRED at runtime by the transformers SigLIP
+# tokenizer (SiglipTokenizer); without them AutoProcessor.from_pretrained raises
+# ImportError. They are permissive (both Apache-2.0), ADR-001-compatible, and add
+# no AGPL/GPL coupling. Verified needed when the zero-shot helmet backend was first
+# executed against google/siglip-base-patch16-224 (resolved: sentencepiece 0.2.2,
+# protobuf 7.35.1). A CLIP-family checkpoint that ships a BPE tokenizer does not
+# need them, but the extra installs them so the documented default works.
+# scipy is REQUIRED by the transformers RT-DETR **training** path only: the
+# Hungarian matcher in its loss (transformers/loss/loss_rt_detr.py) imports it,
+# while pure inference never does — which is why P1-U7 never needed it. It is
+# BSD-3-Clause, ADR-001-compatible, and used exclusively by the experiments/
+# training pipeline (H4B); the runtime inference path is unchanged. Verified
+# needed empirically when the first training forward pass raised ImportError
+# (resolved: scipy 1.16.x).
 rtdetr = [
   "torch>=2.0",
   "torchvision>=0.15",
   "transformers>=4.45",
   "pillow>=10",
+  "sentencepiece>=0.1.99",
+  "protobuf>=4.25",
+  "scipy>=1.11",
 ]
 
 # --- Version single-source: read from src/trafficpulse/__init__.py -----------

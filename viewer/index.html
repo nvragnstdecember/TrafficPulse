@@ -121,6 +121,7 @@
           <select id="scenario">
             <option value="wrong_way">Wrong Way</option>
             <option value="illegal_stopping">Illegal Stopping</option>
+            <option value="no_helmet">No Helmet</option>
           </select>
         </div>
 
@@ -206,8 +207,20 @@ function sourceValue(){ return document.querySelector('input[name=source]:checke
 
 function syncSourceUI(){
   const isUpload = sourceValue() === 'upload';
-  $('scenarioWrap').classList.toggle('hidden', isUpload);
+  // The scenario selector stays visible for uploads: an uploaded clip can be run
+  // through Wrong Way (real RT-DETR + flow-calibrated scene) or No Helmet (real
+  // RT-DETR + real SigLIP). Illegal Stopping is zone-gated and cannot be derived
+  // from an arbitrary clip, so it is disabled for uploads rather than silently
+  // producing a wrong answer.
   $('uploadWrap').classList.toggle('hidden', !isUpload);
+  const stopping = document.querySelector('#scenario option[value=illegal_stopping]');
+  if(stopping){
+    stopping.disabled = isUpload;
+    stopping.textContent = isUpload
+      ? 'Illegal Stopping (built-in clip only — needs a drawn zone)'
+      : 'Illegal Stopping';
+  }
+  if(isUpload && $('scenario').value === 'illegal_stopping'){ $('scenario').value = 'wrong_way'; }
 }
 document.querySelectorAll('input[name=source]').forEach(r => r.addEventListener('change', syncSourceUI));
 
@@ -312,7 +325,8 @@ $('analyzeBtn').addEventListener('click', () => {
   $('errBox').classList.add('hidden');
 
   const params = new URLSearchParams({source});
-  if(source === 'builtin') params.set('scenario', $('scenario').value);
+  // Sent for BOTH sources: an upload now chooses its slice too (wrong_way | no_helmet).
+  params.set('scenario', $('scenario').value);
   else params.set('clip', uploadedClipId);
 
   const shown = [];

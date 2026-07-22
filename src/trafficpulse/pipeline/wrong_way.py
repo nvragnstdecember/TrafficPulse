@@ -74,7 +74,12 @@ from .errors import SceneConfigurationError
 # ``frame_record_to_frame`` and ``_MEDIA_TIME_EPOCH`` are defined in the shared
 # base and re-exported here (listed in ``__all__``) so the callers and tests that
 # reference them through :mod:`trafficpulse.pipeline.wrong_way` resolve unchanged.
-__all__ = ["WrongWayPipeline", "frame_record_to_frame", "_MEDIA_TIME_EPOCH"]
+__all__ = [
+    "WrongWayPipeline",
+    "frame_record_to_frame",
+    "wrong_way_finalize_strategy",
+    "_MEDIA_TIME_EPOCH",
+]
 
 
 def _resolve_legal_direction(
@@ -150,6 +155,28 @@ class _WrongWayFinalize:
         return reasoner.run_derivation(derivation)
 
 
+def wrong_way_finalize_strategy(
+    scene: SceneConfig, *, direction_id: str | None = None
+) -> _WrongWayFinalize:
+    """Build the wrong-way reasoning back half for one scene (public factory).
+
+    The exact strategy ``WrongWayPipeline`` injects into the shared
+    ``CompositionPipeline`` -- exposed so a multi-rule composition (the P?-H6
+    real-time engine) can run this rule alongside others over **one** shared
+    detect+track front half instead of duplicating detection per rule. Applies
+    the same fail-fast scene resolution as the pipeline constructor.
+
+    Raises:
+        SceneConfigurationError: if the single governing legal direction cannot
+            be resolved (see :func:`_resolve_legal_direction`).
+        ValueError: if the scene declares no usable ``wrong_way`` parameter block.
+    """
+
+    params = wrong_way_parameters(scene)
+    legal_direction, lane_id = _resolve_legal_direction(scene, direction_id)
+    return _WrongWayFinalize(params=params, legal_direction=legal_direction, lane_id=lane_id)
+
+
 class WrongWayPipeline:
     """Deterministic offline orchestration for the first wrong-way vertical slice.
 
@@ -173,17 +200,14 @@ class WrongWayPipeline:
         detector_config: DetectorConfig,
         direction_id: str | None = None,
     ) -> None:
-        params = wrong_way_parameters(scene)
-        legal_direction, lane_id = _resolve_legal_direction(scene, direction_id)
-        self._lane_id = lane_id
+        strategy = wrong_way_finalize_strategy(scene, direction_id=direction_id)
+        self._lane_id = strategy.lane_id
         self._core = CompositionPipeline(
             detector=detector,
             tracker=tracker,
             scene=scene,
             detector_config=detector_config,
-            finalize_strategy=_WrongWayFinalize(
-                params=params, legal_direction=legal_direction, lane_id=lane_id
-            ),
+            finalize_strategy=strategy,
         )
 
     @property

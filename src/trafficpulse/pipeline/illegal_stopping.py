@@ -166,6 +166,33 @@ class _IllegalStoppingFinalize:
         return reasoner.run_join(in_zone, stationary)
 
 
+def illegal_stopping_finalize_strategy(
+    scene: SceneConfig,
+    *,
+    stationary_window: int = STATIONARY_WINDOW,
+    stationary_epsilon_px: float = STATIONARY_EPSILON_PX,
+) -> _IllegalStoppingFinalize:
+    """Build the illegal-stopping reasoning back half for one scene (public factory).
+
+    The exact strategy ``IllegalStoppingPipeline`` injects into the shared
+    ``CompositionPipeline`` -- exposed so a multi-rule composition (the real-time
+    engine) can run this rule alongside others over **one** shared detect+track
+    front half. Applies the same fail-fast scene resolution as the pipeline
+    constructor.
+
+    Raises:
+        SceneConfigurationError: if the scene declares no enabled no-stopping zone.
+        ValueError: if the scene declares no usable ``illegal_stopping`` block.
+    """
+
+    return _IllegalStoppingFinalize(
+        params=illegal_stopping_parameters(scene),
+        zones=_resolve_no_stopping_zones(scene),
+        stationary_window=stationary_window,
+        stationary_epsilon_px=stationary_epsilon_px,
+    )
+
+
 class IllegalStoppingPipeline:
     """Deterministic offline orchestration for the illegal-stopping vertical slice.
 
@@ -195,20 +222,18 @@ class IllegalStoppingPipeline:
         stationary_window: int = STATIONARY_WINDOW,
         stationary_epsilon_px: float = STATIONARY_EPSILON_PX,
     ) -> None:
-        params = illegal_stopping_parameters(scene)
-        zones = _resolve_no_stopping_zones(scene)
-        self._zones = zones
+        strategy = illegal_stopping_finalize_strategy(
+            scene,
+            stationary_window=stationary_window,
+            stationary_epsilon_px=stationary_epsilon_px,
+        )
+        self._zones = strategy.zones
         self._core = CompositionPipeline(
             detector=detector,
             tracker=tracker,
             scene=scene,
             detector_config=detector_config,
-            finalize_strategy=_IllegalStoppingFinalize(
-                params=params,
-                zones=zones,
-                stationary_window=stationary_window,
-                stationary_epsilon_px=stationary_epsilon_px,
-            ),
+            finalize_strategy=strategy,
         )
 
     @property

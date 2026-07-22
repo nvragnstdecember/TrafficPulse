@@ -119,8 +119,28 @@ def test_only_sanctioned_runtime_packages() -> None:
     # and the ``persistence`` layer (P1-U11), the minimal event-persistence + evidence
     # stub that writes ``ConfirmedEvent``s and minimal ``EvidenceManifest``s to
     # deterministic JSON (ADR-002-authorised storage, no new dependency), depending
-    # only on the frozen contracts (no backend, no ML).
-    # Any other package (evidence engine, review, penalty, ...) would be premature scope.
+    # only on the frozen contracts (no backend, no ML); and the ``classifier``
+    # integration foundation (P4-U2), the crop-classification analogue of the P1-U6
+    # detector seam -- a framework-neutral ``HelmetClassifier`` interface, boundary
+    # types, and a scripted stub, kept behind the frozen U2 ``HelmetStateObservation``
+    # contract and carrying no ML dependency (ADR-001 permissive-only; no AGPL);
+    # and the ``association`` derivation (P4-U4), the first implementation of the
+    # frozen U2 ``Association`` contract and of the one architecture-review §14
+    # data-flow box (Detection -> TrackState -> Association -> Observation) that had
+    # a contract but no code, depending only on geometry and the frozen contracts;
+    # and the ``engine`` real-time inference layer (H6), a composition of the
+    # shipped seams (sources over P1-U5 ingestion, scheduling, batched/timed
+    # inference behind the P1-U6 Detector abstraction, multi-rule reasoning via
+    # the existing pipeline strategies, evidence frame references, P1-U11
+    # persistence) that adds no reasoning and imports no ML framework (backends
+    # are built lazily by its composition roots only); and the ``app``
+    # application-API layer (H7A), a thin FastAPI HTTP surface + services over
+    # the H6 engine (upload, process-job lifecycle, event/evidence retrieval,
+    # metrics) that adds no reasoning/detection/tracking of its own -- it wires
+    # H6 behind HTTP so the frontend depends only on JSON, never on an engine
+    # class. FastAPI is an optional extra; importing the base package pulls in no
+    # web framework.
+    # Any other package (review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
         "geometry",
@@ -132,6 +152,10 @@ def test_only_sanctioned_runtime_packages() -> None:
         "tracking",
         "pipeline",
         "persistence",
+        "classifier",
+        "association",
+        "engine",
+        "app",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}

@@ -63,13 +63,24 @@ def test_output_is_exactly_the_frozen_trackstate_contract() -> None:
 
 
 def test_running_the_backend_imports_no_ml_or_tracker_framework() -> None:
-    # Reload the package, then construct + run the real backend end to end.
-    importlib.reload(importlib.import_module("trafficpulse.tracking"))
-    tracker = IouTracker()
-    for i in range(3):
-        tracker.update([make_detection(i, box=_HERE)])
-    tracker.reset()
-    assert not (set(sys.modules) & set(_FORBIDDEN_MODULES))
+    # Evict-first (see test_track_boundary): assert that constructing + RUNNING
+    # the real backend re-imports no forbidden framework, independent of what
+    # other suites (e.g. the H4B training tests) loaded into this process.
+    evicted = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name.split(".")[0] in _FORBIDDEN_MODULES
+    }
+    try:
+        importlib.reload(importlib.import_module("trafficpulse.tracking"))
+        tracker = IouTracker()
+        for i in range(3):
+            tracker.update([make_detection(i, box=_HERE)])
+        tracker.reset()
+        leaked = [n for n in sys.modules if n.split(".")[0] in _FORBIDDEN_MODULES]
+        assert leaked == [], f"running the IoU backend pulled in: {leaked}"
+    finally:
+        sys.modules.update(evicted)
 
 
 # --- configuration validation ------------------------------------------------

@@ -173,18 +173,46 @@ rule_parameters:
         note: >
           architecture-review §13 requires at least two observations before a
           rule confirms; a floor, not a tuned per-scene value.
+      - id: min_persistence
+        value: 1.0
+        unit: seconds
+        status: provisional
+        note: >
+          How long bare-headed riding must persist before confirmation (P4-U5).
+          Provisional: mirrors the wrong-way persistence magnitude and is NOT
+          tuned on held-out data. Expressed in seconds rather than frames on
+          purpose — see candidate_persistence_frames below.
+      - id: max_observation_gap
+        value: 2.0
+        unit: seconds
+        status: provisional
+        note: >
+          Longest gap between confirming observations that one episode may
+          bridge (P4-U5). Bounds how long intermittent uncertainty or occlusion
+          is tolerated: uncertain frames are abstentions that neither support nor
+          break a run, so without this bound two bare-headed observations minutes
+          apart would confirm as though they were continuous. Provisional; not
+          tuned.
       - id: candidate_persistence_frames
         value: null
         unit: frames
         status: unset
-        note: No justified default; to be set from held-out data in Phase 1.
+        note: >
+          Deliberately left unset and superseded by min_persistence (seconds).
+          A frame count silently changes meaning with the clip's frame rate:
+          P4-U1 measured the same footage yielding 234 tracks (median span 2
+          frames) at ~10 fps versus 53 tracks (median span 8) at ~30 fps, so an
+          identical frame threshold would mean very different durations. A
+          duration does not have that defect.
       - id: abstain_on_uncertain
         value: null
         unit: status_ref
         status: unset
         note: >
           Abstention-behaviour reference; uncertain/turban handling is a
-          rule-layer decision per U3 and is not encoded here.
+          rule-layer decision per U3 and is not encoded here. P4-U5 implements
+          it in rules/no_helmet.py: uncertain abstains (a gap the run may bridge,
+          bounded by max_observation_gap), turban exempts the rider.
   - violation_type: triple_riding
     parameters:
       - id: rider_count_threshold

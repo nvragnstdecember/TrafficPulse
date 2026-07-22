@@ -7,12 +7,16 @@ logic of its own. It is a thin presentation shell that *invokes the existing,
 already-tested backend* and *displays whatever the backend produced*:
 
 * built-in demo clips reuse the repository's own test fixtures
-  (``tests/pipeline/_slice_fixtures.py`` and ``tests/pipeline/_stopping_fixtures.py``)
-  and the already-shipped composition roots
-  (``trafficpulse.pipeline.runner.run_wrong_way_slice`` and
-  ``trafficpulse.pipeline.illegal_stopping_runner.run_illegal_stopping_slice``),
-  exactly as ``demo/run_demo.py`` does -- so the offline scripted-detector slices
-  confirm the same real ``ConfirmedEvent``s the CLI/tests already produce;
+  (``tests/pipeline/_slice_fixtures.py``, ``_stopping_fixtures.py``, and
+  ``_helmet_fixtures.py``) and the already-shipped composition roots
+  (``trafficpulse.pipeline.runner.run_wrong_way_slice``,
+  ``...illegal_stopping_runner.run_illegal_stopping_slice`` and
+  ``...no_helmet_runner.run_no_helmet_slice``), exactly as ``demo/run_demo.py``
+  does -- so the offline scripted-perception slices confirm the same real
+  ``ConfirmedEvent``s the CLI/tests already produce. The no-helmet demo
+  additionally injects a scripted ``StubHelmetClassifier`` (no classifier can read
+  a helmet off a coloured rectangle); the run report's ``classifier_kind`` states
+  that truthfully;
 * uploaded clips are run through the **real RT-DETR** offline slice (genuine
   inference behind the P1-U6 seam) against a **per-clip auto-calibrated scene**
   (``viewer/calibration.py``): one real inference pass derives the clip's own
@@ -77,6 +81,13 @@ for _p in (str(_SRC), str(_FIXTURES_DIR)):
 
 import av  # noqa: E402  (base dep; used only to render preview frames)
 import yaml  # noqa: E402  (dev dep; scene loading, mirrors run_demo.py)
+from _helmet_fixtures import (  # noqa: E402
+    helmet_detector_config,
+    helmet_example_scene,
+    scripted_helmet_classifier,
+    scripted_rider_detector,
+    write_no_helmet_clip,
+)
 
 # Repository's own synthetic-clip + scripted-detector fixtures (built-in demos).
 from _slice_fixtures import (  # noqa: E402
@@ -95,6 +106,7 @@ from calibration import (  # noqa: E402
     OBSERVED_DIRECTION_ID,
     RTDetrCapturedReplay,
     build_calibrated_scene,
+    build_helmet_scene,
     calibrate_and_capture,
     default_upload_detector_config,
     upload_camera_id,
@@ -106,9 +118,16 @@ from trafficpulse.contracts import (  # noqa: E402
     SceneConfig,
 )
 from trafficpulse.detector import DetectorConfig  # noqa: E402
+from trafficpulse.ingestion.video import open_video  # noqa: E402
 from trafficpulse.persistence import EventStore  # noqa: E402
 from trafficpulse.pipeline.illegal_stopping_runner import (  # noqa: E402
+    IllegalStoppingSliceRunReport,
     run_illegal_stopping_slice,
+)
+from trafficpulse.pipeline.no_helmet_runner import (  # noqa: E402
+    NoHelmetSliceRunReport,
+    _build_zero_shot_classifier,
+    run_no_helmet_slice,
 )
 
 # --- reused, already-tested composition roots (NO reasoning duplicated here) ---
@@ -129,6 +148,17 @@ _WRONG_WAY_DIRECTION_ID = "dir-north"  # example scene's legal north (see README
 _RUN_ROOT = REPO_ROOT / "runs" / "viewer"
 _UPLOAD_DIR = REPO_ROOT / "runs" / "viewer" / "_uploads"
 _DEFAULT_RTDETR_CHECKPOINT = "PekingU/rtdetr_r50vd"  # locally-cached HF id
+
+# Zero-shot helmet checkpoint (locally cached; nothing is downloaded at run time).
+# SigLIP rather than OpenAI CLIP, decided by reading the official model cards:
+# CLIP's card declares NO licence and states that "any deployed use case ... whether
+# commercial or not — is currently out of scope" and that surveillance use cases are
+# "always out-of-scope regardless of performance". TrafficPulse is traffic
+# surveillance, so that is a direct exclusion by the model's own authors. SigLIP's
+# card declares apache-2.0 and carries no such clause. The P4-U3 backend runs any
+# CLIP-family checkpoint through AutoModel/AutoProcessor, so this is configuration,
+# not code (ADR-001: weight provenance is a per-artifact review).
+_DEFAULT_HELMET_CHECKPOINT = "google/siglip-base-patch16-224"
 _MEDIA_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)  # media-PTS anchor
 
 # clip_id -> path on disk, so the browser can request the raw video / frames.
@@ -145,7 +175,10 @@ def _load_example_scene() -> SceneConfig:
 
 @dataclass
 class _Analysis:
-    report: SliceRunReport
+    # Any slice's run report. The three report types are distinct dataclasses (one
+    # per thin-sibling runner) but share the fields the presentation layer reads,
+    # so _build_result_payload stays violation-agnostic.
+    report: SliceRunReport | NoHelmetSliceRunReport | IllegalStoppingSliceRunReport
     events: tuple[ConfirmedEvent, ...]
     clip_path: Path
     # Upload-only: what the per-clip auto-calibration observed (shown in the UI).
@@ -193,6 +226,104 @@ def _analyze_builtin_illegal_stopping(run_id: str) -> _Analysis:
         tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
     )
     return _Analysis(report=report, events=events, clip_path=clip)
+
+
+def _analyze_builtin_no_helmet(run_id: str) -> _Analysis:
+    """Run the offline no-helmet slice on the repo's synthetic clip.
+
+    Structurally identical to the two sibling built-in demos: the same composition
+    root pattern, the same unmodified ``EventStore``, and the same violation card
+    renderer. The helmet slice additionally injects a scripted
+    ``StubHelmetClassifier`` -- a COCO RT-DETR does not fire on synthetic pixels, and
+    no classifier can read a helmet off a coloured rectangle, so both perception
+    seams replay caller-authored scripts here exactly as the wrong-way and
+    illegal-stopping demos do. The report's ``classifier_kind`` states that
+    truthfully, so a scripted run can never be mistaken for a real model.
+    """
+    clip = write_no_helmet_clip(_RUN_ROOT / "clips" / f"{run_id}.mp4")
+    report = run_no_helmet_slice(
+        clip=clip,
+        scene=helmet_example_scene(),
+        detector=scripted_rider_detector(),
+        tracker=IouTracker(),
+        classifier=scripted_helmet_classifier(),
+        detector_config=helmet_detector_config(),
+        output_dir=_RUN_ROOT,
+        run_id=run_id,
+    )
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
+    return _Analysis(report=report, events=events, clip_path=clip)
+
+
+def _analyze_upload_no_helmet(run_id: str, clip_path: Path) -> _Analysis:
+    """Run the REAL no-helmet slice on an uploaded clip (genuine RT-DETR + SigLIP).
+
+    One inference pass, not two. The wrong-way upload path needs a calibration pass
+    because its scene depends on the *observed* traffic flow; no-helmet reasoning is
+    neither zone- nor direction-gated, so the only thing its scene needs from the
+    clip is the frame size -- which ingestion metadata reports without any inference
+    (see ``calibration.build_helmet_scene``). So the clip is opened once for its
+    dimensions, then processed once by the unchanged ``run_no_helmet_slice``.
+
+    Both perception backends are real: RT-DETR detects the motorcycles and riders,
+    the P4-U4 derivation associates riders and cuts head crops from the genuine
+    pixels, and SigLIP classifies those crops. Nothing is scripted, and the report's
+    ``detector_kind`` / ``classifier_kind`` name what actually ran.
+    """
+    with open_video(clip_path, camera_id=upload_camera_id(clip_path)) as reader:
+        metadata = reader.metadata  # frame size only; no inference, no decode loop
+    camera_id = upload_camera_id(clip_path)
+    scene = build_helmet_scene(
+        width=metadata.width,
+        height=metadata.height,
+        camera_id=camera_id,
+        clip_label=clip_path.name,
+    )
+    detector = _build_rtdetr_detector(
+        checkpoint=_DEFAULT_RTDETR_CHECKPOINT,
+        device="cpu",
+        score_threshold=0.5,
+        local_files_only=True,
+    )
+    classifier = _build_zero_shot_classifier(
+        checkpoint=_DEFAULT_HELMET_CHECKPOINT, device="cpu", local_files_only=True
+    )
+    report = run_no_helmet_slice(
+        clip=clip_path,
+        scene=scene,
+        detector=detector,
+        tracker=IouTracker(tracker_config=TrackerConfig(tracker=_IOU_TRACKER_MODEL_REF)),
+        classifier=classifier,
+        detector_config=default_upload_detector_config(
+            _rtdetr_model_ref(_DEFAULT_RTDETR_CHECKPOINT)
+        ),
+        output_dir=_RUN_ROOT,
+        run_id=run_id,
+        camera_id=camera_id,
+        checkpoint=_DEFAULT_RTDETR_CHECKPOINT,
+        helmet_checkpoint=_DEFAULT_HELMET_CHECKPOINT,
+        device="cpu",
+    )
+    events = (
+        tuple(s.event for s in EventStore(_RUN_ROOT).load(run_id)) if report.event_count else ()
+    )
+    return _Analysis(
+        report=report,
+        events=events,
+        clip_path=clip_path,
+        calibration={
+            "frame": f"{metadata.width}x{metadata.height}",
+            "camera_id": camera_id,
+            "scene_id": scene.scene.scene_id,
+            "riders_associated": report.riders_associated,
+            "helmet_observations": report.helmet_observations,
+            "abstentions": report.abstentions,
+            "exempt_riders": report.exempt_riders,
+            "helmet_checkpoint": _DEFAULT_HELMET_CHECKPOINT,
+        },
+    )
 
 
 def _analyze_upload(run_id: str, clip_path: Path) -> _Analysis:
@@ -397,6 +528,31 @@ _STAGES = [
     "Generating evidence...",
 ]
 
+# The no-helmet slice adds two genuine stages the geometry-only slices do not run:
+# rider<->motorcycle association (P4-U4) and head-crop helmet classification behind
+# the P4-U2 seam. Naming them keeps the narration truthful rather than generic.
+_HELMET_STAGES = [
+    "Reading video...",
+    "Loading detector...",
+    "Running tracker...",
+    "Associating riders with motorcycles...",
+    "Classifying helmet state on head crops...",
+    "Applying reasoning...",
+    "Generating evidence...",
+]
+
+# A helmet upload runs both real backends in ONE pass (no calibration pass: the
+# no-helmet scene needs only the clip's frame size, which needs no inference).
+_HELMET_UPLOAD_STAGES = [
+    "Reading video...",
+    "Loading RT-DETR + SigLIP (first run may take a moment)...",
+    "Running RT-DETR inference (real, CPU -- this is the slow stage)...",
+    "Associating riders with motorcycles...",
+    "Classifying helmet state on head crops (real SigLIP)...",
+    "Applying reasoning...",
+    "Generating evidence...",
+]
+
 # Upload runs add the genuine calibration stage: one real RT-DETR pass records
 # detections and derives the clip's own scene before the slice pass reasons.
 _UPLOAD_STAGES = [
@@ -523,11 +679,32 @@ class ViewerHandler(BaseHTTPRequestHandler):
                     path = _CLIP_REGISTRY.get(clip_id)
                     if not path:
                         raise ValueError("uploaded clip not found; please re-upload")
-                    box["result"] = _analyze_upload(run_id, path)
-                    box["label"] = "Uploaded video (real RT-DETR + auto-calibrated scene)"
+                    if scenario == "no_helmet":
+                        box["result"] = _analyze_upload_no_helmet(run_id, path)
+                        box["label"] = (
+                            "Uploaded video (real RT-DETR + real SigLIP helmet classifier)"
+                        )
+                    elif scenario == "illegal_stopping":
+                        # Honest refusal rather than a silently wrong answer: illegal
+                        # stopping is zone-gated, and no no-stopping polygon can be
+                        # derived from an arbitrary clip without an operator drawing
+                        # one. Nothing in this repo can do that yet.
+                        raise ValueError(
+                            "illegal stopping is not supported for uploaded clips: it "
+                            "is zone-gated and needs an operator-drawn no-stopping "
+                            "polygon, which this viewer cannot derive from a clip. Use "
+                            "the built-in illegal-stopping demo, or choose Wrong Way / "
+                            "No Helmet for uploads."
+                        )
+                    else:
+                        box["result"] = _analyze_upload(run_id, path)
+                        box["label"] = "Uploaded video (real RT-DETR + auto-calibrated scene)"
                 elif scenario == "illegal_stopping":
                     box["result"] = _analyze_builtin_illegal_stopping(run_id)
                     box["label"] = "Built-in synthetic clip (illegal stopping)"
+                elif scenario == "no_helmet":
+                    box["result"] = _analyze_builtin_no_helmet(run_id)
+                    box["label"] = "Built-in synthetic clip (no helmet, scripted classifier)"
                 else:
                     box["result"] = _analyze_builtin_wrong_way(run_id)
                     box["label"] = "Built-in synthetic clip (wrong way)"
@@ -538,7 +715,14 @@ class ViewerHandler(BaseHTTPRequestHandler):
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
 
-        stages = _UPLOAD_STAGES if source == "upload" else _STAGES
+        if source == "upload" and scenario == "no_helmet":
+            stages = _HELMET_UPLOAD_STAGES
+        elif source == "upload":
+            stages = _UPLOAD_STAGES
+        elif scenario == "no_helmet":
+            stages = _HELMET_STAGES
+        else:
+            stages = _STAGES
         try:
             # Emit staged messages; pace them but never outrun the worker.
             for idx, stage in enumerate(stages):
