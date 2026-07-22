@@ -18,6 +18,10 @@ interface ProcessingState {
   phase: ProcessingPhase;
   logs: LogEntry[];
   startedAt: number | null;
+  /** Last selected event id — persisted so a refresh restores the selection (H7D). */
+  selectedEventId: string | null;
+  /** Last playback position in seconds — persisted for refresh recovery (H7D). */
+  playbackSeconds: number;
 
   /** Begin the client-side upload phase (before a job exists). */
   beginUpload: () => void;
@@ -25,6 +29,10 @@ interface ProcessingState {
   attachJob: (videoId: string, jobId: string) => void;
   setPhase: (phase: ProcessingPhase) => void;
   addLog: (level: LogLevel, message: string) => void;
+  /** Record the selected event for recovery (no-op if unchanged). */
+  rememberSelection: (eventId: string | null) => void;
+  /** Record the playback position for recovery (whole-second granularity). */
+  rememberPlayback: (seconds: number) => void;
   reset: () => void;
 }
 
@@ -44,12 +52,14 @@ const MAX_LOGS = 50;
  */
 export const useProcessingStore = create<ProcessingState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       videoId: null,
       jobId: null,
       phase: 'idle',
       logs: [],
       startedAt: null,
+      selectedEventId: null,
+      playbackSeconds: 0,
 
       beginUpload: () =>
         set({
@@ -57,6 +67,8 @@ export const useProcessingStore = create<ProcessingState>()(
           jobId: null,
           phase: 'uploading',
           startedAt: Date.now(),
+          selectedEventId: null,
+          playbackSeconds: 0,
           logs: [{ id: nextLogId(), at: Date.now(), level: 'info', message: 'Uploading video…' }],
         }),
       attachJob: (videoId, jobId) =>
@@ -74,11 +86,32 @@ export const useProcessingStore = create<ProcessingState>()(
             { id: nextLogId(), at: Date.now(), level, message },
           ],
         })),
-      reset: () => set({ videoId: null, jobId: null, phase: 'idle', logs: [], startedAt: null }),
+      rememberSelection: (eventId) => {
+        if (get().selectedEventId !== eventId) set({ selectedEventId: eventId });
+      },
+      rememberPlayback: (seconds) => {
+        const whole = Math.max(0, Math.floor(seconds));
+        if (get().playbackSeconds !== whole) set({ playbackSeconds: whole });
+      },
+      reset: () =>
+        set({
+          videoId: null,
+          jobId: null,
+          phase: 'idle',
+          logs: [],
+          startedAt: null,
+          selectedEventId: null,
+          playbackSeconds: 0,
+        }),
     }),
     {
       name: 'trafficpulse-processing',
-      partialize: (state) => ({ videoId: state.videoId, jobId: state.jobId }),
+      partialize: (state) => ({
+        videoId: state.videoId,
+        jobId: state.jobId,
+        selectedEventId: state.selectedEventId,
+        playbackSeconds: state.playbackSeconds,
+      }),
     },
   ),
 );

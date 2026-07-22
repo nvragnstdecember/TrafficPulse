@@ -18,7 +18,7 @@ from _slice_fixtures import scripted_down_detector, write_wrong_way_clip
 from fastapi.testclient import TestClient
 
 from trafficpulse.app import AppConfig, SynchronousJobExecutor, create_app
-from trafficpulse.app.registry import JobExecutor
+from trafficpulse.app.registry import JobExecutor, JobWork
 from trafficpulse.contracts import SceneConfig
 from trafficpulse.detector import DetectorConfig
 from trafficpulse.detector.interface import Detector
@@ -36,6 +36,27 @@ EXAMPLE_SCENE_PATH = (
     Path(__file__).resolve().parents[2] / "configs" / "scenes" / "example-scene.yaml"
 )
 DEFAULT_RULES: tuple[RuleConfig, ...] = (WrongWayRuleConfig(direction_id=NORTH_DIRECTION_ID),)
+
+
+class DeferredJobExecutor:
+    """Captures a job's work without running it, then runs it on demand.
+
+    Lets a test drive the full processing lifecycle deterministically across an
+    async-shaped seam: submit the job (created, work captured but not yet run),
+    take an action that changes state (e.g. cancel), then ``run_pending()`` to
+    execute the captured work and observe the outcome -- all without threads.
+    """
+
+    def __init__(self) -> None:
+        self._pending: list[JobWork] = []
+
+    def submit(self, work: JobWork) -> None:
+        self._pending.append(work)
+
+    def run_pending(self) -> None:
+        pending, self._pending = self._pending, []
+        for work in pending:
+            work()
 
 
 class StubEngineProvider:
@@ -193,6 +214,7 @@ class UnavailableEngineProvider:
 
 __all__ = [
     "StubEngineProvider",
+    "DeferredJobExecutor",
     "RaisingEngineProvider",
     "UnavailableEngineProvider",
     "RaisingDetector",

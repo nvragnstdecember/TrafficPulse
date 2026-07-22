@@ -152,6 +152,7 @@ export class ApiClient {
         kind: 'http',
         status: response.status,
         type: envelope?.type ?? null,
+        videoId: envelope?.video_id ?? null,
       });
     }
 
@@ -258,6 +259,7 @@ export class ApiClient {
             kind: 'http',
             status: xhr.status,
             type: envelope?.type ?? null,
+            videoId: envelope?.video_id ?? null,
           }),
         );
       };

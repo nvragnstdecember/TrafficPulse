@@ -7,7 +7,7 @@
  * frontend depends only on JSON shapes.
  */
 
-export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed';
+export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type ViolationType =
   | 'no_helmet'
@@ -164,6 +164,8 @@ export interface MetricsResponse {
   jobs_running: number;
   jobs_succeeded: number;
   jobs_failed: number;
+  /** Jobs cancelled on request (H7D). Optional so an older backend still types. */
+  jobs_cancelled?: number;
   events_total: number;
   latest: EngineMetrics | null;
 }
@@ -173,5 +175,7 @@ export interface ApiErrorBody {
   error: {
     type: string;
     message: string;
+    /** Present only on a `duplicate_video` conflict: the existing video id (H7D). */
+    video_id?: string;
   };
 }

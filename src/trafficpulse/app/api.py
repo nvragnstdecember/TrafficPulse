@@ -48,14 +48,22 @@ _DESCRIPTION = (
 )
 
 
-def _error_response(status_code: int, error_type: str, message: str) -> JSONResponse:
-    body = ErrorResponse(error=ErrorDetail(type=error_type, message=message))
-    return JSONResponse(status_code=status_code, content=body.model_dump())
+def _error_response(
+    status_code: int, error_type: str, message: str, *, video_id: str | None = None
+) -> JSONResponse:
+    body = ErrorResponse(error=ErrorDetail(type=error_type, message=message, video_id=video_id))
+    # exclude_none keeps the wire envelope exactly {type, message} for every error
+    # except a duplicate-video conflict, which adds video_id -- so the additive
+    # field is invisible to existing clients.
+    return JSONResponse(status_code=status_code, content=body.model_dump(exclude_none=True))
 
 
 def _register_error_handlers(app: FastAPI) -> None:
     async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
-        return _error_response(exc.status_code, exc.error_type, exc.message)
+        # A duplicate-video conflict carries the existing id so a client can
+        # recover by opening it; other errors have no such payload.
+        video_id = getattr(exc, "video_id", None)
+        return _error_response(exc.status_code, exc.error_type, exc.message, video_id=video_id)
 
     async def handle_validation_error(
         _request: Request, exc: RequestValidationError

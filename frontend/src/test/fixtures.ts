@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 import {
   type ConfirmedEvent,
   type EventSummary,
@@ -6,6 +8,7 @@ import {
   type VideoUploadResponse,
   type ViolationType,
 } from '@/api/types';
+import { type ProcessingActions, type ProcessingController } from '@/hooks/use-processing';
 import { type WorkspaceEvent, toWorkspaceEvent } from '@/lib/workspace';
 
 /**
@@ -126,4 +129,36 @@ export function makeJob(overrides: Partial<JobStatusResponse> = {}): JobStatusRe
 /** A `File` that reports a size (jsdom's Blob size is derived from its parts). */
 export function makeFile(name: string, sizeBytes = 1024): File {
   return new File([new Uint8Array(sizeBytes)], name, { type: 'video/mp4' });
+}
+
+/** A fully-populated {@link ProcessingController} for view tests (H7D). */
+export function makeProcessingController(
+  overrides: Partial<ProcessingController> = {},
+): ProcessingController {
+  const actions: ProcessingActions = {
+    selectAndUpload: vi.fn(),
+    startProcessing: vi.fn(),
+    cancel: vi.fn(),
+    cancelUpload: vi.fn(),
+    retry: vi.fn(),
+    remove: vi.fn(),
+    replace: vi.fn(),
+    reconnect: vi.fn(),
+    ...overrides.actions,
+  };
+  return {
+    phase: 'running',
+    job: makeJob(),
+    video: makeVideo(),
+    progressRatio: 0.5,
+    elapsedSeconds: 10,
+    etaSeconds: 20,
+    logs: [],
+    error: null,
+    isBusy: true,
+    isCancelling: false,
+    connectionError: null,
+    ...overrides,
+    actions,
+  };
 }

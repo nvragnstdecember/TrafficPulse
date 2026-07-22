@@ -108,6 +108,47 @@ export function toWorkspaceEvent(summary: EventSummary, detail?: ConfirmedEvent)
   };
 }
 
+/** Structural equality over the fields that affect rendering (H7D). */
+export function workspaceEventsEqual(a: WorkspaceEvent, b: WorkspaceEvent): boolean {
+  return (
+    a.id === b.id &&
+    a.violationType === b.violationType &&
+    a.mediaSeconds === b.mediaSeconds &&
+    a.confidence === b.confidence &&
+    a.lane === b.lane &&
+    a.cameraId === b.cameraId &&
+    a.ruleId === b.ruleId &&
+    a.trackIds.length === b.trackIds.length &&
+    a.trackIds.every((track, index) => track === b.trackIds[index])
+  );
+}
+
+/**
+ * Merge a freshly-fetched event set into the previous one, preserving references
+ * (H7D).
+ *
+ * Live polling refetches the whole list each tick; returning brand-new objects
+ * every time would rerender every row and defeat memoization. This keeps each
+ * prior {@link WorkspaceEvent} reference when its content is unchanged, and
+ * returns the *previous array itself* when nothing changed at all — so appends
+ * (new events arriving mid-processing) update only what moved, existing rows and
+ * the current selection are preserved, and an identical poll causes no rerender.
+ */
+export function mergeWorkspaceEvents(
+  previous: WorkspaceEvent[],
+  incoming: WorkspaceEvent[],
+): WorkspaceEvent[] {
+  const priorById = new Map(previous.map((event) => [event.id, event]));
+  const merged = incoming.map((event) => {
+    const prior = priorById.get(event.id);
+    return prior && workspaceEventsEqual(prior, event) ? prior : event;
+  });
+  if (merged.length === previous.length && merged.every((event, i) => event === previous[i])) {
+    return previous;
+  }
+  return merged;
+}
+
 // --- timeline markers ----------------------------------------------------------
 export interface TimelineMarker {
   id: string;

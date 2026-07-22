@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 
 import { type ProcessingController } from '@/hooks/use-processing';
 import { formatBytes, formatDuration, formatNumber, formatPercent } from '@/lib/format';
-import { isActivePhase, phaseLabel, phaseTone } from '@/lib/job';
+import { isActivePhase, isCancellablePhase, phaseLabel, phaseTone } from '@/lib/job';
 import { acceptAttribute } from '@/lib/upload';
 import { cn } from '@/lib/utils';
 
@@ -40,13 +40,32 @@ function Stat({ label, value }: { label: string; value: string }) {
  * from `useProcessing`, so no network or polling logic lives in the view.
  */
 export function ProcessingPanel({ controller }: ProcessingPanelProps) {
-  const { phase, job, video, progressRatio, elapsedSeconds, etaSeconds, logs, error, actions } =
-    controller;
+  const {
+    phase,
+    job,
+    video,
+    progressRatio,
+    elapsedSeconds,
+    etaSeconds,
+    logs,
+    error,
+    isCancelling,
+    actions,
+  } = controller;
   const replaceInputRef = useRef<HTMLInputElement | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const active = isActivePhase(phase);
-  const tone = phase === 'failed' ? 'destructive' : phase === 'completed' ? 'success' : 'primary';
+  const canCancel = phase === 'uploading' || isCancellablePhase(phase);
+  const canRetry = phase === 'failed' || phase === 'cancelled';
+  const tone =
+    phase === 'failed'
+      ? 'destructive'
+      : phase === 'completed'
+        ? 'success'
+        : phase === 'cancelled'
+          ? 'destructive'
+          : 'primary';
 
   return (
     <Card>
@@ -103,13 +122,13 @@ export function ProcessingPanel({ controller }: ProcessingPanelProps) {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
-          {phase === 'uploading' ? (
-            <Button variant="outline" size="sm" onClick={actions.cancelUpload}>
+          {canCancel ? (
+            <Button variant="outline" size="sm" onClick={actions.cancel} disabled={isCancelling}>
               <Ban className="size-4" />
-              Cancel upload
+              {isCancelling ? 'Cancelling…' : phase === 'uploading' ? 'Cancel upload' : 'Cancel'}
             </Button>
           ) : null}
-          {phase === 'failed' ? (
+          {canRetry ? (
             <Button variant="outline" size="sm" onClick={actions.retry}>
               <RefreshCcw className="size-4" />
               Retry

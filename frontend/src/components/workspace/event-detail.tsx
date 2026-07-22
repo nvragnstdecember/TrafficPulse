@@ -5,6 +5,7 @@ import { formatDateTime, formatPercent } from '@/lib/format';
 import { type WorkspaceEvent, formatClock, violationLabel, violationTone } from '@/lib/workspace';
 
 import { EmptyState } from '../common/empty-state';
+import { ErrorBanner } from '../common/error-banner';
 import { StatusChip } from '../common/status-chip';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -15,7 +16,18 @@ export interface EventDetailProps {
   event: WorkspaceEvent | null;
   detail: ConfirmedEvent | undefined;
   evidence: EvidenceManifest | undefined;
+  /** Detail request in flight. */
   isLoading: boolean;
+  /** Detail request failed (retryable). */
+  detailError?: unknown;
+  /** Retry loading the detail. */
+  onRetryDetail?: () => void;
+  /** Evidence request in flight (may lag the event — delayed generation). */
+  isEvidenceLoading?: boolean;
+  /** Evidence request failed / not yet available (retryable). */
+  evidenceError?: unknown;
+  /** Retry loading the evidence manifest. */
+  onRetryEvidence?: () => void;
   /** Seek the player to a media-time position (seconds). */
   onSeek: (seconds: number) => void;
 }
@@ -60,7 +72,18 @@ function MeasurementTable({ title, rows }: { title: string; rows: MeasuredValue[
  * The backend renders no media, so evidence artifacts are shown as the typed
  * references they are — locator, media type, and content hash.
  */
-export function EventDetail({ event, detail, evidence, isLoading, onSeek }: EventDetailProps) {
+export function EventDetail({
+  event,
+  detail,
+  evidence,
+  isLoading,
+  detailError,
+  onRetryDetail,
+  isEvidenceLoading,
+  evidenceError,
+  onRetryEvidence,
+  onSeek,
+}: EventDetailProps) {
   if (!event) {
     return (
       <EmptyState
@@ -118,6 +141,12 @@ export function EventDetail({ event, detail, evidence, isLoading, onSeek }: Even
           <TabsContent value="measurements" className="space-y-3">
             {isLoading ? (
               <Skeleton className="h-24 w-full" />
+            ) : detailError ? (
+              <ErrorBanner
+                title="Could not load measurements"
+                error={detailError}
+                onRetry={onRetryDetail}
+              />
             ) : detail ? (
               <>
                 <MeasurementTable title="Measurements" rows={detail.measurements} />
@@ -190,8 +219,14 @@ export function EventDetail({ event, detail, evidence, isLoading, onSeek }: Even
                   </ul>
                 </div>
               </>
-            ) : isLoading ? (
+            ) : (isEvidenceLoading ?? isLoading) ? (
               <Skeleton className="h-24 w-full" />
+            ) : evidenceError ? (
+              <ErrorBanner
+                title="Evidence unavailable"
+                error={evidenceError}
+                onRetry={onRetryEvidence}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">No evidence manifest for this event.</p>
             )}

@@ -28,7 +28,11 @@ from pathlib import Path
 from ..contracts import ConfirmedEvent, EvidenceManifest, SceneConfig
 from ..detector.errors import DetectorError
 from ..engine import FileFrameSource, InferenceEngine, RuleConfig
-from ..engine.errors import EngineConfigurationError, UnsupportedRuleError
+from ..engine.errors import (
+    EngineConfigurationError,
+    RunCancelledError,
+    UnsupportedRuleError,
+)
 from ..ingestion.video import VideoIngestionError
 from ..persistence import EventStore, RunNotFoundError
 from ..pipeline.errors import SceneConfigurationError
@@ -221,18 +225,43 @@ class ProcessingService:
             ) from exc
 
     def _run(self, job: JobRecord, video: VideoRecord, scene: SceneConfig) -> None:
-        """Execute one job: run the H6 engine and persist its output."""
+        """Execute one job: run the H6 engine and persist its output.
+
+        The run is cooperatively cancellable: the engine checks the job's cancel
+        flag between frames, and a :class:`RunCancelledError` is recorded as a
+        clean ``CANCELLED`` outcome (not a failure) with nothing persisted.
+        """
 
         assert job.engine is not None
         try:
             source = FileFrameSource(video.path, camera_id=scene.scene.camera_id)
             self._jobs.mark_running(job.job_id, frames_total=source.metadata.frame_count)
-            result = job.engine.run(source)
+            result = job.engine.run(
+                source, should_cancel=lambda: self._jobs.is_cancel_requested(job.job_id)
+            )
             job.engine.persist(result, store=self._store, run_id=job.job_id)
             self._jobs.mark_succeeded(job.job_id, result)
+        except RunCancelledError:
+            _logger.info("processing job %s cancelled", job.job_id)
+            self._jobs.mark_cancelled(job.job_id)
         except Exception as exc:  # noqa: BLE001 - a job thread must never crash silently
             _logger.exception("processing job %s failed", job.job_id)
             self._jobs.mark_failed(job.job_id, str(exc))
+
+    def cancel(self, job_id: str) -> JobStatusResponse:
+        """Request cancellation of a job and return its current status.
+
+        Cancellation is cooperative and asynchronous: for a running job this
+        flags the background run, which stops at the next frame and transitions
+        to ``cancelled`` (the client keeps polling until it observes that).
+        Cancelling an already-finished job is a safe no-op that returns its
+        existing status. An unknown job id is a 404.
+        """
+
+        if self._jobs.get(job_id) is None:
+            raise JobNotFoundError(f"no processing job with id {job_id!r}")
+        self._jobs.request_cancel(job_id)
+        return self.status(job_id)
 
     def status(self, job_id: str) -> JobStatusResponse:
         """Return one job's live status (unavailable values are null, not faked)."""
@@ -389,6 +418,7 @@ class MetricsService:
             jobs_running=by_status[JobStatus.RUNNING],
             jobs_succeeded=by_status[JobStatus.SUCCEEDED],
             jobs_failed=by_status[JobStatus.FAILED],
+            jobs_cancelled=by_status[JobStatus.CANCELLED],
             events_total=events_total,
             latest=latest,
         )

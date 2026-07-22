@@ -43,3 +43,17 @@ def create_job(request: ProcessRequest, processing: ProcessingServiceDep) -> Pro
 )
 def get_job(job_id: str, processing: ProcessingServiceDep) -> JobStatusResponse:
     return processing.status(job_id)
+
+
+@router.post(
+    "/api/process/{job_id}/cancel",
+    response_model=JobStatusResponse,
+    summary="Cancel a processing job",
+    description="Request cooperative cancellation of a job and return its current "
+    "status. Cancellation is asynchronous: a running job stops at the next frame "
+    "and transitions to 'cancelled'; poll GET /api/process/{job_id} until it does. "
+    "Cancelling an already-finished job is a no-op that returns its existing status.",
+    responses={404: {"model": ErrorResponse, "description": "Unknown job id"}},
+)
+def cancel_job(job_id: str, processing: ProcessingServiceDep) -> JobStatusResponse:
+    return processing.cancel(job_id)

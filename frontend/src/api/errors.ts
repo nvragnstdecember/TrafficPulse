@@ -13,16 +13,30 @@ export class ApiError extends Error {
   readonly status: number;
   /** The server's stable error slug (from the H7A envelope) when available. */
   readonly type: string | null;
+  /** Existing video id carried by a `duplicate_video` conflict, else null (H7D). */
+  readonly videoId: string | null;
 
   constructor(
     message: string,
-    options: { kind: ApiErrorKind; status?: number; type?: string | null; cause?: unknown },
+    options: {
+      kind: ApiErrorKind;
+      status?: number;
+      type?: string | null;
+      videoId?: string | null;
+      cause?: unknown;
+    },
   ) {
     super(message, { cause: options.cause });
     this.name = 'ApiError';
     this.kind = options.kind;
     this.status = options.status ?? 0;
     this.type = options.type ?? null;
+    this.videoId = options.videoId ?? null;
+  }
+
+  /** True for a duplicate-video conflict (409), which carries the existing id. */
+  get isDuplicate(): boolean {
+    return this.type === 'duplicate_video';
   }
 
   /** True for transient failures worth a retry (network/timeout/5xx). */
@@ -45,9 +59,9 @@ export function parseErrorBody(body: unknown): ApiErrorBody['error'] | null {
     typeof (body as ApiErrorBody).error === 'object' &&
     (body as ApiErrorBody).error !== null
   ) {
-    const { type, message } = (body as ApiErrorBody).error;
+    const { type, message, video_id } = (body as ApiErrorBody).error;
     if (typeof type === 'string' && typeof message === 'string') {
-      return { type, message };
+      return typeof video_id === 'string' ? { type, message, video_id } : { type, message };
     }
   }
   return null;

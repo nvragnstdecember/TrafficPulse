@@ -176,6 +176,7 @@ class MetricsResponse(_ApiModel):
     jobs_running: int = Field(description="Jobs currently processing.")
     jobs_succeeded: int = Field(description="Jobs that completed successfully.")
     jobs_failed: int = Field(description="Jobs that failed.")
+    jobs_cancelled: int = Field(default=0, description="Jobs cancelled on request.")
     events_total: int = Field(description="Confirmed events across all succeeded jobs.")
     latest: EngineMetrics | None = Field(
         default=None,
@@ -185,10 +186,20 @@ class MetricsResponse(_ApiModel):
 
 # --- errors --------------------------------------------------------------------
 class ErrorDetail(_ApiModel):
-    """The body of an error envelope."""
+    """The body of an error envelope.
+
+    ``video_id`` is populated only for a ``duplicate_video`` conflict, so a
+    client can offer to open the already-uploaded video instead of dead-ending
+    the upload. It is ``null`` for every other error (additive; existing clients
+    that read only ``type``/``message`` are unaffected).
+    """
 
     type: str = Field(description="Stable machine-readable error slug.")
     message: str = Field(description="Human-readable, client-safe explanation.")
+    video_id: str | None = Field(
+        default=None,
+        description="Existing video id for a duplicate_video conflict, else null.",
+    )
 
 
 class ErrorResponse(_ApiModel):

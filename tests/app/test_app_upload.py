@@ -38,8 +38,12 @@ def test_upload_is_content_addressed(tmp_path: Path) -> None:
     # Same bytes under a different name -> duplicate (409), same id reported.
     duplicate = _upload(client, "b.mp4", data)
     assert duplicate.status_code == 409
-    assert duplicate.json()["error"]["type"] == "duplicate_video"
-    assert first in duplicate.json()["error"]["message"]
+    error = duplicate.json()["error"]
+    assert error["type"] == "duplicate_video"
+    assert first in error["message"]
+    # The conflict carries the existing id so a client can open it directly; the
+    # field appears only for this error (see ErrorDetail.video_id).
+    assert error["video_id"] == first
 
 
 def test_upload_rejects_unsupported_extension(tmp_path: Path) -> None:

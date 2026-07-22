@@ -64,6 +64,7 @@ from ..tracking.config import TrackerConfig
 from ..tracking.interface import Tracker
 from ..tracking.iou_tracker import IouTracker
 from .config import EngineConfig
+from .errors import RunCancelledError
 from .evidence import FrameStamp, build_engine_manifest, media_seconds
 from .logs import EngineLogEvent, EngineLogEventKind, EngineLogSink, EventData, NullLogSink
 from .metrics import EngineMetrics, LatencyKind, MetricsRecorder
@@ -243,11 +244,23 @@ class InferenceEngine:
             for event in events
         )
 
-    def run(self, source: FrameSource) -> EngineRunResult:
+    def run(
+        self,
+        source: FrameSource,
+        *,
+        should_cancel: Callable[[], bool] | None = None,
+    ) -> EngineRunResult:
         """One complete stream: reset -> schedule+process -> finalize -> evidence.
 
         Self-contained (resets first), so repeated calls with a replayable
         source produce equal results.
+
+        ``should_cancel`` is an optional cooperative-cancellation predicate,
+        checked once between source frames. When it becomes true the run stops
+        immediately by raising :class:`RunCancelledError` -- *before* finalizing
+        or building evidence -- so a cancelled run leaves no partial result and
+        never touches persistence. Omitting it preserves the original behaviour
+        exactly (no per-frame overhead, no new failure mode).
         """
 
         self.reset()
@@ -255,6 +268,10 @@ class InferenceEngine:
         self._recorder.run_started()
         self._emit(EngineLogEventKind.SOURCE_OPENED, {"source_id": source.source_id})
         for record in source.frames():
+            if should_cancel is not None and should_cancel():
+                raise RunCancelledError(
+                    f"run cancelled after {self._recorder.frames_processed} frame(s)"
+                )
             self.submit(record)
             self.drain()
         events = self.finalize()

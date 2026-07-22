@@ -74,12 +74,25 @@ class VideoStore:
 
 # --- jobs ----------------------------------------------------------------------
 class JobStatus(StrEnum):
-    """Processing-job lifecycle states."""
+    """Processing-job lifecycle states.
+
+    ``CANCELLED`` is a terminal state distinct from ``FAILED``: the job was
+    stopped on request before completing, which is not an error. It is additive
+    -- clients that only know the original four states still receive a valid
+    status string.
+    """
 
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True once the job can no longer change state."""
+
+        return self in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
 @dataclass
@@ -92,6 +105,7 @@ class JobRecord:
     frames_total: int | None = None
     event_ids: tuple[str, ...] = ()
     error: str | None = None
+    cancel_requested: bool = False
     engine: InferenceEngine | None = field(default=None, repr=False)
     result: EngineRunResult | None = field(default=None, repr=False)
 
@@ -145,6 +159,35 @@ class JobStore:
             record = self._jobs[job_id]
             record.status = JobStatus.FAILED
             record.error = message
+
+    def mark_cancelled(self, job_id: str) -> None:
+        with self._lock:
+            record = self._jobs[job_id]
+            record.status = JobStatus.CANCELLED
+
+    def request_cancel(self, job_id: str) -> bool:
+        """Flag a non-terminal job for cooperative cancellation.
+
+        Returns ``True`` when the flag was newly set on a still-cancellable job,
+        ``False`` for an unknown or already-terminal job (a safe no-op, so
+        cancelling a finished job never changes its recorded outcome). The
+        background run observes the flag between frames (see
+        :meth:`is_cancel_requested`).
+        """
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is None or record.status.is_terminal:
+                return False
+            record.cancel_requested = True
+            return True
+
+    def is_cancel_requested(self, job_id: str) -> bool:
+        """Whether cancellation has been requested for a job (thread-safe read)."""
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            return record is not None and record.cancel_requested
 
     def job_for_event(self, event_id: str) -> str | None:
         with self._lock:

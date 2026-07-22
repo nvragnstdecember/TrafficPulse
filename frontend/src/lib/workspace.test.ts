@@ -16,11 +16,13 @@ import {
   filterWorkspaceEvents,
   formatClock,
   hasActiveFilters,
+  mergeWorkspaceEvents,
   sortWorkspaceEvents,
   timelineDuration,
   toWorkspaceEvent,
   violationLabel,
   violationTone,
+  workspaceEventsEqual,
 } from './workspace';
 
 describe('eventMediaSeconds', () => {
@@ -178,6 +180,53 @@ describe('sorting', () => {
     const input = [...events];
     sortWorkspaceEvents(input, 'time-asc');
     expect(input.map((e) => e.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('mergeWorkspaceEvents (H7D)', () => {
+  it('returns the same array reference when nothing changed', () => {
+    const previous = [makeWorkspaceEvent({ event_id: 'a' })];
+    const incoming = [makeWorkspaceEvent({ event_id: 'a' })];
+    expect(mergeWorkspaceEvents(previous, incoming)).toBe(previous);
+  });
+
+  it('preserves the reference of unchanged events while appending new ones', () => {
+    const a = makeWorkspaceEvent({ event_id: 'a', trigger_at: mediaSeconds(5) });
+    const previous = [a];
+    const incoming = [
+      makeWorkspaceEvent({ event_id: 'a', trigger_at: mediaSeconds(5) }),
+      makeWorkspaceEvent({ event_id: 'b', trigger_at: mediaSeconds(9) }),
+    ];
+    const merged = mergeWorkspaceEvents(previous, incoming);
+    expect(merged).not.toBe(previous);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toBe(a); // unchanged event keeps its identity
+    expect(merged[1].id).toBe('b');
+  });
+
+  it('replaces the reference of an event whose content changed', () => {
+    const a = makeWorkspaceEvent({ event_id: 'a' });
+    const previous = [a];
+    const enriched = { ...a, confidence: 0.9 };
+    const merged = mergeWorkspaceEvents(previous, [enriched]);
+    expect(merged[0]).not.toBe(a);
+    expect(merged[0].confidence).toBe(0.9);
+  });
+
+  it('from an empty previous set, adopts the incoming events by reference', () => {
+    const incoming = [makeWorkspaceEvent({ event_id: 'a' })];
+    const merged = mergeWorkspaceEvents([], incoming);
+    expect(merged).toEqual(incoming);
+    expect(merged[0]).toBe(incoming[0]); // element identity preserved
+  });
+});
+
+describe('workspaceEventsEqual', () => {
+  it('is true for identical view-models and false when a field differs', () => {
+    const a = makeWorkspaceEvent({ event_id: 'a' });
+    expect(workspaceEventsEqual(a, { ...a })).toBe(true);
+    expect(workspaceEventsEqual(a, { ...a, confidence: 0.5 })).toBe(false);
+    expect(workspaceEventsEqual(a, { ...a, trackIds: ['x', 'y'] })).toBe(false);
   });
 });
 
