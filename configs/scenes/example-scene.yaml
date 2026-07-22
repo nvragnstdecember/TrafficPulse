@@ -222,6 +222,24 @@ rule_parameters:
         note: >
           Ontology defines triple riding as three or more riders; per-scene
           confirmation still requires temporal tuning.
+      - id: min_persistence
+        value: 1.0
+        unit: seconds
+        status: provisional
+        note: >
+          How long a motorcycle must carry at least rider_count_threshold riders
+          before confirmation (v1.1 U3). Seconds, not frames, for frame-rate
+          independence (see no_helmet's candidate_persistence_frames note).
+          Provisional: mirrors the no-helmet/wrong-way persistence magnitude and
+          is NOT tuned on held-out data.
+      - id: max_observation_gap
+        value: 2.0
+        unit: seconds
+        status: provisional
+        note: >
+          Longest gap between confirming observations one episode may bridge
+          (v1.1 U3). Bounds how long a brief occlusion or dropped count may
+          sustain a run. Provisional; not tuned.
       - id: persistence_window_frames
         value: null
         unit: frames

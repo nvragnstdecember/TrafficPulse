@@ -65,7 +65,6 @@ def test_scene_resolution_failures_propagate_unchanged() -> None:
 def test_require_shipped_names_the_gap() -> None:
     for violation in (
         ViolationType.RED_LIGHT_JUMPING,
-        ViolationType.TRIPLE_RIDING,
         ViolationType.SPEEDING,
     ):
         with pytest.raises(UnsupportedRuleError, match=violation.value):
@@ -74,6 +73,7 @@ def test_require_shipped_names_the_gap() -> None:
         ViolationType.WRONG_WAY,
         ViolationType.ILLEGAL_STOPPING,
         ViolationType.NO_HELMET,
+        ViolationType.TRIPLE_RIDING,  # shipped in v1.1 U3
     ):
         require_shipped(violation)  # shipped: no error
 

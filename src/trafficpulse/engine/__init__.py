@@ -26,6 +26,7 @@ from .config import (
     NoHelmetRuleConfig,
     RuleConfig,
     SchedulerConfig,
+    TripleRidingRuleConfig,
     WrongWayRuleConfig,
 )
 from .engine import EngineRunResult, InferenceEngine, build_engine
@@ -91,6 +92,7 @@ __all__ = [
     "WrongWayRuleConfig",
     "IllegalStoppingRuleConfig",
     "NoHelmetRuleConfig",
+    "TripleRidingRuleConfig",
     # sources
     "FrameSource",
     "FileFrameSource",

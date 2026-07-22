@@ -36,6 +36,11 @@ from .helmet import (
     observation_id,
     rider_slot,
 )
+from .rider_count import (
+    DEFAULT_RIDER_COUNT_PRODUCER,
+    RiderCountDerivation,
+    derive_rider_count_observations,
+)
 from .signal import (
     DEFAULT_SIGNAL_PRODUCER,
     SignalPhase,
@@ -82,6 +87,9 @@ __all__ = [
     "laplacian_variance",
     "observation_id",
     "rider_slot",
+    "DEFAULT_RIDER_COUNT_PRODUCER",
+    "RiderCountDerivation",
+    "derive_rider_count_observations",
     "DEFAULT_SIGNAL_PRODUCER",
     "SignalPhase",
     "derive_signal_state_observations",

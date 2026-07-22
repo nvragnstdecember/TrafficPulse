@@ -141,8 +141,18 @@ class NoHelmetRuleConfig(_EngineModel):
     kind: Literal["no_helmet"] = "no_helmet"
 
 
+class TripleRidingRuleConfig(_EngineModel):
+    """Run the triple-riding slice (v1.1 U3).
+
+    Pure geometry over the shipped perception + association seams -- it needs no
+    classifier. Its temporal parameters (min_persistence, rider_count_threshold,
+    max_observation_gap) are read from the scene's ``triple_riding`` block."""
+
+    kind: Literal["triple_riding"] = "triple_riding"
+
+
 RuleConfig: TypeAlias = Annotated[
-    WrongWayRuleConfig | IllegalStoppingRuleConfig | NoHelmetRuleConfig,
+    WrongWayRuleConfig | IllegalStoppingRuleConfig | NoHelmetRuleConfig | TripleRidingRuleConfig,
     Field(discriminator="kind"),
 ]
 

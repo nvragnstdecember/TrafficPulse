@@ -38,11 +38,13 @@ from ..detector.frame import Frame
 from ..pipeline.base import FinalizeStrategy, FrameObserver
 from ..pipeline.illegal_stopping import illegal_stopping_finalize_strategy
 from ..pipeline.no_helmet import no_helmet_finalize_strategy
+from ..pipeline.triple_riding import triple_riding_finalize_strategy
 from ..pipeline.wrong_way import wrong_way_finalize_strategy
 from .config import (
     IllegalStoppingRuleConfig,
     NoHelmetRuleConfig,
     RuleConfig,
+    TripleRidingRuleConfig,
     WrongWayRuleConfig,
 )
 from .errors import EngineConfigurationError, UnsupportedRuleError
@@ -51,7 +53,6 @@ from .errors import EngineConfigurationError, UnsupportedRuleError
 # registry's refusal message states exactly what exists and what does not.
 _UNSHIPPED = (
     ViolationType.RED_LIGHT_JUMPING,
-    ViolationType.TRIPLE_RIDING,
     ViolationType.SPEEDING,
 )
 
@@ -105,8 +106,7 @@ def build_rules(
                     ),
                 )
             )
-        else:
-            assert isinstance(config, NoHelmetRuleConfig)  # closed discriminated union
+        elif isinstance(config, NoHelmetRuleConfig):
             if classifier is None:
                 raise EngineConfigurationError(
                     "a no_helmet rule is configured but no HelmetClassifier was "
@@ -118,6 +118,17 @@ def build_rules(
                     violation=ViolationType.NO_HELMET,
                     strategy=strategy,
                     observer=observer,
+                )
+            )
+        else:
+            assert isinstance(config, TripleRidingRuleConfig)  # closed discriminated union
+            # Pure geometry over the perception + association seams: no classifier.
+            tr_strategy, tr_observer = triple_riding_finalize_strategy(scene)
+            built.append(
+                BuiltRule(
+                    violation=ViolationType.TRIPLE_RIDING,
+                    strategy=tr_strategy,
+                    observer=tr_observer,
                 )
             )
     return tuple(built)
@@ -137,6 +148,7 @@ def require_shipped(violation: ViolationType) -> None:
             ViolationType.WRONG_WAY,
             ViolationType.ILLEGAL_STOPPING,
             ViolationType.NO_HELMET,
+            ViolationType.TRIPLE_RIDING,
         )
         raise UnsupportedRuleError(
             f"violation {violation.value!r} has a frozen contract but no shipped "
