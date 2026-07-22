@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '@/api/errors';
 import { useProcessingStore } from '@/store/processing-store';
 import { useSelectionStore } from '@/store/selection-store';
 import { useUploadStore } from '@/store/upload-store';
@@ -23,6 +24,7 @@ vi.mock('@/services/videos.service', () => ({
     upload: vi.fn(),
     startProcessing: vi.fn(),
     getJob: vi.fn(),
+    cancelJob: vi.fn(),
   },
 }));
 
@@ -53,6 +55,7 @@ beforeEach(() => {
   vi.mocked(videosService.getJob).mockResolvedValue(
     makeJob({ status: 'succeeded', progress: 1, event_count: 2 }),
   );
+  vi.mocked(videosService.cancelJob).mockResolvedValue(makeJob({ status: 'running' }));
   vi.mocked(eventsService.list).mockResolvedValue({
     items: [
       makeEventSummary({ event_id: 'evt-1', trigger_at: mediaSeconds(4) }),
@@ -144,5 +147,80 @@ describe('VideosPage (video workspace)', () => {
     await user.click(within(dialog).getByRole('button', { name: /^remove$/i }));
 
     expect(await screen.findByRole('button', { name: 'Upload a video' })).toBeInTheDocument();
+  });
+});
+
+describe('VideosPage — live processing (H7D)', () => {
+  it('cancels a running job and reflects the cancelled state', async () => {
+    const user = userEvent.setup();
+    // A job that stays running until it is cancelled, then reports cancelled.
+    vi.mocked(videosService.getJob).mockResolvedValue(makeJob({ status: 'running' }));
+    renderWithProviders(<VideosPage />);
+    await user.upload(screen.getByTestId('upload-input'), makeFile('clip.mp4'));
+    await screen.findByRole('region', { name: 'Detected events' });
+    await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument());
+
+    // From cancel onward the backend reports the job cancelled.
+    vi.mocked(videosService.getJob).mockResolvedValue(makeJob({ status: 'cancelled' }));
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+
+    expect(videosService.cancelJob).toHaveBeenCalledWith('job-1');
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument();
+  });
+
+  it('surfaces a reconnect banner when the job poll fails, then recovers', async () => {
+    const user = userEvent.setup();
+    vi.mocked(videosService.getJob).mockRejectedValue(
+      new ApiError('Network request failed', { kind: 'network' }),
+    );
+    // Seed an in-flight job (as a page refresh into a running job would), then mount.
+    act(() => useProcessingStore.getState().attachJob('vid-1', 'job-1'));
+    act(() => useUploadStore.getState().markUploaded(makeVideo()));
+    renderWithProviders(<VideosPage />);
+
+    expect(await screen.findByText('Lost connection to the server')).toBeInTheDocument();
+
+    // Recovery: the backend comes back and a reconnect re-polls successfully.
+    vi.mocked(videosService.getJob).mockResolvedValue(
+      makeJob({ status: 'succeeded', progress: 1, event_count: 2 }),
+    );
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() =>
+      expect(screen.queryByText('Lost connection to the server')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('opens the existing video when an upload is a duplicate', async () => {
+    const user = userEvent.setup();
+    vi.mocked(videosService.upload).mockRejectedValue(
+      new ApiError('an identical video already exists as vid-existing', {
+        kind: 'http',
+        status: 409,
+        type: 'duplicate_video',
+        videoId: 'vid-existing',
+      }),
+    );
+    renderWithProviders(<VideosPage />);
+
+    await user.upload(screen.getByTestId('upload-input'), makeFile('dupe.mp4'));
+
+    // The workspace opens for the already-uploaded video and starts processing it.
+    await screen.findByRole('region', { name: 'Detected events' });
+    expect(videosService.startProcessing).toHaveBeenCalledWith({ videoId: 'vid-existing' });
+  });
+
+  it('restores the persisted selection after a refresh into a completed job', async () => {
+    // Simulate a reload: the persisted store already knows the video, job, and
+    // which event was selected.
+    act(() => {
+      useUploadStore.getState().markUploaded(makeVideo());
+      useProcessingStore.getState().attachJob('vid-1', 'job-1');
+      useProcessingStore.getState().rememberSelection('evt-2');
+    });
+    renderWithProviders(<VideosPage />);
+
+    await screen.findByRole('region', { name: 'Detected events' });
+    // The previously-selected event's detail is fetched on restore.
+    await waitFor(() => expect(useSelectionStore.getState().selectedEventId).toBe('evt-2'));
   });
 });

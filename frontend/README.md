@@ -1,10 +1,13 @@
-# TrafficPulse Frontend (H7B · H7C)
+# TrafficPulse Frontend (H7B · H7C · H7D)
 
 The TrafficPulse web client: the reusable application architecture (shell,
 routing, theming, design system, typed API infrastructure, state, and testing)
-from **H7B**, plus the **H7C video workspace** — upload, live processing, and
-frame-accurate review of confirmed violations. It talks to the H7A HTTP API over
-JSON only — it never imports backend code.
+from **H7B**, the **H7C video workspace** (upload → process → frame-accurate
+review), and the **H7D live processing integration** — a resilient end-to-end
+lifecycle over the FastAPI backend with live polling, cancellation, recovery, and
+graceful failure handling. It talks to the H7A HTTP API over JSON only — it never
+imports backend code, and no component calls `fetch` directly (pages → hooks →
+services → typed client).
 
 ## Stack
 
@@ -97,3 +100,55 @@ does, the workspace mounts.
   `J`/`L` previous/next event · `F` fullscreen — suppressed while typing.
 - **Event time.** The backend anchors PTS at the Unix epoch, so an event's
   `trigger_at` maps directly onto the uploaded video's own 0..duration timeline.
+
+## Live processing integration (H7D)
+
+H7D makes the workspace a fully-integrated live client of the backend.
+
+**Processing lifecycle.** The backend's job statuses (`pending → running →
+succeeded | failed | cancelled`) are surfaced as a richer UI lifecycle. Two
+sub-phases of `running` are **derived from the job's own truthful frame
+counters** (never fabricated) in `lib/job.ts`:
+
+```
+idle → uploading → queued → initializing → running → finalizing → completed
+                                                                ↘ failed
+                                                                ↘ cancelled
+```
+
+`initializing` = running with no frame processed yet; `finalizing` = every known
+frame processed but not yet flipped to succeeded (evidence + persistence). Every
+transition is reflected immediately.
+
+**Polling.** All polling is TanStack Query — no custom loops. `useJob` polls
+while the job is active and stops on any terminal state; the event list polls
+while active so markers appear as the run confirms them; requests dedupe; transient
+failures fall back to the client's exponential retry backoff; and polling resumes
+automatically on reconnect.
+
+**Live timeline & synchronization.** `mergeWorkspaceEvents` merges each poll into
+the prior set, **preserving object references** for unchanged events (and the
+whole array when nothing changed) — so appends update only what moved, existing
+rows/markers don't rerender, and the current selection survives background
+refreshes. Events, detail, and evidence all update without a manual refresh.
+
+**Cancellation.** A cancellable job exposes a **Cancel** action → `POST
+/api/process/{job_id}/cancel`. The backend flags the run, the engine stops
+cooperatively at the next frame (`InferenceEngine.run(..., should_cancel=…)`), and
+the job transitions to `cancelled` with nothing persisted. An in-flight _upload_
+is instead aborted locally (`AbortController`).
+
+**Recovery.** The persisted store (`processing-store`) keeps the job id, video id,
+selected event, and playback position, so a browser refresh into an active job
+restores the upload, processing state, timeline, selection, and playback position.
+
+**Errors.** Backend-unavailable/timeout/network failures during polling raise a
+reconnect banner with a retry; a failed job shows its error with a retry; delayed
+or failed evidence/detail shows an inline retry; a duplicate upload (409) is
+recognized and **opens the already-stored video** instead of dead-ending, using
+the `video_id` the conflict carries.
+
+**Backend touchpoints (additive, backwards-compatible).** A cancel endpoint +
+`JobStatus.CANCELLED`; an optional `should_cancel` predicate on the engine run;
+`video_id` on the `duplicate_video` error envelope (omitted otherwise); and a
+`jobs_cancelled` metric. No existing endpoint contract changed.

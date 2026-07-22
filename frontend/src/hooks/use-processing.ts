@@ -4,21 +4,32 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { queryKeys } from '@/api/query-keys';
 import { type JobStatusResponse, type VideoUploadResponse } from '@/api/types';
 import { ApiError, toErrorMessage } from '@/api/errors';
-import { type ProcessingPhase, isActivePhase, jobProgressRatio, jobStatusToPhase } from '@/lib/job';
+import {
+  type ProcessingPhase,
+  derivePhase,
+  isActivePhase,
+  isCancellablePhase,
+  jobProgressRatio,
+} from '@/lib/job';
 import { validateUploadFile } from '@/lib/upload';
 import { type LogEntry, useProcessingStore } from '@/store/processing-store';
 import { useSelectionStore } from '@/store/selection-store';
 import { useUploadStore } from '@/store/upload-store';
 
-import { useJob, useStartProcessing, useUploadVideo } from './use-videos';
+import { useCancelJob, useJob, useStartProcessing, useUploadVideo } from './use-videos';
 
 export interface ProcessingActions {
   selectAndUpload: (file: File) => void;
   startProcessing: () => void;
+  /** Cancel the in-flight upload (client abort) or the running job (API), as apt. */
+  cancel: () => void;
+  /** Abort an in-flight upload (client-side only). Kept for the uploading phase. */
   cancelUpload: () => void;
   retry: () => void;
   remove: () => void;
   replace: (file: File) => void;
+  /** Re-poll the job now (e.g. after a transient backend outage). */
+  reconnect: () => void;
 }
 
 export interface ProcessingController {
@@ -32,6 +43,10 @@ export interface ProcessingController {
   logs: LogEntry[];
   error: string | null;
   isBusy: boolean;
+  /** A cancellation request is in flight (the job has not yet observed it). */
+  isCancelling: boolean;
+  /** The job poll is currently failing (backend unavailable / transient outage). */
+  connectionError: unknown;
   actions: ProcessingActions;
 }
 
@@ -63,6 +78,7 @@ export function useProcessing(): ProcessingController {
 
   const uploadMutation = useUploadVideo();
   const startMutation = useStartProcessing();
+  const cancelMutation = useCancelJob();
   const jobQuery = useJob(processing.jobId ?? undefined, { poll: true });
 
   const abortRef = useRef<AbortController | null>(null);
@@ -137,6 +153,30 @@ export function useProcessing(): ProcessingController {
               useProcessingStore.getState().reset();
               return;
             }
+            // Duplicate: this exact video is already stored. Adopt the existing
+            // record (we still hold the local file for playback) and process it,
+            // instead of dead-ending the upload.
+            if (error instanceof ApiError && error.isDuplicate && error.videoId) {
+              const existing: VideoUploadResponse = {
+                video_id: error.videoId,
+                filename: file.name,
+                status: 'stored',
+                size_bytes: file.size,
+                width: null,
+                height: null,
+                fps: null,
+                frame_count: null,
+                duration_seconds: null,
+                codec: '',
+              };
+              useUploadStore.getState().markUploaded(existing);
+              selectVideo(existing.video_id);
+              useProcessingStore
+                .getState()
+                .addLog('info', `Already uploaded — opening ${file.name}.`);
+              startProcessingFor(existing.video_id);
+              return;
+            }
             const message = toErrorMessage(error);
             useUploadStore.getState().markError(message);
             useProcessingStore.getState().setPhase('failed');
@@ -148,23 +188,46 @@ export function useProcessing(): ProcessingController {
     [uploadMutation, selectVideo, startProcessingFor],
   );
 
-  // Drive phase + activity log from the polled job status (Query layer).
+  // Drive phase + activity log from the polled job status (Query layer). The
+  // phase is re-derived on every poll (so initializing→running→finalizing track
+  // the live frame counters), while the activity log fires only on backend
+  // status transitions.
   useEffect(() => {
     const job = jobQuery.data;
     if (!job) return;
+    const store = useProcessingStore.getState();
+
+    const phase = derivePhase(job);
+    if (phase !== store.phase) store.setPhase(phase);
+
     if (lastStatusRef.current === job.status) return;
     lastStatusRef.current = job.status;
-
-    const phase = jobStatusToPhase(job.status);
-    const store = useProcessingStore.getState();
-    store.setPhase(phase);
-    if (phase === 'running') store.addLog('info', 'Processing video…');
-    if (phase === 'completed') {
+    if (job.status === 'running') {
+      store.addLog('info', 'Processing video…');
+    } else if (job.status === 'succeeded') {
       store.addLog('success', `Completed — ${job.event_count} event(s) detected.`);
       void queryClient.invalidateQueries({ queryKey: queryKeys.events.all });
+    } else if (job.status === 'failed') {
+      store.addLog('error', job.error ?? 'Processing failed.');
+    } else if (job.status === 'cancelled') {
+      store.addLog('info', 'Processing cancelled.');
     }
-    if (phase === 'failed') store.addLog('error', job.error ?? 'Processing failed.');
   }, [jobQuery.data, queryClient]);
+
+  const cancelUpload = useCallback(() => abortRef.current?.abort(), []);
+
+  const cancelJob = useCallback(() => {
+    const store = useProcessingStore.getState();
+    if (store.phase === 'uploading') {
+      cancelUpload();
+      return;
+    }
+    const jobId = store.jobId;
+    if (jobId && isCancellablePhase(store.phase)) {
+      store.addLog('info', 'Cancelling…');
+      cancelMutation.mutate(jobId);
+    }
+  }, [cancelUpload, cancelMutation]);
 
   const actions: ProcessingActions = {
     selectAndUpload: runUpload,
@@ -172,7 +235,8 @@ export function useProcessing(): ProcessingController {
       const video = useUploadStore.getState().video;
       if (video) startProcessingFor(video.video_id);
     },
-    cancelUpload: () => abortRef.current?.abort(),
+    cancel: cancelJob,
+    cancelUpload,
     retry: () => {
       const upload = useUploadStore.getState();
       lastStatusRef.current = null;
@@ -191,6 +255,7 @@ export function useProcessing(): ProcessingController {
       lastStatusRef.current = null;
       runUpload(file);
     },
+    reconnect: () => void jobQuery.refetch(),
   };
 
   const busy =
@@ -212,6 +277,8 @@ export function useProcessing(): ProcessingController {
     logs: processing.logs,
     error: uploadStore.error ?? jobQuery.data?.error ?? null,
     isBusy: busy,
+    isCancelling: cancelMutation.isPending,
+    connectionError: jobQuery.isError ? jobQuery.error : null,
     actions,
   };
 }

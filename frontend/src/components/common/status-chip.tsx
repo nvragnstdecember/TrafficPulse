@@ -51,6 +51,8 @@ export function jobStatusTone(status: JobStatus): StatusTone {
       return 'neutral';
     case 'failed':
       return 'error';
+    case 'cancelled':
+      return 'neutral';
   }
 }
 

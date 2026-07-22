@@ -48,4 +48,7 @@ export const videosService = {
   getJob(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse> {
     return apiClient.get<JobStatusResponse>(endpoints.job(jobId), { signal });
   },
+  cancelJob(jobId: string, signal?: AbortSignal): Promise<JobStatusResponse> {
+    return apiClient.post<JobStatusResponse>(endpoints.cancelJob(jobId), undefined, { signal });
+  },
 };

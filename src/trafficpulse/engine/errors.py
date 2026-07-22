@@ -40,3 +40,15 @@ class FrameSourceError(EngineError):
     Covers non-monotonic timestamps/frame indices from a live adapter source --
     the engine refuses to fabricate order for a stream that has none. File
     sources keep the ingestion taxonomy (``VideoIngestionError``)."""
+
+
+class RunCancelledError(EngineError):
+    """A run was cooperatively cancelled before the stream completed.
+
+    Raised by :meth:`InferenceEngine.run` when the caller-supplied
+    ``should_cancel`` predicate becomes true between frames. It is a *control*
+    signal, not a fault: a cancelled run produced no complete result, so the
+    caller records the cancellation rather than a failure and persists nothing.
+    The engine leaves no partial output -- ``run`` raises before finalizing, so
+    the write-once store is never touched for a cancelled run.
+    """

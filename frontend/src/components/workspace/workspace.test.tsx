@@ -121,13 +121,17 @@ function makeController(overrides: Partial<ProcessingController> = {}): Processi
     ],
     error: null,
     isBusy: true,
+    isCancelling: false,
+    connectionError: null,
     actions: {
       selectAndUpload: vi.fn(),
       startProcessing: vi.fn(),
+      cancel: vi.fn(),
       cancelUpload: vi.fn(),
       retry: vi.fn(),
       remove: vi.fn(),
       replace: vi.fn(),
+      reconnect: vi.fn(),
     },
     ...overrides,
   };
@@ -151,7 +155,7 @@ describe('ProcessingPanel', () => {
     renderWithProviders(<ProcessingPanel controller={controller} />);
 
     await user.click(screen.getByRole('button', { name: /cancel upload/i }));
-    expect(controller.actions.cancelUpload).toHaveBeenCalled();
+    expect(controller.actions.cancel).toHaveBeenCalled();
   });
 
   it('offers retry and shows the error when processing failed', async () => {
@@ -189,6 +193,37 @@ describe('ProcessingPanel', () => {
 
     await user.click(within(dialog).getByRole('button', { name: /^remove$/i }));
     expect(controller.actions.remove).toHaveBeenCalled();
+  });
+
+  it('cancels a running job through the unified cancel action (H7D)', async () => {
+    const user = userEvent.setup();
+    const controller = makeController({ phase: 'running' });
+    renderWithProviders(<ProcessingPanel controller={controller} />);
+
+    await user.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(controller.actions.cancel).toHaveBeenCalled();
+  });
+
+  it('shows the finalizing sub-phase (H7D)', () => {
+    renderWithProviders(<ProcessingPanel controller={makeController({ phase: 'finalizing' })} />);
+    expect(screen.getByText('Finalizing')).toBeInTheDocument();
+  });
+
+  it('disables cancel and shows progress while a cancellation is in flight (H7D)', () => {
+    renderWithProviders(
+      <ProcessingPanel controller={makeController({ phase: 'running', isCancelling: true })} />,
+    );
+    expect(screen.getByRole('button', { name: /cancelling/i })).toBeDisabled();
+  });
+
+  it('marks a cancelled job and offers a retry (H7D)', () => {
+    renderWithProviders(
+      <ProcessingPanel
+        controller={makeController({ phase: 'cancelled', isBusy: false, progressRatio: 0.3 })}
+      />,
+    );
+    expect(screen.getByText('Cancelled')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
   });
 });
 
@@ -399,6 +434,48 @@ describe('EventDetail', () => {
     expect(await screen.findByText('frames/evt-1-before.jpg')).toBeInTheDocument();
     expect(screen.getByText('Heading compared to legal direction')).toBeInTheDocument();
     expect(screen.getByText('rtdetr@1.0')).toBeInTheDocument();
+  });
+
+  it('shows a retryable "evidence unavailable" state (H7D)', async () => {
+    const user = userEvent.setup();
+    const onRetryEvidence = vi.fn();
+    renderWithProviders(
+      <EventDetail
+        event={event}
+        detail={makeConfirmedEvent()}
+        evidence={undefined}
+        isLoading={false}
+        evidenceError={new Error('Evidence not ready')}
+        onRetryEvidence={onRetryEvidence}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Evidence' }));
+    expect(await screen.findByText('Evidence unavailable')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    expect(onRetryEvidence).toHaveBeenCalled();
+  });
+
+  it('shows a retryable measurements error (H7D)', async () => {
+    const user = userEvent.setup();
+    const onRetryDetail = vi.fn();
+    renderWithProviders(
+      <EventDetail
+        event={event}
+        detail={undefined}
+        evidence={undefined}
+        isLoading={false}
+        detailError={new Error('detail down')}
+        onRetryDetail={onRetryDetail}
+        onSeek={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('tab', { name: 'Measurements' }));
+    expect(await screen.findByText('Could not load measurements')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+    expect(onRetryDetail).toHaveBeenCalled();
   });
 });
 

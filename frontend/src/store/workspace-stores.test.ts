@@ -125,13 +125,20 @@ describe('processing store', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('persists only the ids needed to reconnect', () => {
+  it('persists the ids and recovery hints needed to reconnect', () => {
     act(() => {
       useProcessingStore.getState().beginUpload();
       useProcessingStore.getState().attachJob('vid-1', 'job-1');
+      useProcessingStore.getState().rememberSelection('evt-1');
+      useProcessingStore.getState().rememberPlayback(12.9);
     });
     const persisted = JSON.parse(localStorage.getItem('trafficpulse-processing') ?? '{}');
-    expect(persisted.state).toEqual({ videoId: 'vid-1', jobId: 'job-1' });
+    expect(persisted.state).toEqual({
+      videoId: 'vid-1',
+      jobId: 'job-1',
+      selectedEventId: 'evt-1',
+      playbackSeconds: 12,
+    });
   });
 
   it('resets to idle', () => {

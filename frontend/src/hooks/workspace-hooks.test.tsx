@@ -27,6 +27,7 @@ vi.mock('@/services/videos.service', () => ({
     upload: vi.fn(),
     startProcessing: vi.fn(),
     getJob: vi.fn(),
+    cancelJob: vi.fn(),
   },
 }));
 
@@ -59,6 +60,7 @@ beforeEach(() => {
     status: 'pending',
   });
   vi.mocked(videosService.getJob).mockResolvedValue(makeJob({ status: 'succeeded', progress: 1 }));
+  vi.mocked(videosService.cancelJob).mockResolvedValue(makeJob({ status: 'running' }));
   vi.mocked(eventsService.list).mockResolvedValue({
     items: [makeEventSummary()],
     total: 1,
@@ -240,5 +242,89 @@ describe('useWorkspaceEvents', () => {
     expect(result.current.selectedEvent).toBeNull();
     expect(result.current.isDetailLoading).toBe(false);
     expect(eventsService.get).not.toHaveBeenCalled();
+  });
+
+  it('preserves event references across an identical refetch (H7D)', async () => {
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', { active: true }), { wrapper });
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+    const first = result.current.events;
+
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    // Structural merge keeps the same array reference when nothing changed.
+    expect(result.current.events).toBe(first);
+  });
+
+  it('surfaces a retryable evidence error for the selected event (H7D)', async () => {
+    vi.mocked(eventsService.getEvidence).mockRejectedValue(
+      new ApiError('Evidence not ready', { kind: 'http', status: 404 }),
+    );
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+
+    act(() => result.current.select('evt-1'));
+
+    await waitFor(() => expect(result.current.evidenceError).toBeTruthy());
+    expect(typeof result.current.refetchEvidence).toBe('function');
+
+    // A retry that now succeeds clears the error.
+    vi.mocked(eventsService.getEvidence).mockResolvedValue(makeEvidence());
+    await act(async () => {
+      result.current.refetchEvidence();
+    });
+    await waitFor(() => expect(result.current.evidence?.evidence_package_id).toBe('pkg-1'));
+  });
+});
+
+describe('useProcessing (H7D live)', () => {
+  it('derives the finalizing sub-phase from the frame counters', async () => {
+    vi.mocked(videosService.getJob).mockResolvedValue(
+      makeJob({ status: 'running', frames_processed: 750, frames_total: 750 }),
+    );
+    const { result } = renderHook(() => useProcessing(), { wrapper });
+
+    act(() => result.current.actions.selectAndUpload(makeFile('clip.mp4')));
+    await waitFor(() => expect(result.current.phase).toBe('finalizing'));
+  });
+
+  it('cancels a running job through the API', async () => {
+    vi.mocked(videosService.getJob).mockResolvedValue(makeJob({ status: 'running' }));
+    const { result } = renderHook(() => useProcessing(), { wrapper });
+
+    act(() => result.current.actions.selectAndUpload(makeFile('clip.mp4')));
+    await waitFor(() => expect(result.current.phase).toBe('running'));
+
+    act(() => result.current.actions.cancel());
+    await waitFor(() => expect(videosService.cancelJob).toHaveBeenCalledWith('job-1'));
+  });
+
+  it('adopts an already-uploaded video on a duplicate conflict', async () => {
+    vi.mocked(videosService.upload).mockRejectedValue(
+      new ApiError('an identical video already exists as vid-existing', {
+        kind: 'http',
+        status: 409,
+        type: 'duplicate_video',
+        videoId: 'vid-existing',
+      }),
+    );
+    const { result } = renderHook(() => useProcessing(), { wrapper });
+
+    act(() => result.current.actions.selectAndUpload(makeFile('dupe.mp4')));
+
+    await waitFor(() => expect(result.current.video?.video_id).toBe('vid-existing'));
+    expect(videosService.startProcessing).toHaveBeenCalledWith({ videoId: 'vid-existing' });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('reports a connection error while the job poll is failing', async () => {
+    act(() => useProcessingStore.getState().attachJob('vid-1', 'job-1'));
+    vi.mocked(videosService.getJob).mockRejectedValue(
+      new ApiError('Network request failed', { kind: 'network' }),
+    );
+    const { result } = renderHook(() => useProcessing(), { wrapper });
+
+    await waitFor(() => expect(result.current.connectionError).toBeTruthy());
   });
 });

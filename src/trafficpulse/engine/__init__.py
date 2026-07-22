@@ -33,6 +33,7 @@ from .errors import (
     EngineConfigurationError,
     EngineError,
     FrameSourceError,
+    RunCancelledError,
     UnsupportedRuleError,
 )
 from .evidence import FrameStamp, build_engine_manifest, media_seconds, pick_evidence_frames
@@ -135,4 +136,5 @@ __all__ = [
     "EngineConfigurationError",
     "UnsupportedRuleError",
     "FrameSourceError",
+    "RunCancelledError",
 ]
