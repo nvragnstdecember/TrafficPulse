@@ -57,6 +57,63 @@ export const ALL_VIOLATION_TYPES: ViolationType[] = [
   'speeding',
 ];
 
+// --- severity (H7E) ------------------------------------------------------------
+export type ViolationSeverity = 'high' | 'medium' | 'low';
+
+// Safety-criticality ranking used for the severity badge and the severity sort.
+// Higher rank = more severe (sorts first in a severity-descending order).
+const VIOLATION_SEVERITY: Record<ViolationType, ViolationSeverity> = {
+  no_helmet: 'high',
+  red_light_jumping: 'high',
+  wrong_way: 'medium',
+  speeding: 'medium',
+  triple_riding: 'medium',
+  illegal_stopping: 'low',
+};
+
+const SEVERITY_RANK: Record<ViolationSeverity, number> = { high: 3, medium: 2, low: 1 };
+const SEVERITY_LABELS: Record<ViolationSeverity, string> = {
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+const SEVERITY_TONES: Record<ViolationSeverity, ViolationTone> = {
+  high: 'error',
+  medium: 'warning',
+  low: 'info',
+};
+
+export function violationSeverity(type: string): ViolationSeverity {
+  return type in VIOLATION_SEVERITY ? VIOLATION_SEVERITY[type as ViolationType] : 'low';
+}
+
+const VIOLATION_DESCRIPTIONS: Record<ViolationType, string> = {
+  no_helmet: 'A rider was detected travelling without a helmet.',
+  triple_riding: 'More than two riders were detected on a single two-wheeler.',
+  red_light_jumping: 'A vehicle crossed the stop line while the signal was red.',
+  wrong_way: 'A vehicle travelled against the lane’s legal direction of flow.',
+  illegal_stopping: 'A vehicle remained stopped inside a no-stopping zone.',
+  speeding: 'A vehicle exceeded the posted speed threshold for the zone.',
+};
+
+/** A one-line, human explanation of what a violation means. */
+export function violationDescription(type: string): string {
+  if (type in VIOLATION_DESCRIPTIONS) return VIOLATION_DESCRIPTIONS[type as ViolationType];
+  return `A ${violationLabel(type).toLowerCase()} violation was confirmed.`;
+}
+
+export function severityRank(type: string): number {
+  return SEVERITY_RANK[violationSeverity(type)];
+}
+
+export function severityLabel(severity: ViolationSeverity): string {
+  return SEVERITY_LABELS[severity];
+}
+
+export function severityTone(severity: ViolationSeverity): ViolationTone {
+  return SEVERITY_TONES[severity];
+}
+
 export interface WorkspaceEvent {
   id: string;
   videoId: string;
@@ -269,11 +326,13 @@ export function filterWorkspaceEvents(
   });
 }
 
-export type WorkspaceSort = 'time-asc' | 'time-desc' | 'confidence-desc' | 'violation';
+export type WorkspaceSort =
+  'time-asc' | 'time-desc' | 'confidence-desc' | 'severity-desc' | 'violation';
 
 export const WORKSPACE_SORTS: Array<{ value: WorkspaceSort; label: string }> = [
   { value: 'time-asc', label: 'Earliest first' },
   { value: 'time-desc', label: 'Latest first' },
+  { value: 'severity-desc', label: 'Severity' },
   { value: 'confidence-desc', label: 'Confidence' },
   { value: 'violation', label: 'Violation type' },
 ];
@@ -291,6 +350,13 @@ export function sortWorkspaceEvents(
     case 'confidence-desc':
       return copy.sort(
         (a, b) => (b.confidence ?? -1) - (a.confidence ?? -1) || a.id.localeCompare(b.id),
+      );
+    case 'severity-desc':
+      return copy.sort(
+        (a, b) =>
+          severityRank(b.violationType) - severityRank(a.violationType) ||
+          a.mediaSeconds - b.mediaSeconds ||
+          a.id.localeCompare(b.id),
       );
     case 'violation':
       return copy.sort(

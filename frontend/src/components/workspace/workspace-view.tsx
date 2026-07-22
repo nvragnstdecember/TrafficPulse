@@ -6,20 +6,29 @@ import { type ProcessingController } from '@/hooks/use-processing';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { isActivePhase } from '@/lib/job';
 import {
-  type EventFilters,
-  type WorkspaceSort,
+  downloadTextFile,
+  eventsToCsv,
+  eventsToJsonModel,
+  exportFilename,
+  jsonString,
+} from '@/lib/export';
+import {
   ALL_VIOLATION_TYPES,
-  DEFAULT_EVENT_FILTERS,
+  type WorkspaceEvent,
   buildTimelineMarkers,
   filterWorkspaceEvents,
   sortWorkspaceEvents,
   timelineDuration,
 } from '@/lib/workspace';
 import { useProcessingStore } from '@/store/processing-store';
+import { useSelectionStore } from '@/store/selection-store';
+import { useWorkspacePrefsStore } from '@/store/workspace-prefs-store';
+import { notify } from '@/store/notifications-store';
 
 import { ErrorBanner } from '../common/error-banner';
+import { type ExportFormat, EventList } from './event-list';
 import { EventDetail } from './event-detail';
-import { EventList } from './event-list';
+import { EvidenceViewer } from './evidence-viewer';
 import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
 import { Timeline } from './timeline';
@@ -32,20 +41,31 @@ export interface WorkspaceViewProps {
 }
 
 /**
- * The workspace (H7C, live in H7D): player + timeline + processing on the left,
- * the event list and the selected event's detail on the right.
+ * The workspace (H7C live in H7D, analyst review in H7E): player + timeline +
+ * processing on the left; the event list, detail panel, and evidence viewer on
+ * the right.
  *
- * The composition layer. It holds only view state (filters, sort) and derives
- * everything else with the pure helpers in `lib/workspace`. In H7D it also:
- * polls events while the job is active (so markers appear as they arrive),
- * restores the selection and playback position after a refresh, mirrors both
- * back for the next recovery, and surfaces a reconnect banner when the job poll
- * is failing.
+ * The composition layer. Filters/sort come from the persisted prefs store (a
+ * single source, remembered across refreshes); multi-select lives in the
+ * selection store; export reuses already-fetched data through pure serializers.
+ * Everything else is derived with the pure helpers in `lib/workspace`.
  */
 export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   const { state, controls } = usePlayer();
-  const [filters, setFilters] = useState<EventFilters>(DEFAULT_EVENT_FILTERS);
-  const [sort, setSort] = useState<WorkspaceSort>('time-asc');
+
+  const filters = useWorkspacePrefsStore((s) => s.filters);
+  const setFilters = useWorkspacePrefsStore((s) => s.setFilters);
+  const sort = useWorkspacePrefsStore((s) => s.sort);
+  const setSort = useWorkspacePrefsStore((s) => s.setSort);
+  const selectionMode = useWorkspacePrefsStore((s) => s.selectionMode);
+  const setSelectionMode = useWorkspacePrefsStore((s) => s.setSelectionMode);
+
+  const checkedIds = useSelectionStore((s) => s.checkedEventIds);
+  const toggleChecked = useSelectionStore((s) => s.toggleChecked);
+  const setChecked = useSelectionStore((s) => s.setChecked);
+  const clearChecked = useSelectionStore((s) => s.clearChecked);
+
+  const [viewerOpen, setViewerOpen] = useState(false);
 
   const active = isActivePhase(processing.phase);
   const workspace = useWorkspaceEvents(processing.video?.video_id, { active });
@@ -123,6 +143,46 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
     onPreviousEvent: () => stepEvent(-1),
   });
 
+  // --- export (reuses already-fetched data; no duplicated serialization) ---
+  const exportScope = (): WorkspaceEvent[] =>
+    checkedIds.size > 0 ? events.filter((event) => checkedIds.has(event.id)) : visibleEvents;
+
+  function handleExportList(format: ExportFormat): void {
+    const scope = exportScope();
+    if (scope.length === 0) return;
+    const base = `trafficpulse-events-${scope.length}`;
+    const ok =
+      format === 'csv'
+        ? downloadTextFile(exportFilename(base, 'csv'), eventsToCsv(scope), 'text/csv')
+        : downloadTextFile(
+            exportFilename(base, 'json'),
+            jsonString(eventsToJsonModel(scope)),
+            'application/json',
+          );
+    if (ok) notify({ title: `Exported ${scope.length} event(s) as ${format.toUpperCase()}.` });
+  }
+
+  function handleExportEventJson(): void {
+    if (!selectedEvent) return;
+    const data = workspace.selectedDetail ?? eventsToJsonModel([selectedEvent])[0];
+    downloadTextFile(
+      exportFilename(`event-${selectedEvent.id}`, 'json'),
+      jsonString(data),
+      'application/json',
+    );
+    notify({ title: 'Exported event JSON.' });
+  }
+
+  function handleExportManifest(): void {
+    if (!selectedEvent || !workspace.evidence) return;
+    downloadTextFile(
+      exportFilename(`evidence-${selectedEvent.id}`, 'json'),
+      jsonString(workspace.evidence),
+      'application/json',
+    );
+    notify({ title: 'Exported evidence manifest.' });
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <div className="space-y-4">
@@ -166,6 +226,13 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           isError={workspace.isError}
           error={workspace.error}
           onRetry={workspace.refetch}
+          selectionMode={selectionMode}
+          onSelectionModeChange={setSelectionMode}
+          checkedIds={checkedIds}
+          onToggleChecked={toggleChecked}
+          onCheckAll={() => setChecked(visibleEvents.map((event) => event.id))}
+          onClearChecked={clearChecked}
+          onExport={handleExportList}
         />
         <EventDetail
           event={selectedEvent}
@@ -178,8 +245,20 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           evidenceError={workspace.evidenceError}
           onRetryEvidence={workspace.refetchEvidence}
           onSeek={controls.seek}
+          onOpenEvidenceViewer={() => setViewerOpen(true)}
+          onExportJson={handleExportEventJson}
+          onExportManifest={handleExportManifest}
         />
       </div>
+
+      <EvidenceViewer
+        open={viewerOpen}
+        onOpenChange={setViewerOpen}
+        event={selectedEvent}
+        evidence={workspace.evidence}
+        objectUrl={objectUrl}
+        fps={processing.video?.fps}
+      />
     </div>
   );
 }

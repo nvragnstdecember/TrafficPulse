@@ -17,10 +17,15 @@ import {
   formatClock,
   hasActiveFilters,
   mergeWorkspaceEvents,
+  severityLabel,
+  severityRank,
+  severityTone,
   sortWorkspaceEvents,
   timelineDuration,
   toWorkspaceEvent,
+  violationDescription,
   violationLabel,
+  violationSeverity,
   violationTone,
   workspaceEventsEqual,
 } from './workspace';
@@ -180,6 +185,48 @@ describe('sorting', () => {
     const input = [...events];
     sortWorkspaceEvents(input, 'time-asc');
     expect(input.map((e) => e.id)).toEqual(['b', 'a']);
+  });
+});
+
+describe('severity (H7E)', () => {
+  it('ranks violations by safety-criticality', () => {
+    expect(violationSeverity('no_helmet')).toBe('high');
+    expect(violationSeverity('wrong_way')).toBe('medium');
+    expect(violationSeverity('illegal_stopping')).toBe('low');
+    expect(violationSeverity('unknown_rule')).toBe('low');
+    expect(severityRank('no_helmet')).toBeGreaterThan(severityRank('wrong_way'));
+    expect(severityRank('wrong_way')).toBeGreaterThan(severityRank('illegal_stopping'));
+  });
+
+  it('labels and tones each severity', () => {
+    expect(severityLabel('high')).toBe('High');
+    expect(severityTone('high')).toBe('error');
+    expect(severityTone('medium')).toBe('warning');
+    expect(severityTone('low')).toBe('info');
+  });
+
+  it('sorts by severity descending, then time', () => {
+    const helmet = makeWorkspaceEvent({
+      event_id: 'h',
+      violation_type: 'no_helmet',
+      trigger_at: mediaSeconds(90),
+    });
+    const stop = makeWorkspaceEvent({
+      event_id: 's',
+      violation_type: 'illegal_stopping',
+      trigger_at: mediaSeconds(5),
+    });
+    expect(sortWorkspaceEvents([stop, helmet], 'severity-desc').map((e) => e.id)).toEqual([
+      'h',
+      's',
+    ]);
+  });
+});
+
+describe('violationDescription (H7E)', () => {
+  it('explains known violations and falls back for unknown', () => {
+    expect(violationDescription('wrong_way')).toMatch(/legal direction/i);
+    expect(violationDescription('some_new_rule')).toMatch(/some new rule/i);
   });
 });
 

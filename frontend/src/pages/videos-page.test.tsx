@@ -3,9 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '@/api/errors';
+import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
+import { useNotesStore } from '@/store/notes-store';
+import { useNotificationsStore } from '@/store/notifications-store';
 import { useProcessingStore } from '@/store/processing-store';
 import { useSelectionStore } from '@/store/selection-store';
 import { useUploadStore } from '@/store/upload-store';
+import { useWorkspacePrefsStore } from '@/store/workspace-prefs-store';
 import {
   makeConfirmedEvent,
   makeEventSummary,
@@ -45,6 +49,12 @@ beforeEach(() => {
     useUploadStore.getState().reset();
     useProcessingStore.getState().reset();
     useSelectionStore.getState().clearSelection();
+    useNotesStore.setState({ notes: {} });
+    useWorkspacePrefsStore.setState({
+      filters: DEFAULT_EVENT_FILTERS,
+      sort: 'time-asc',
+      selectionMode: false,
+    });
   });
   vi.mocked(videosService.upload).mockResolvedValue(makeVideo());
   vi.mocked(videosService.startProcessing).mockResolvedValue({
@@ -222,5 +232,74 @@ describe('VideosPage — live processing (H7D)', () => {
     await screen.findByRole('region', { name: 'Detected events' });
     // The previously-selected event's detail is fetched on restore.
     await waitFor(() => expect(useSelectionStore.getState().selectedEventId).toBe('evt-2'));
+  });
+});
+
+describe('VideosPage — review workflow (H7E)', () => {
+  it('exports the shown events to a downloaded file', async () => {
+    const createObjectURL = vi.fn(() => 'blob:export');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    const user = await uploadAndOpenWorkspace();
+    await screen.findByText('2 of 2');
+
+    await user.click(screen.getByRole('button', { name: 'Export' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'CSV' }));
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        useNotificationsStore
+          .getState()
+          .notifications.some((n) => /Exported 2 event/.test(n.title)),
+      ).toBe(true),
+    );
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('opens the evidence viewer for the selected event', async () => {
+    const user = await uploadAndOpenWorkspace();
+    const list = screen.getByRole('region', { name: 'Detected events' });
+    await user.click(await within(list).findByRole('button', { name: 'Wrong way at 0:04' }));
+
+    await user.click(await screen.findByRole('button', { name: /evidence viewer/i }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent(/Evidence — Wrong way/);
+  });
+
+  it('bulk-selects events and reflects the count', async () => {
+    const user = await uploadAndOpenWorkspace();
+    await screen.findByText('2 of 2');
+
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(await screen.findByRole('checkbox', { name: 'Select all events' }));
+
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    expect(useSelectionStore.getState().checkedEventIds.size).toBe(2);
+  });
+
+  it('remembers filters in the persisted prefs store', async () => {
+    const user = await uploadAndOpenWorkspace();
+    await screen.findByText('2 of 2');
+
+    await user.type(screen.getByRole('searchbox'), 'helmet');
+
+    await waitFor(() => expect(useWorkspacePrefsStore.getState().filters.query).toBe('helmet'));
+    const persisted = JSON.parse(localStorage.getItem('trafficpulse-workspace-prefs') ?? '{}');
+    expect(persisted.state.filters.query).toBe('helmet');
+  });
+
+  it('saves an analyst note for the selected event', async () => {
+    const user = await uploadAndOpenWorkspace();
+    const list = screen.getByRole('region', { name: 'Detected events' });
+    await user.click(await within(list).findByRole('button', { name: 'Wrong way at 0:04' }));
+
+    const notes = await screen.findByPlaceholderText('Add a review note…');
+    await user.type(notes, 'Confirmed');
+    expect(useNotesStore.getState().notes['evt-1']).toBe('Confirmed');
   });
 });
