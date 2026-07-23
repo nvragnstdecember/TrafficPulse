@@ -57,24 +57,44 @@ Two consequences worth stating:
 * an episode bridged by uncertainty still had to *begin* and *trigger* on genuine
   ``no_helmet`` observations separated by at least ``min_persistence``.
 
-Turban exemption is latching, and deliberately so
--------------------------------------------------
-Any ``turban`` observation on a rider's track exempts that **rider for the whole
-clip**: no event is ever confirmed for them. It is not merely "ends the current
-run", because a later bare-headed stretch would then confirm -- and the phase-4
-acceptance criterion is that a turban rider *never* confirms.
+Turban exemption is predominance-based, latching, and deliberately asymmetric
+-----------------------------------------------------------------------------
+A rider whose **predominant** observation across the track is ``turban`` -- i.e.
+``turban`` observations are at least as numerous as ``no_helmet`` ones -- is
+exempt for the **whole clip**: no event is ever confirmed for them, not even
+across a later bare-headed stretch. So the exemption still latches over the whole
+track (a turban rider *never* confirms, the phase-4 acceptance criterion), but it
+latches on **sustained evidence that this is a turban rider**, not on a single
+frame.
 
-This is asymmetric on purpose. A single turban observation among many
-``no_helmet`` ones causes a **false negative** (a missed violation); the opposite
-policy would cause a **false positive** (penalising an exempt rider). For an
-enforcement system those costs are not equal, and the ontology's own principle is
-to prefer abstention over guessing. The exemption is recorded (see
-:attr:`NoHelmetReasoner.exempt_track_ids`) rather than silent.
+Why predominance rather than a single ``turban`` frame (H8 real-footage fix).
+The exemption must clear the same evidentiary bar as any other conclusion in this
+layer (architecture-review §13: prefer sustained evidence over a single
+observation; prefer abstention over guessing). The original single-frame latch
+assumed ``turban`` was a reliable signal; against the **untuned zero-shot backend**
+it is not -- on real New Delhi footage a bare head is misread as ``turban`` on a
+*minority* of frames (a near-tie softmax the classifier resolves to ``turban``).
+A single such frame under the old rule exempted a rider who was observed
+bare-headed for hundreds of consecutive frames, silently erasing an unmistakable,
+multi-second violation. Weighing ``turban`` against the ``no_helmet`` evidence it
+would suppress restores that guarantee without letting sparse classifier noise
+veto an overwhelming violation.
+
+This remains asymmetric on purpose, and the bias still favours the exempt rider:
+a *genuine* turban rider (predominantly turban) is fully exempt even with some
+stray ``no_helmet`` frames, and an exact tie exempts. Only when ``no_helmet`` is
+strictly the majority reading -- i.e. we predominantly saw a bare head -- does the
+rider remain eligible to confirm. Penalising an exempt rider (a false positive)
+is still treated as worse than missing a violation (a false negative); the residual
+false-positive risk against a turban rider whose turban is *rarely* detected is a
+**classifier-quality** limitation, recorded as provisional, not a rule defect. The
+exemption is recorded (see :attr:`NoHelmetReasoner.exempt_track_ids`) rather than
+silent.
 
 Note the ontology is explicit that the ``turban`` *label* "asserts no legal
 exemption and no violation" -- it records what was seen. The exemption is this
-**rule layer's** policy decision about that observation, which is exactly where U3
-says such a decision belongs.
+**rule layer's** policy decision about those observations, which is exactly where
+U3 says such a decision belongs.
 
 Attribution: the rider is the episode, the motorcycle is named on the event
 ---------------------------------------------------------------------------
@@ -113,6 +133,7 @@ same footage producing 234 tracks at ~10 fps versus 53 at ~30 fps, so a frame
 count silently changes meaning with the clip, whereas a duration does not.
 """
 
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -211,17 +232,33 @@ def _mean(values: Sequence[float]) -> float | None:
 
 
 def exempt_riders(observations: Iterable[HelmetStateObservation]) -> frozenset[str]:
-    """The riders a ``turban`` observation exempts (the latching rule; see module docs).
+    """The riders whose **predominant** helmet observation is a turban (see module docs).
+
+    A rider is exempt when, over the whole track, its ``turban`` observations are at
+    least as numerous as its ``no_helmet`` ones (and there is at least one turban).
+    Ties exempt -- the bias favours the exempt rider. A rider we saw bare-headed on
+    a strict majority of frames is **not** exempted by a minority of (untuned
+    zero-shot) ``turban`` misreads, which is exactly the H8 real-footage regression
+    this rule corrects.
 
     The single source of truth for the exemption rule: :class:`NoHelmetReasoner`
     uses it to decide, and a caller (e.g. a run report) uses it to *describe* what
     was exempted -- so the description can never drift from the decision.
     """
 
+    turban_counts: Counter[str] = Counter()
+    no_helmet_counts: Counter[str] = Counter()
+    for o in observations:
+        if o.track_id is None:
+            continue
+        if o.helmet_state is HelmetState.TURBAN:
+            turban_counts[o.track_id] += 1
+        elif o.helmet_state is HelmetState.NO_HELMET:
+            no_helmet_counts[o.track_id] += 1
     return frozenset(
-        o.track_id
-        for o in observations
-        if o.track_id is not None and o.helmet_state is HelmetState.TURBAN
+        track_id
+        for track_id, turban in turban_counts.items()
+        if turban >= no_helmet_counts[track_id]
     )
 
 
@@ -334,7 +371,7 @@ class NoHelmetReasoner:
     ) -> None:
         self._by_rider = {}
         self._bikes_by_rider = {}
-        self._exempt = set(exempt_riders(observations))  # latching (see module docs)
+        self._exempt = set(exempt_riders(observations))  # predominance-based (see module docs)
         for observation in observations:
             track_id = observation.track_id
             if track_id is None:

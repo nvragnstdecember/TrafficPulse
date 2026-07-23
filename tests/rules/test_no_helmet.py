@@ -227,28 +227,48 @@ def test_unbounded_gap_when_tolerance_is_unset() -> None:
 
 # --- turban exemption --------------------------------------------------------
 def test_turban_rider_never_confirms() -> None:
+    """A rider predominantly seen in a turban is exempt, even with a stray
+    ``no_helmet`` frame among the turban observations."""
+
     events = reasoner().run(
         [
-            obs(0.0, HelmetState.NO_HELMET),
-            obs(0.5, HelmetState.TURBAN),
-            obs(1.0, HelmetState.NO_HELMET),
-            obs(1.5, HelmetState.NO_HELMET),
-            obs(2.0, HelmetState.NO_HELMET),
+            obs(0.0, HelmetState.TURBAN),
+            obs(0.5, HelmetState.NO_HELMET),  # a single stray bare-headed frame
+            obs(1.0, HelmetState.TURBAN),
+            obs(1.5, HelmetState.TURBAN),
+            obs(2.0, HelmetState.TURBAN),
         ],
         associations=[link(0.0)],
     )
     assert events == ()
 
 
-def test_turban_exemption_is_latching_across_the_whole_track() -> None:
-    """A later bare-headed stretch must not confirm for an exempt rider."""
+def test_predominant_turban_exemption_latches_across_the_whole_track() -> None:
+    """Once turban is the predominant reading, a later bare-headed stretch (e.g.
+    classifier noise) must not confirm -- the exemption latches over the clip."""
 
     events = reasoner().run(
-        [obs(0.0, HelmetState.TURBAN)]
+        [obs(s, HelmetState.TURBAN) for s in (0.0, 0.5, 1.0, 1.5, 2.0)]
         + [obs(s, HelmetState.NO_HELMET) for s in (5.0, 5.5, 6.0, 6.5)],
         associations=[link(0.0)],
     )
     assert events == ()
+
+
+def test_sparse_turban_noise_does_not_exempt_a_sustained_violation() -> None:
+    """Regression (H8, real New Delhi footage): a rider observed bare-headed on a
+    strict majority of frames must still confirm, even when the untuned zero-shot
+    backend misreads the bare head as a ``turban`` on a minority of frames. Under
+    the old single-frame latch these two stray turbans silently exempted a rider
+    seen ``no_helmet`` for the whole clip, so the violation was never emitted."""
+
+    events = reasoner().run(
+        [obs(s, HelmetState.NO_HELMET) for s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0)]
+        + [obs(s, HelmetState.TURBAN) for s in (3.5, 4.0)],
+        associations=[link(0.0)],
+    )
+    assert len(events) >= 1
+    assert events[0].violation_type is ViolationType.NO_HELMET
 
 
 def test_exempt_riders_are_recorded_not_silent() -> None:
