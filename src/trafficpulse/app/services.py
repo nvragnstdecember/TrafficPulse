@@ -27,7 +27,7 @@ from pathlib import Path
 
 from ..contracts import ConfirmedEvent, EvidenceManifest, SceneConfig
 from ..detector.errors import DetectorError
-from ..engine import FileFrameSource, InferenceEngine, RuleConfig
+from ..engine import EngineRunResult, FileFrameSource, InferenceEngine, RuleConfig
 from ..engine.errors import (
     EngineConfigurationError,
     RunCancelledError,
@@ -45,6 +45,7 @@ from .errors import (
     EventNotFoundError,
     InvalidConfigurationError,
     JobNotFoundError,
+    OverlayNotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaError,
     VideoNotFoundError,
@@ -56,6 +57,7 @@ from .models import (
     JobStatusResponse,
     MetricsResponse,
 )
+from .overlay_video import render_job_overlay
 from .registry import (
     JobExecutor,
     JobRecord,
@@ -241,12 +243,52 @@ class ProcessingService:
             )
             job.engine.persist(result, store=self._store, run_id=job.job_id)
             self._jobs.mark_succeeded(job.job_id, result)
+            self._render_overlay_video(job, video, scene, result)
         except RunCancelledError:
             _logger.info("processing job %s cancelled", job.job_id)
             self._jobs.mark_cancelled(job.job_id)
         except Exception as exc:  # noqa: BLE001 - a job thread must never crash silently
             _logger.exception("processing job %s failed", job.job_id)
             self._jobs.mark_failed(job.job_id, str(exc))
+
+    def _render_overlay_video(
+        self, job: JobRecord, video: VideoRecord, scene: SceneConfig, result: EngineRunResult
+    ) -> None:
+        """Render the annotated overlay video for a finished job (best-effort).
+
+        Presentation-only: the events + evidence are already persisted before this
+        runs, so any render failure (e.g. Pillow absent, an encode error) is logged
+        and swallowed -- the job stays ``succeeded``, the original video still plays,
+        and every read endpoint still works. The original upload is never modified;
+        the annotated video is a separate artifact under ``overlays_dir``.
+        """
+
+        assert job.engine is not None
+        try:
+            output = self._config.overlays_dir / f"{job.job_id}.mp4"
+            rendered = render_job_overlay(
+                engine=job.engine,
+                source_path=video.path,
+                output_path=output,
+                events=result.events,
+                camera_id=scene.scene.camera_id,
+            )
+            if rendered is not None:
+                self._jobs.set_overlay_video(job.job_id, rendered.output_path)
+        except Exception:  # noqa: BLE001 - overlay is a presentation aid, never fatal
+            _logger.exception(
+                "overlay render failed for job %s; original video still plays", job.job_id
+            )
+
+    def overlay_video_path(self, job_id: str) -> Path:
+        """The rendered overlay video for a job, or a 404 when none is available."""
+
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise JobNotFoundError(f"no processing job with id {job_id!r}")
+        if job.overlay_video is None or not job.overlay_video.exists():
+            raise OverlayNotFoundError(f"no overlay video is available for job {job_id!r}")
+        return job.overlay_video
 
     def cancel(self, job_id: str) -> JobStatusResponse:
         """Request cancellation of a job and return its current status.
@@ -303,6 +345,7 @@ class ProcessingService:
             estimated_remaining_seconds=remaining,
             event_count=len(job.event_ids),
             error=job.error,
+            overlay_available=job.overlay_video is not None and job.overlay_video.exists(),
         )
 
 

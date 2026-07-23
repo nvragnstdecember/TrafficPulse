@@ -49,6 +49,7 @@ ID-switch discontinuity (§13: tainted tracks may abstain but never confirm).
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from ..association.riders import RiderAssociationConfig, associate_riders
 from ..classifier.crop import Crop
@@ -64,6 +65,43 @@ from ..observations.helmet import (
     extract_head_region,
     gate_crop,
 )
+from .base import _MEDIA_TIME_EPOCH
+
+
+@dataclass(frozen=True)
+class HelmetOverlayRider:
+    """One associated rider's overlay-ready capture for a single frame.
+
+    Every field is a value the observer **already computed** while classifying --
+    including ``head_bbox``, the *exact* crop box the helmet classifier saw -- so the
+    overlay framework redraws inference without recomputing geometry or re-running
+    the model. ``head_bbox`` is ``None`` only when the head region was
+    degenerate/off-frame (the crop the classifier abstained on); ``confidence`` is
+    ``None`` for a gated (never-classified) crop.
+    """
+
+    rider_track_id: str
+    rider_bbox: tuple[float, float, float, float]
+    motorcycle_track_id: str
+    motorcycle_bbox: tuple[float, float, float, float]
+    head_bbox: tuple[float, float, float, float] | None
+    helmet_label: str
+    confidence: float | None
+    gated: bool
+
+
+@dataclass(frozen=True)
+class HelmetOverlayFrame:
+    """The overlay capture for one processed frame (its associated riders).
+
+    Emitted only when the observer is constructed with ``capture_overlay=True``; the
+    default path produces none and is byte-identical to the pre-overlay observer.
+    Consumed by ``overlay.providers.no_helmet.NoHelmetOverlayProvider``.
+    """
+
+    frame_index: int
+    media_seconds: float
+    riders: tuple[HelmetOverlayRider, ...]
 
 
 class HelmetFrameObserver:
@@ -83,10 +121,16 @@ class HelmetFrameObserver:
         classifier: HelmetClassifier,
         config: HelmetObservationConfig | None = None,
         association_config: RiderAssociationConfig | None = None,
+        capture_overlay: bool = False,
     ) -> None:
         self._classifier = classifier
         self._config = config if config is not None else HelmetObservationConfig()
         self._association_config = association_config
+        # Opt-in overlay capture (P4 visualization framework). Off by default and
+        # byte-identical to the pre-overlay observer when off: the capture reads only
+        # values the classification pass already produced, and appends nothing.
+        self._capture_overlay = capture_overlay
+        self._overlay_frames: list[HelmetOverlayFrame] = []
         self._observations: list[HelmetStateObservation] = []
         self._associations: list[Association] = []
         self._abstentions: list[str] = []
@@ -121,6 +165,9 @@ class HelmetFrameObserver:
 
         pending: list[tuple[TrackState, HeadRegion, int]] = []
         gated: list[tuple[TrackState, HeadRegion, int, str]] = []
+        # Overlay capture bookkeeping (only populated when capture_overlay=True):
+        # (rider, region, motorcycle_state, pending_index-or-None-if-gated).
+        capture: list[tuple[TrackState, HeadRegion, TrackState | None, int | None]] = []
         for association in ordered:
             rider = riders_by_id.get(association.subject_track_id)
             if rider is None:  # unreachable in practice; never fabricate a rider
@@ -130,11 +177,16 @@ class HelmetFrameObserver:
             )
             rider_count = riders_per_motorcycle[association.object_track_id]
             reason = gate_crop(region, config=self._config.head_crop)
+            motorcycle = riders_by_id.get(association.object_track_id)
             if reason is None:
                 pending.append((rider, region, rider_count))
+                if self._capture_overlay:
+                    capture.append((rider, region, motorcycle, len(pending) - 1))
             else:
                 gated.append((rider, region, rider_count, reason))
                 self._abstentions.append(reason)
+                if self._capture_overlay:
+                    capture.append((rider, region, motorcycle, None))
 
         # One batched call per frame; gated crops never reach the classifier.
         predictions: Sequence[RawHelmetPrediction] = ()
@@ -150,6 +202,9 @@ class HelmetFrameObserver:
                 for rider, region, _ in pending
             ]
             predictions = self._classifier.classify(crops)
+
+        if self._capture_overlay:
+            self._record_overlay(frame, capture, predictions)
 
         for (rider, region, rider_count), prediction in zip(pending, predictions, strict=True):
             self._emit(
@@ -180,8 +235,63 @@ class HelmetFrameObserver:
         self._observations = []
         self._associations = []
         self._abstentions = []
+        self._overlay_frames = []
         self._tainted_since_emit = set()
         self._restart_ids = set()
+
+    # --- overlay capture (opt-in) -------------------------------------------
+    def _record_overlay(
+        self,
+        frame: Frame,
+        capture: Sequence[tuple[TrackState, HeadRegion, TrackState | None, int | None]],
+        predictions: Sequence[RawHelmetPrediction],
+    ) -> None:
+        """Accumulate one :class:`HelmetOverlayFrame` from already-computed values."""
+
+        riders: list[HelmetOverlayRider] = []
+        for rider, region, motorcycle, pending_index in capture:
+            if motorcycle is None:  # unreachable in practice; never fabricate a bike
+                continue
+            if pending_index is not None:
+                prediction = predictions[pending_index]
+                label = prediction.label
+                confidence: float | None = max(0.0, min(1.0, prediction.score))
+            else:
+                label = "uncertain"  # gated crop: never classified (see gate_crop)
+                confidence = None
+            box = region.box
+            head = (box.x1, box.y1, box.x2, box.y2) if box is not None else None
+            riders.append(
+                HelmetOverlayRider(
+                    rider_track_id=rider.track_id,
+                    rider_bbox=(rider.bbox.x1, rider.bbox.y1, rider.bbox.x2, rider.bbox.y2),
+                    motorcycle_track_id=motorcycle.track_id,
+                    motorcycle_bbox=(
+                        motorcycle.bbox.x1, motorcycle.bbox.y1,
+                        motorcycle.bbox.x2, motorcycle.bbox.y2,
+                    ),
+                    head_bbox=head,
+                    helmet_label=label,
+                    confidence=confidence,
+                    gated=pending_index is None,
+                )
+            )
+        self._overlay_frames.append(
+            HelmetOverlayFrame(
+                frame_index=frame.frame_index,
+                media_seconds=(frame.timestamp - _MEDIA_TIME_EPOCH).total_seconds(),
+                riders=tuple(riders),
+            )
+        )
+
+    def overlay_frames(self) -> tuple[HelmetOverlayFrame, ...]:
+        """The accumulated per-frame overlay capture (empty unless ``capture_overlay``).
+
+        Consumed by the no-helmet overlay provider to redraw inference without
+        re-running any model. Ordered by processing (frame-stream) order.
+        """
+
+        return tuple(self._overlay_frames)
 
     # --- accumulated output --------------------------------------------------
     def _emit(self, observation: HelmetStateObservation) -> None:

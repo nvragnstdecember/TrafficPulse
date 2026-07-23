@@ -122,6 +122,7 @@ export function makeJob(overrides: Partial<JobStatusResponse> = {}): JobStatusRe
     estimated_remaining_seconds: 30,
     event_count: 0,
     error: null,
+    overlay_available: false,
     ...overrides,
   };
 }

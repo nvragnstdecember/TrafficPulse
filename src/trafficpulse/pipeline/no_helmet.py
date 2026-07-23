@@ -123,6 +123,7 @@ def no_helmet_finalize_strategy(
     *,
     classifier: HelmetClassifier,
     observation_config: HelmetObservationConfig | None = None,
+    capture_overlay: bool = False,
 ) -> tuple[_NoHelmetFinalize, HelmetFrameObserver]:
     """Build the no-helmet back half for one scene (public factory).
 
@@ -132,12 +133,18 @@ def no_helmet_finalize_strategy(
     -- the strategy alone never sees pixels. Applies the same fail-fast scene
     resolution as the pipeline constructor.
 
+    ``capture_overlay`` (default off, byte-identical when off) enables the
+    observer's overlay-metadata capture, so a caller can later redraw inference for
+    the visualization framework without re-running any model.
+
     Raises:
         ValueError: if the scene declares no usable ``no_helmet`` parameter block.
     """
 
     params = no_helmet_parameters(scene)
-    observer = HelmetFrameObserver(classifier=classifier, config=observation_config)
+    observer = HelmetFrameObserver(
+        classifier=classifier, config=observation_config, capture_overlay=capture_overlay
+    )
     return _NoHelmetFinalize(params=params, observer=observer), observer
 
 

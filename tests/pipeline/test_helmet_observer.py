@@ -105,6 +105,44 @@ def observer(
     )
 
 
+# --- overlay capture (opt-in; byte-identical when off) -----------------------
+def test_overlay_capture_off_by_default_records_nothing() -> None:
+    obs = observer()
+    obs.observe(frame(), rider_on_bike())
+    assert obs.overlay_frames() == ()
+
+
+def test_overlay_capture_records_rider_motorcycle_head_and_label() -> None:
+    obs = HelmetFrameObserver(
+        classifier=StubHelmetClassifier(per_track={"p1": NO_HELMET}), capture_overlay=True
+    )
+    obs.observe(frame(), rider_on_bike())
+
+    frames = obs.overlay_frames()
+    assert len(frames) == 1
+    captured = frames[0]
+    assert captured.frame_index == 0
+    assert len(captured.riders) == 1
+    rider = captured.riders[0]
+    assert rider.rider_track_id == "p1"
+    assert rider.motorcycle_track_id == "m1"
+    assert rider.helmet_label == "no_helmet"
+    assert rider.confidence == 0.85
+    assert rider.gated is False
+    # the exact head crop box (top head_fraction of the rider box), not an estimate
+    assert rider.head_bbox is not None
+    assert rider.head_bbox[0] == 60.0 and rider.head_bbox[1] == 50.0
+
+
+def test_overlay_capture_resets_with_the_observer() -> None:
+    obs = HelmetFrameObserver(
+        classifier=StubHelmetClassifier(per_track={"p1": NO_HELMET}), capture_overlay=True
+    )
+    obs.observe(frame(), rider_on_bike())
+    obs.reset()
+    assert obs.overlay_frames() == ()
+
+
 # --- the chain end to end ----------------------------------------------------
 def test_rider_on_a_motorcycle_produces_a_helmet_observation() -> None:
     obs = observer()

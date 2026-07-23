@@ -75,6 +75,17 @@ class EventNotFoundError(AppError):
     error_type = "event_not_found"
 
 
+class OverlayNotFoundError(AppError):
+    """No rendered overlay video is available for the requested job (404).
+
+    A job may legitimately have none: it is still running, it failed, or its run
+    produced no overlay metadata (no observed riders). The original video is always
+    playable regardless."""
+
+    status_code = 404
+    error_type = "overlay_not_found"
+
+
 class DuplicateVideoError(AppError):
     """An identical video (same content) has already been uploaded (409)."""
 

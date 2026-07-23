@@ -108,6 +108,9 @@ class JobRecord:
     cancel_requested: bool = False
     engine: InferenceEngine | None = field(default=None, repr=False)
     result: EngineRunResult | None = field(default=None, repr=False)
+    # Path to the rendered overlay (annotated) video, set after a successful run
+    # when the overlay framework produced one. The original upload is untouched.
+    overlay_video: Path | None = field(default=None, repr=False)
 
     def metrics(self) -> EngineMetrics | None:
         """The best available metrics snapshot: final if done, else live, else none.
@@ -153,6 +156,14 @@ class JobStore:
             record.event_ids = tuple(event.event_id for event in result.events)
             for event in result.events:
                 self._event_index[event.event_id] = job_id
+
+    def set_overlay_video(self, job_id: str, path: Path) -> None:
+        """Record the rendered overlay-video artifact for a finished job."""
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.overlay_video = path
 
     def mark_failed(self, job_id: str, message: str) -> None:
         with self._lock:

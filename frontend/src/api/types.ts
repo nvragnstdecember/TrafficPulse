@@ -55,6 +55,8 @@ export interface JobStatusResponse {
   estimated_remaining_seconds: number | null;
   event_count: number;
   error: string | null;
+  /** True once a rendered overlay (annotated) video is ready at the overlay endpoint. */
+  overlay_available: boolean;
 }
 
 export interface EventSummary {

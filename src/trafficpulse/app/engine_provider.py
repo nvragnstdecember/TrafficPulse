@@ -91,6 +91,10 @@ class RealEngineProvider:
             classifier=classifier,
             output_root=self._config.runs_dir,
             perf=time.perf_counter,  # real wall-clock FPS for live job metrics
+            # Capture overlay metadata so the processing service can render an
+            # annotated video for the workspace (harmless when no rule observes
+            # pixels -- the capture is empty and no annotated video is produced).
+            capture_overlay=True,
         )
         return engine
 

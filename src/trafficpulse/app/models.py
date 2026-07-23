@@ -133,6 +133,11 @@ class JobStatusResponse(_ApiModel):
     error: str | None = Field(
         default=None, description="Failure message when status is 'failed', else null."
     )
+    overlay_available: bool = Field(
+        default=False,
+        description="True when a rendered overlay (annotated) video is ready to play "
+        "at GET /api/process/{job_id}/overlay.",
+    )
 
 
 # --- events --------------------------------------------------------------------

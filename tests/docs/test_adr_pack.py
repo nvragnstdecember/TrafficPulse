@@ -145,6 +145,12 @@ def test_only_sanctioned_runtime_packages() -> None:
     # H6 behind HTTP so the frontend depends only on JSON, never on an engine
     # class. FastAPI is an optional extra; importing the base package pulls in no
     # web framework.
+    # Finally the ``overlay`` visualization framework: a generic, violation-agnostic
+    # metadata model + theme + renderer (Pillow imported lazily only in the renderer
+    # backend, so the base install stays drawing-free) that redraws inference from
+    # metadata the pipeline already produced -- it runs no detection/tracking/
+    # association/classification of its own, and the renderer contains no
+    # violation-specific logic (each violation contributes a provider).
     # Any other package (review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
@@ -162,6 +168,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "engine",
         "perception",
         "app",
+        "overlay",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}

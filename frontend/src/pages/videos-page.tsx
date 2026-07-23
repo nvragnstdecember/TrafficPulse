@@ -6,6 +6,7 @@ import { UploadDropzone } from '@/components/workspace/upload-dropzone';
 import { WorkspaceIntro } from '@/components/workspace/workspace-intro';
 import { WorkspaceView } from '@/components/workspace/workspace-view';
 import { useProcessing } from '@/hooks/use-processing';
+import { overlayVideoSource } from '@/lib/overlay-source';
 import { useUploadStore } from '@/store/upload-store';
 
 /**
@@ -22,6 +23,11 @@ export default function VideosPage() {
   const objectUrl = useUploadStore((state) => state.objectUrl);
   const hasVideo = processing.video !== null || processing.phase === 'uploading';
 
+  // Once the run has produced an annotated video, play that through the whole
+  // workspace (player, timeline, evidence viewer all read this one source); until
+  // then fall back to the original upload, which stays preserved separately.
+  const displaySrc = overlayVideoSource(processing.job) ?? objectUrl;
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -32,7 +38,7 @@ export default function VideosPage() {
 
       {hasVideo ? (
         <PlayerProvider fps={processing.video?.fps ?? undefined}>
-          <WorkspaceView processing={processing} objectUrl={objectUrl} />
+          <WorkspaceView processing={processing} objectUrl={displaySrc} />
         </PlayerProvider>
       ) : (
         <div className="space-y-6">

@@ -59,7 +59,7 @@ from ..detector.interface import Detector
 from ..ingestion.video import FrameRecord
 from ..persistence import EventStore
 from ..persistence.store import StoredEvent
-from ..pipeline.base import CompositionPipeline, frame_record_to_frame
+from ..pipeline.base import CompositionPipeline, FrameObserver, frame_record_to_frame
 from ..tracking.config import TrackerConfig
 from ..tracking.interface import Tracker
 from ..tracking.iou_tracker import IouTracker
@@ -113,6 +113,7 @@ class InferenceEngine:
         perf: Callable[[], float] | None = None,
         memory_probe: Callable[[], int] | None = None,
         gpu_probe: Callable[[], int] | None = None,
+        capture_overlay: bool = False,
     ) -> None:
         self._scene = scene
         self._config = config
@@ -123,8 +124,14 @@ class InferenceEngine:
             perf=perf, memory_probe=memory_probe, gpu_probe=gpu_probe
         )
 
-        rules = build_rules(config.rules, scene=scene, classifier=classifier)
+        rules = build_rules(
+            config.rules, scene=scene, classifier=classifier, capture_overlay=capture_overlay
+        )
         observers = tuple(rule.observer for rule in rules if rule.observer is not None)
+        # Held so the composition root can retrieve per-rule pixel observers after a
+        # run (e.g. the overlay framework reads the no-helmet observer's captured
+        # metadata to redraw inference -- see frame_observers()).
+        self._observers = observers
         self._runner = DetectorRunner(detector, self._recorder)
         self._core = CompositionPipeline(
             detector=self._runner,
@@ -147,6 +154,17 @@ class InferenceEngine:
         """The current metrics snapshot (cheap; safe to read mid-stream)."""
 
         return self._recorder.snapshot()
+
+    def frame_observers(self) -> tuple[FrameObserver, ...]:
+        """The per-rule pixel observers (P4-U2), for post-run inspection.
+
+        The composition root uses this to reach an observer's accumulated
+        capture -- e.g. the overlay framework reads the no-helmet observer's
+        overlay metadata to redraw inference onto the source frames without
+        re-running any model. Empty when no rule has a pixel observer.
+        """
+
+        return self._observers
 
     # --- lifecycle ------------------------------------------------------------------
     def reset(self) -> None:
@@ -369,6 +387,7 @@ def build_engine(
     memory_probe: Callable[[], int] | None = None,
     gpu_probe: Callable[[], int] | None = None,
     output_root: Path | str | None = None,
+    capture_overlay: bool = False,
 ) -> tuple[InferenceEngine, EventStore]:
     """Composition root: realise the declared **real** backends and wire an engine.
 
@@ -406,6 +425,7 @@ def build_engine(
         perf=perf,
         memory_probe=memory_probe,
         gpu_probe=gpu_probe,
+        capture_overlay=capture_overlay,
     )
     store = EventStore(output_root) if output_root is not None else EventStore()
     return engine, store

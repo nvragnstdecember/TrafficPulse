@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, status
+from fastapi.responses import FileResponse
 
 from ..dependencies import ProcessingServiceDep
 from ..models import (
@@ -57,3 +58,23 @@ def get_job(job_id: str, processing: ProcessingServiceDep) -> JobStatusResponse:
 )
 def cancel_job(job_id: str, processing: ProcessingServiceDep) -> JobStatusResponse:
     return processing.cancel(job_id)
+
+
+@router.get(
+    "/api/process/{job_id}/overlay",
+    summary="Annotated (overlay) video for a job",
+    description="Stream the rendered overlay video -- the source clip with detection "
+    "boxes, association lines, observation state, and confirmed-violation banners "
+    "drawn on every frame. The original upload is served separately and never "
+    "modified. Available only after a successful run that produced overlay metadata "
+    "(poll GET /api/process/{job_id} for `overlay_available`).",
+    response_class=FileResponse,
+    responses={
+        200: {"content": {"video/mp4": {}}, "description": "H.264/MP4 overlay video."},
+        404: {"model": ErrorResponse, "description": "No overlay video for this job"},
+    },
+)
+def get_overlay(job_id: str, processing: ProcessingServiceDep) -> FileResponse:
+    # Range requests (206) are handled by Starlette's FileResponse, so the <video>
+    # element can seek. Served inline (no download disposition).
+    return FileResponse(processing.overlay_video_path(job_id), media_type="video/mp4")

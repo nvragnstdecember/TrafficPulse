@@ -117,6 +117,15 @@ class AppConfig(BaseModel):
 
         return self.storage_dir / "runs"
 
+    @property
+    def overlays_dir(self) -> Path:
+        """Where rendered overlay (annotated) videos are stored, one per job.
+
+        Separate from ``videos_dir`` so the original upload is never overwritten:
+        the annotated video is a derived artifact keyed by job id."""
+
+        return self.storage_dir / "overlays"
+
     def is_supported_extension(self, suffix: str) -> bool:
         """Whether ``suffix`` (e.g. ``".mp4"``) is an accepted container."""
 

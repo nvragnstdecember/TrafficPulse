@@ -11,6 +11,7 @@ export const endpoints = {
   process: '/api/process',
   job: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}`,
   cancelJob: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/cancel`,
+  jobOverlay: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/overlay`,
   events: '/api/events',
   event: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}`,
   evidence: (eventId: string) => `/api/evidence/${encodeURIComponent(eventId)}`,

@@ -71,8 +71,13 @@ def build_rules(
     *,
     scene: SceneConfig,
     classifier: HelmetClassifier | None = None,
+    capture_overlay: bool = False,
 ) -> tuple[BuiltRule, ...]:
     """Realise the configured rules against one scene (fail-fast; see module doc).
+
+    ``capture_overlay`` (default off) enables overlay-metadata capture on any rule
+    observer that supports it (currently no-helmet), so the engine can redraw
+    inference for the visualization framework without re-running a model.
 
     Raises:
         EngineConfigurationError: a no-helmet rule is configured but no
@@ -112,7 +117,9 @@ def build_rules(
                     "a no_helmet rule is configured but no HelmetClassifier was "
                     "injected; pass classifier= when building the engine"
                 )
-            strategy, observer = no_helmet_finalize_strategy(scene, classifier=classifier)
+            strategy, observer = no_helmet_finalize_strategy(
+                scene, classifier=classifier, capture_overlay=capture_overlay
+            )
             built.append(
                 BuiltRule(
                     violation=ViolationType.NO_HELMET,
