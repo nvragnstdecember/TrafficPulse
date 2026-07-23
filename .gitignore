@@ -103,3 +103,6 @@ desktop.ini
 *.m4v
 
 scratch_frames/
+
+trafficpulse-data/runs/*
+!trafficpulse-data/runs/.gitkeep
