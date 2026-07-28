@@ -19,6 +19,7 @@ frame size, so it is fully deterministic and has no Pillow/image dependency.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from .metadata import Corner
@@ -76,11 +77,21 @@ def _candidates(req: LabelRequest) -> list[tuple[float, float]]:
 
 
 def place_labels(
-    requests: list[LabelRequest], frame_w: float, frame_h: float
+    requests: list[LabelRequest],
+    frame_w: float,
+    frame_h: float,
+    blocked: Sequence[Rect] = (),
 ) -> list[Rect]:
-    """Return a non-overlapping, in-frame rect per request (index-aligned)."""
+    """Return a non-overlapping, in-frame rect per request (index-aligned).
 
-    placed: list[Rect] = []
+    ``blocked`` are regions already claimed by something the solver does not place
+    -- pinned banners, most importantly, which are drawn *over* captions and would
+    otherwise hide the very track a confirmed violation is about. They are treated
+    exactly like already-placed labels: candidates that collide with them lose.
+    """
+
+    placed: list[Rect] = list(blocked)
+    reserved = len(placed)
     for req in requests:
         best: Rect | None = None
         best_overlap = float("inf")
@@ -94,4 +105,4 @@ def place_labels(
                 best, best_overlap = rect, total
         assert best is not None  # _candidates is always non-empty
         placed.append(best)
-    return placed
+    return placed[reserved:]

@@ -123,6 +123,7 @@ export function makeJob(overrides: Partial<JobStatusResponse> = {}): JobStatusRe
     event_count: 0,
     error: null,
     overlay_available: false,
+    overlay_status: 'none',
     ...overrides,
   };
 }

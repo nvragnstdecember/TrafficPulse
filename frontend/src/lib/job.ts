@@ -65,6 +65,26 @@ export function derivePhase(job: JobStatusResponse | undefined | null): Processi
   return 'running';
 }
 
+/**
+ * Whether the client should keep polling this job.
+ *
+ * Not simply "the job is not terminal". The annotated (overlay) video is rendered
+ * *after* inference finishes, so a job reaches `succeeded` while its overlay is
+ * still `pending`. Stopping at the terminal job status is exactly what stranded the
+ * workspace on the raw upload: the render completed after the last poll and nothing
+ * ever asked again. Polling therefore continues until **both** axes have settled.
+ */
+export function shouldPollJob(job: JobStatusResponse | undefined | null): boolean {
+  if (!job) return false;
+  if (job.status === 'pending' || job.status === 'running') return true;
+  return job.overlay_status === 'pending';
+}
+
+/** Whether an annotated video is still being rendered for a finished job. */
+export function isOverlayRendering(job: JobStatusResponse | undefined | null): boolean {
+  return job?.status === 'succeeded' && job.overlay_status === 'pending';
+}
+
 export function isTerminalPhase(phase: ProcessingPhase): boolean {
   return phase === 'completed' || phase === 'failed' || phase === 'cancelled';
 }

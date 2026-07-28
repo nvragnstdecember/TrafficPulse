@@ -6,12 +6,56 @@ import {
   derivePhase,
   isActivePhase,
   isCancellablePhase,
+  isOverlayRendering,
   isTerminalPhase,
   jobProgressRatio,
   jobStatusToPhase,
   phaseLabel,
   phaseTone,
+  shouldPollJob,
 } from './job';
+
+describe('shouldPollJob', () => {
+  it('polls while the run is in flight', () => {
+    expect(shouldPollJob(makeJob({ status: 'pending' }))).toBe(true);
+    expect(shouldPollJob(makeJob({ status: 'running' }))).toBe(true);
+  });
+
+  it('keeps polling a succeeded job whose overlay is still rendering', () => {
+    // The regression this guards: stopping at the terminal job status meant the
+    // annotated video — rendered moments later — was never asked for again, and
+    // the workspace stayed on the raw upload forever.
+    expect(
+      shouldPollJob(makeJob({ status: 'succeeded', overlay_status: 'pending' })),
+    ).toBe(true);
+  });
+
+  it('stops once both the run and the overlay have settled', () => {
+    for (const overlay of ['ready', 'none', 'failed'] as const) {
+      expect(
+        shouldPollJob(makeJob({ status: 'succeeded', overlay_status: overlay })),
+      ).toBe(false);
+    }
+    expect(shouldPollJob(makeJob({ status: 'failed', overlay_status: 'none' }))).toBe(false);
+    expect(shouldPollJob(makeJob({ status: 'cancelled', overlay_status: 'none' }))).toBe(false);
+    expect(shouldPollJob(undefined)).toBe(false);
+  });
+});
+
+describe('isOverlayRendering', () => {
+  it('is true only for a finished run whose overlay is still pending', () => {
+    expect(isOverlayRendering(makeJob({ status: 'succeeded', overlay_status: 'pending' }))).toBe(
+      true,
+    );
+    expect(isOverlayRendering(makeJob({ status: 'succeeded', overlay_status: 'ready' }))).toBe(
+      false,
+    );
+    expect(isOverlayRendering(makeJob({ status: 'running', overlay_status: 'pending' }))).toBe(
+      false,
+    );
+    expect(isOverlayRendering(undefined)).toBe(false);
+  });
+});
 
 describe('jobStatusToPhase', () => {
   it('maps every backend status onto a workspace phase', () => {

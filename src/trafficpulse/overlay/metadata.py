@@ -124,17 +124,25 @@ class OverlayPoint(_Frozen):
 
 
 class OverlayCaption(_Frozen):
-    """The text attached to a box: one or more lines plus an optional metric.
+    """The text attached to a box: lines, an optional metric, an optional meter.
 
     ``lines`` are drawn stacked (e.g. ``("Rider", "Track: iou-1")``). ``metric`` is
     an optional emphasised value rendered larger/bolder than the lines (e.g. a
     ``"97%"`` confidence) so the reader's eye lands on the number. ``prefer`` is the
     box corner the caption starts at; the layout pass may move it to avoid overlap.
+
+    ``progress`` is a generic **observation-state indicator**: a 0..1 fraction drawn
+    as a small bar under the text. It carries no violation meaning of its own -- the
+    provider decides what is progressing (evidence accumulating toward a temporal
+    threshold, a dwell timer, a distance travelled) and says so in ``lines``. Keeping
+    it a bare fraction is what lets every future violation visualise its own
+    reasoning progression without the renderer learning any of them.
     """
 
     lines: tuple[str, ...] = ()
     metric: str | None = None
     prefer: Corner = Corner.TOP_LEFT
+    progress: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class OverlayBox(_Frozen):

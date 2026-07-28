@@ -95,6 +95,37 @@ class JobStatus(StrEnum):
         return self in (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
+class OverlayStatus(StrEnum):
+    """Lifecycle of a job's annotated (overlay) video, independent of ``JobStatus``.
+
+    The overlay is a *presentation* artifact rendered after inference finishes:
+    events and evidence are already persisted, and the annotated MP4 is produced by
+    a second decode+encode pass that can easily outlast the inference itself. Its
+    readiness therefore cannot be inferred from the job status -- a job is
+    ``succeeded`` (events queryable, review can start) while its overlay is still
+    ``PENDING``. Publishing this axis is what lets a client keep polling until the
+    artifact resolves instead of concluding, from a terminal job status, that no
+    overlay will ever exist.
+
+    ``NONE`` -- the run produced no overlay metadata, so there is nothing to draw
+    (e.g. no rule with a pixel observer ran); ``FAILED`` -- a render was attempted
+    and did not complete. Both are terminal and mean "play the original video";
+    they are distinguished so an operator can tell an absent overlay from a broken
+    one.
+    """
+
+    NONE = "none"
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True once the overlay outcome can no longer change (stop polling)."""
+
+        return self is not OverlayStatus.PENDING
+
+
 @dataclass
 class JobRecord:
     """One processing job's mutable state (guarded by :class:`JobStore`)."""
@@ -111,6 +142,9 @@ class JobRecord:
     # Path to the rendered overlay (annotated) video, set after a successful run
     # when the overlay framework produced one. The original upload is untouched.
     overlay_video: Path | None = field(default=None, repr=False)
+    # Where the overlay render has got to; see :class:`OverlayStatus`. Starts at
+    # NONE (nothing attempted) and is advanced by the processing service.
+    overlay_status: OverlayStatus = OverlayStatus.NONE
 
     def metrics(self) -> EngineMetrics | None:
         """The best available metrics snapshot: final if done, else live, else none.
@@ -157,13 +191,35 @@ class JobStore:
             for event in result.events:
                 self._event_index[event.event_id] = job_id
 
+    def mark_overlay_pending(self, job_id: str) -> None:
+        """Declare that an overlay render is about to start for this job.
+
+        Called **before** the job is marked succeeded, so the first terminal status
+        a client observes already says an overlay is coming -- which is what keeps
+        it polling across the render window instead of settling on "no overlay".
+        """
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.overlay_status = OverlayStatus.PENDING
+
     def set_overlay_video(self, job_id: str, path: Path) -> None:
-        """Record the rendered overlay-video artifact for a finished job."""
+        """Record the rendered overlay-video artifact and mark it ready."""
 
         with self._lock:
             record = self._jobs.get(job_id)
             if record is not None:
                 record.overlay_video = path
+                record.overlay_status = OverlayStatus.READY
+
+    def resolve_overlay(self, job_id: str, status: OverlayStatus) -> None:
+        """Settle a pending overlay on a terminal outcome (``NONE`` / ``FAILED``)."""
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.overlay_status = status
 
     def mark_failed(self, job_id: str, message: str) -> None:
         with self._lock:

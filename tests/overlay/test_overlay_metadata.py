@@ -65,7 +65,10 @@ def test_scene_json_roundtrip_is_lossless() -> None:
         width=64,
         height=48,
         elements=(
-            _box(alert=OverlayAlert.CONFIRMED, caption=OverlayCaption(lines=("Rider",), metric="98%")),
+            _box(
+                alert=OverlayAlert.CONFIRMED,
+                caption=OverlayCaption(lines=("Rider",), metric="98%"),
+            ),
         ),
     )
     restored = OverlayScene.model_validate_json(scene.model_dump_json())

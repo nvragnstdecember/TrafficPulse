@@ -63,6 +63,7 @@ from .registry import (
     JobRecord,
     JobStatus,
     JobStore,
+    OverlayStatus,
     VideoRecord,
     VideoStore,
 )
@@ -242,6 +243,13 @@ class ProcessingService:
                 source, should_cancel=lambda: self._jobs.is_cancel_requested(job.job_id)
             )
             job.engine.persist(result, store=self._store, run_id=job.job_id)
+            # Declare the overlay pending BEFORE the job goes terminal. A client
+            # stops polling once it sees a terminal job status, so the very first
+            # succeeded status it reads must already announce that an annotated
+            # video is on its way -- otherwise the render (a second decode+encode
+            # pass, often longer than inference) lands after the client has stopped
+            # listening and the workspace plays the raw upload forever.
+            self._jobs.mark_overlay_pending(job.job_id)
             self._jobs.mark_succeeded(job.job_id, result)
             self._render_overlay_video(job, video, scene, result)
         except RunCancelledError:
@@ -261,6 +269,10 @@ class ProcessingService:
         and swallowed -- the job stays ``succeeded``, the original video still plays,
         and every read endpoint still works. The original upload is never modified;
         the annotated video is a separate artifact under ``overlays_dir``.
+
+        Whatever happens, the job's :class:`~trafficpulse.app.registry.OverlayStatus`
+        is left **terminal** (``READY`` / ``NONE`` / ``FAILED``): a client polling for
+        a pending overlay must always be released, including on the failure paths.
         """
 
         assert job.engine is not None
@@ -275,7 +287,11 @@ class ProcessingService:
             )
             if rendered is not None:
                 self._jobs.set_overlay_video(job.job_id, rendered.output_path)
+            else:
+                # The run produced no overlay metadata: nothing to draw, not a fault.
+                self._jobs.resolve_overlay(job.job_id, OverlayStatus.NONE)
         except Exception:  # noqa: BLE001 - overlay is a presentation aid, never fatal
+            self._jobs.resolve_overlay(job.job_id, OverlayStatus.FAILED)
             _logger.exception(
                 "overlay render failed for job %s; original video still plays", job.job_id
             )
@@ -346,6 +362,7 @@ class ProcessingService:
             event_count=len(job.event_ids),
             error=job.error,
             overlay_available=job.overlay_video is not None and job.overlay_video.exists(),
+            overlay_status=job.overlay_status,
         )
 
 

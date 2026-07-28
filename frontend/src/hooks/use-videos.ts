@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '@/api/query-keys';
 import { type JobStatusResponse } from '@/api/types';
+import { shouldPollJob } from '@/lib/job';
 import {
   type StartProcessingInput,
   type UploadVideoInput,
@@ -12,9 +13,10 @@ import {
 export const JOB_POLL_INTERVAL_MS = 1500;
 
 /**
- * One job's status. When `poll` is set, it auto-refetches while the job is
- * pending/running and stops once it is terminal (succeeded/failed/cancelled) —
- * no manual interval wiring. Transient poll failures fall back to the client's
+ * One job's status. When `poll` is set, it auto-refetches until the job has fully
+ * settled — which means both the run *and* its annotated-video render, since the
+ * overlay resolves after the job reaches `succeeded` (see `shouldPollJob`). No
+ * manual interval wiring. Transient poll failures fall back to the client's
  * exponential retry backoff, and polling resumes automatically on reconnect.
  */
 export function useJob(jobId: string | undefined, options?: { poll?: boolean }) {
@@ -24,8 +26,7 @@ export function useJob(jobId: string | undefined, options?: { poll?: boolean }) 
     enabled: Boolean(jobId),
     refetchInterval: (query) => {
       if (!options?.poll) return false;
-      const status = query.state.data?.status;
-      return status === 'pending' || status === 'running' ? JOB_POLL_INTERVAL_MS : false;
+      return shouldPollJob(query.state.data) ? JOB_POLL_INTERVAL_MS : false;
     },
   });
 }

@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts.enums import ViolationType
 from ..engine import EngineMetrics, RuleConfig
-from .registry import JobStatus, VideoRecord
+from .registry import JobStatus, OverlayStatus, VideoRecord
 
 
 class _ApiModel(BaseModel):
@@ -137,6 +137,16 @@ class JobStatusResponse(_ApiModel):
         default=False,
         description="True when a rendered overlay (annotated) video is ready to play "
         "at GET /api/process/{job_id}/overlay.",
+    )
+    overlay_status: OverlayStatus = Field(
+        default=OverlayStatus.NONE,
+        description="Lifecycle of the annotated (overlay) video, which is rendered "
+        "after inference finishes and therefore resolves *later* than the job "
+        "status: 'pending' means a render is in flight (keep polling); 'ready' "
+        "means it is playable at GET /api/process/{job_id}/overlay; 'none' means "
+        "the run produced no overlay metadata; 'failed' means a render was "
+        "attempted and did not complete. Events and evidence are queryable as soon "
+        "as the job succeeds, regardless of this field.",
     )
 
 

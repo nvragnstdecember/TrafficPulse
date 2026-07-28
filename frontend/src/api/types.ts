@@ -9,6 +9,17 @@
 
 export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
+/**
+ * Lifecycle of a job's annotated (overlay) video — a separate axis from `JobStatus`.
+ *
+ * The overlay is rendered *after* inference finishes, so it resolves later than the
+ * job itself: a job can be `succeeded` (events queryable, review can start) while
+ * its overlay is still `pending`. `none` = the run produced no overlay metadata,
+ * `failed` = a render was attempted and did not complete; both mean "play the
+ * original upload".
+ */
+export type OverlayStatus = 'none' | 'pending' | 'ready' | 'failed';
+
 export type ViolationType =
   | 'no_helmet'
   | 'triple_riding'
@@ -57,6 +68,8 @@ export interface JobStatusResponse {
   error: string | null;
   /** True once a rendered overlay (annotated) video is ready at the overlay endpoint. */
   overlay_available: boolean;
+  /** How far the annotated-video render has got; `pending` means keep polling. */
+  overlay_status: OverlayStatus;
 }
 
 export interface EventSummary {

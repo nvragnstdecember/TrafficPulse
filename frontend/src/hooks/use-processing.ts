@@ -83,6 +83,7 @@ export function useProcessing(): ProcessingController {
 
   const abortRef = useRef<AbortController | null>(null);
   const lastStatusRef = useRef<string | null>(null);
+  const lastOverlayRef = useRef<string | null>(null);
   const reconnectedRef = useRef(false);
 
   // Reconnect: a persisted jobId with no session logs means we resumed after a
@@ -200,6 +201,20 @@ export function useProcessing(): ProcessingController {
     const phase = derivePhase(job);
     if (phase !== store.phase) store.setPhase(phase);
 
+    // The annotated video renders after the run finishes, so its transitions are
+    // logged on their own axis — otherwise the analyst sees the player silently
+    // swap sources with no explanation of where the boxes came from.
+    if (lastOverlayRef.current !== job.overlay_status) {
+      lastOverlayRef.current = job.overlay_status;
+      if (job.overlay_status === 'pending') {
+        store.addLog('info', 'Rendering explainable overlay…');
+      } else if (job.overlay_status === 'ready') {
+        store.addLog('success', 'Annotated video ready — now showing AI reasoning.');
+      } else if (job.overlay_status === 'failed') {
+        store.addLog('error', 'Overlay render failed; showing the original video.');
+      }
+    }
+
     if (lastStatusRef.current === job.status) return;
     lastStatusRef.current = job.status;
     if (job.status === 'running') {
@@ -240,12 +255,14 @@ export function useProcessing(): ProcessingController {
     retry: () => {
       const upload = useUploadStore.getState();
       lastStatusRef.current = null;
+      lastOverlayRef.current = null;
       if (upload.video) startProcessingFor(upload.video.video_id);
       else if (upload.file) runUpload(upload.file);
     },
     remove: () => {
       abortRef.current?.abort();
       lastStatusRef.current = null;
+      lastOverlayRef.current = null;
       useUploadStore.getState().reset();
       useProcessingStore.getState().reset();
       clearSelection();
@@ -253,6 +270,7 @@ export function useProcessing(): ProcessingController {
     replace: (file) => {
       abortRef.current?.abort();
       lastStatusRef.current = null;
+      lastOverlayRef.current = null;
       runUpload(file);
     },
     reconnect: () => void jobQuery.refetch(),

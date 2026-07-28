@@ -22,6 +22,24 @@ web UI read as one product:
 Motorcycle/object uses a blue (217 91% 60% -> (59, 130, 246)) that harmonises with
 the token set (the app has no dedicated object hue; this is the one added colour).
 
+Escalation along the alert axis
+-------------------------------
+Stroke colour escalates in **three** steps, not two, so a viewer can read the
+reasoning state without waiting for a confirmation:
+
+* ``NONE``      -- the resting palette above (rider green, bike blue, region yellow);
+* ``OBSERVING`` -- the *subject* warms to amber and the *region* (the sub-area whose
+  reading is the adverse evidence -- a head crop the classifier read as "no helmet")
+  turns red, while the related *object* stays blue: the model's current opinion is
+  visible, but the vehicle is not yet implicated;
+* ``CONFIRMED`` -- everything goes red, one pixel wider, with a faint fill wash and a
+  red caption chip.
+
+Consequently the region box is red exactly when the classifier is asserting the
+adverse reading for that frame -- and yellow when it is not -- rather than being
+permanently red, which would spend the strongest colour convention in the palette
+on a box that is present for compliant riders too.
+
 No pixels, no Pillow
 --------------------
 The theme is pure data (RGB(A) tuples + sizes). It imports nothing from the
@@ -52,6 +70,11 @@ _WHITE: RGB = (255, 255, 255)
 _CHIP_NEUTRAL: RGBA = (15, 23, 42, 214)  # slate-900
 _CHIP_OBSERVING: RGBA = (180, 83, 9, 224)  # amber-700
 _CHIP_CONFIRMED: RGBA = (185, 28, 28, 232)  # red-700
+# A caption's progress meter: white on a translucent dark track. Deliberately NOT
+# the box's own colour -- the caption chip is already tinted by the alert state, so
+# an amber bar on an amber chip (or red on red) is invisible exactly when the meter
+# matters most. The chip carries the semantics; the bar only has to be readable.
+_METER_TRACK: RGBA = (8, 12, 24, 170)
 
 
 @dataclass(frozen=True)
@@ -64,6 +87,9 @@ class BoxStyle:
     label_text: RGB
     label_bg: RGBA
     metric_text: RGB
+    # The caption's optional progress meter: an unfilled track plus a filled bar.
+    meter_track: RGBA = (8, 12, 24, 170)
+    meter_fill: RGB = _WHITE
 
 
 @dataclass(frozen=True)
@@ -98,11 +124,24 @@ class Typography:
     line_gap: int = 2
 
 
-# base (non-confirmed) stroke colour per emphasis
+# base (nothing observed yet) stroke colour per emphasis
 _BASE_STROKE: dict[OverlayEmphasis, RGB] = {
     OverlayEmphasis.SUBJECT: _GREEN,
     OverlayEmphasis.OBJECT: _BLUE,
     OverlayEmphasis.REGION: _YELLOW,
+    OverlayEmphasis.CONTEXT: _SLATE,
+}
+# evidence-accumulating stroke colour per emphasis. The alert axis escalates in
+# three visible steps, not two: the *subject* warms to amber (something is being
+# argued about it) while the *region* -- the sub-area whose reading is the adverse
+# evidence, e.g. a head crop classified "no helmet" -- goes red immediately, so a
+# reader can see what the model currently thinks before any confirmation exists.
+# The related object (the vehicle) deliberately does not change: it is context
+# until the violation is confirmed, and colouring it early would overstate the case.
+_OBSERVING_STROKE: dict[OverlayEmphasis, RGB] = {
+    OverlayEmphasis.SUBJECT: _AMBER,
+    OverlayEmphasis.OBJECT: _BLUE,
+    OverlayEmphasis.REGION: _RED,
     OverlayEmphasis.CONTEXT: _SLATE,
 }
 # confirmed stroke colour per emphasis (region gets the brightest red)
@@ -111,6 +150,11 @@ _ALERT_STROKE: dict[OverlayEmphasis, RGB] = {
     OverlayEmphasis.OBJECT: _RED,
     OverlayEmphasis.REGION: _RED_BRIGHT,
     OverlayEmphasis.CONTEXT: _RED,
+}
+_STROKE_BY_ALERT: dict[OverlayAlert, dict[OverlayEmphasis, RGB]] = {
+    OverlayAlert.NONE: _BASE_STROKE,
+    OverlayAlert.OBSERVING: _OBSERVING_STROKE,
+    OverlayAlert.CONFIRMED: _ALERT_STROKE,
 }
 _BASE_WIDTH: dict[OverlayEmphasis, int] = {
     OverlayEmphasis.SUBJECT: 3,
@@ -134,7 +178,7 @@ class OverlayTheme:
 
     def box_style(self, emphasis: OverlayEmphasis, alert: OverlayAlert) -> BoxStyle:
         confirmed = alert is OverlayAlert.CONFIRMED
-        stroke = (_ALERT_STROKE if confirmed else _BASE_STROKE)[emphasis]
+        stroke = _STROKE_BY_ALERT[alert][emphasis]
         width = _BASE_WIDTH[emphasis] + (1 if confirmed else 0)
         fill: RGBA | None = (*stroke, self.confirmed_fill_alpha) if confirmed else None
         return BoxStyle(
@@ -144,6 +188,8 @@ class OverlayTheme:
             label_text=_WHITE,
             label_bg=_CHIP[alert],
             metric_text=_WHITE,
+            meter_track=_METER_TRACK,
+            meter_fill=_WHITE,
         )
 
     def link_style(self, emphasis: OverlayEmphasis, alert: OverlayAlert) -> LinkStyle:

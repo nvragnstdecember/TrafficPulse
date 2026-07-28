@@ -38,6 +38,23 @@ def test_single_label_lands_near_its_preferred_corner() -> None:
     assert abs(x1 - 100) < 1 and y1 < 100
 
 
+def test_blocked_regions_are_avoided() -> None:
+    # A pinned banner occupies the top-left; a caption preferring that corner must
+    # route around it, or the banner (painted last) would hide the caption of the
+    # very track it is about.
+    banner: Rect = (0.0, 0.0, 260.0, 120.0)
+    reqs = [LabelRequest(box=(30, 130, 150, 300), width=100, height=40, prefer=Corner.TOP_LEFT)]
+    (placed,) = place_labels(reqs, 640.0, 480.0, blocked=[banner])
+    assert _overlap(placed, banner) == 0.0
+
+
+def test_blocked_regions_are_not_returned_as_placements() -> None:
+    # The result stays index-aligned with the requests, blockers excluded.
+    reqs = [LabelRequest(box=(300, 300, 400, 400), width=50, height=20)]
+    assert len(place_labels(reqs, 640.0, 480.0, blocked=[(0.0, 0.0, 100.0, 100.0)])) == 1
+    assert place_labels([], 640.0, 480.0, blocked=[(0.0, 0.0, 100.0, 100.0)]) == []
+
+
 def test_placement_is_deterministic() -> None:
     reqs = [
         LabelRequest(box=(10, 10, 90, 90), width=50, height=20),

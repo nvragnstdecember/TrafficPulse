@@ -39,6 +39,7 @@ from .errors import (
 from .registry import (
     JobExecutor,
     JobStatus,
+    OverlayStatus,
     SynchronousJobExecutor,
     ThreadJobExecutor,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "SynchronousJobExecutor",
     "ThreadJobExecutor",
     "JobStatus",
+    "OverlayStatus",
     # error taxonomy
     "AppError",
     "BadRequestError",
