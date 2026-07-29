@@ -402,8 +402,11 @@ class EventService:
                         violation_type=event.violation_type,
                         camera_id=event.camera_id,
                         track_ids=event.track_ids,
+                        start_at=event.start_at,
                         trigger_at=event.trigger_at,
                         rule_id=event.rule_id,
+                        # Verbatim: the components are the contract's, un-merged.
+                        confidence=event.confidence,
                     )
                 )
 

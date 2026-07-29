@@ -13,14 +13,19 @@ The default palette is the frontend's own design tokens
 (``frontend/src/styles/globals.css``) converted to RGB, so a rendered frame and the
 web UI read as one product:
 
-* rider / subject   -> ``--success``     green   (142 71% 40%)  -> (30, 174, 83)
+* rider / subject   -> cyan-400                                   -> (34, 211, 238)
+* motorcycle/object -> blue-500          (217 91% 60%)           -> (59, 130, 246)
 * head / region     -> amber-400         yellow                  -> (250, 204, 21)
 * observing accent  -> ``--warning``     amber   (32 95% 44%)   -> (217, 119, 6)
+* evidence meter    -> amber-500                                  -> (245, 158, 11)
 * confirmed / alert -> ``--destructive`` red     (0 84% 60%)    -> (239, 68, 68)
+* banner (confirmed)-> red-900           deep red                -> (127, 20, 20)
 * context (muted)   -> slate-400                                  -> (148, 163, 184)
 
-Motorcycle/object uses a blue (217 91% 60% -> (59, 130, 246)) that harmonises with
-the token set (the app has no dedicated object hue; this is the one added colour).
+Rider is cyan rather than green so the three roles in one group -- blue vehicle,
+cyan rider, yellow head region -- separate at a glance without any of them reading
+as "all clear" (green on a surveillance overlay implies a verdict the overlay is not
+entitled to make).
 
 Escalation along the alert axis
 -------------------------------
@@ -57,24 +62,27 @@ RGB = tuple[int, int, int]
 RGBA = tuple[int, int, int, int]
 
 # --- palette (frontend design tokens -> RGB; see module docstring) ------------
-_GREEN: RGB = (30, 174, 83)
+_CYAN: RGB = (34, 211, 238)
 _BLUE: RGB = (59, 130, 246)
 _YELLOW: RGB = (250, 204, 21)
 _AMBER: RGB = (217, 119, 6)
+_AMBER_METER: RGB = (245, 158, 11)
 _SLATE: RGB = (148, 163, 184)
 _RED: RGB = (239, 68, 68)
 _RED_BRIGHT: RGB = (255, 71, 71)
 _WHITE: RGB = (255, 255, 255)
+_DIM: RGB = (203, 213, 225)  # slate-300, for de-emphasised banner detail
 
-# label-chip backgrounds by alert state (translucent so context shows through)
-_CHIP_NEUTRAL: RGBA = (15, 23, 42, 214)  # slate-900
-_CHIP_OBSERVING: RGBA = (180, 83, 9, 224)  # amber-700
-_CHIP_CONFIRMED: RGBA = (185, 28, 28, 232)  # red-700
-# A caption's progress meter: white on a translucent dark track. Deliberately NOT
-# the box's own colour -- the caption chip is already tinted by the alert state, so
-# an amber bar on an amber chip (or red on red) is invisible exactly when the meter
-# matters most. The chip carries the semantics; the bar only has to be readable.
-_METER_TRACK: RGBA = (8, 12, 24, 170)
+# label-chip backgrounds by alert state. Darker and more opaque than the strokes
+# they accompany: a chip is a reading surface, so text contrast wins over letting
+# the road show through.
+_CHIP_NEUTRAL: RGBA = (12, 18, 33, 224)  # slate-950
+_CHIP_OBSERVING: RGBA = (124, 45, 6, 232)  # amber-800
+_CHIP_CONFIRMED: RGBA = (127, 20, 20, 240)  # red-900, the deep-red violation tone
+# A caption's progress meter: amber on a translucent dark track. The track is dark
+# rather than tinted so the fill reads on every chip colour -- an amber bar directly
+# on an amber chip is invisible exactly when the meter matters most.
+_METER_TRACK: RGBA = (8, 12, 24, 190)
 
 
 @dataclass(frozen=True)
@@ -88,8 +96,8 @@ class BoxStyle:
     label_bg: RGBA
     metric_text: RGB
     # The caption's optional progress meter: an unfilled track plus a filled bar.
-    meter_track: RGBA = (8, 12, 24, 170)
-    meter_fill: RGB = _WHITE
+    meter_track: RGBA = _METER_TRACK
+    meter_fill: RGB = _AMBER_METER
 
 
 @dataclass(frozen=True)
@@ -109,24 +117,34 @@ class BannerStyle:
     title_text: RGB
     body_text: RGB
     accent: RGB
+    detail_text: RGB = _DIM
 
 
 @dataclass(frozen=True)
 class Typography:
-    """Font sizes (px) and spacing the renderer uses; scaled to the frame."""
+    """Font sizes (px) and spacing the renderer uses; scaled to the frame.
 
-    caption_line: int = 13
-    caption_metric: int = 20
-    caption_title: int = 15
-    banner_title: int = 22
-    banner_line: int = 14
-    pad: int = 6
-    line_gap: int = 2
+    Sized for a 540p reference frame and scaled up from there. The generous ``pad``
+    and ``line_gap`` are deliberate: a chip with room to breathe reads as a product
+    surface, while text crammed against its border reads as a debug dump.
+    """
+
+    caption_line: int = 14
+    caption_metric: int = 22
+    caption_title: int = 16
+    banner_title: int = 25
+    banner_metric: int = 27
+    banner_line: int = 15
+    banner_detail: int = 12
+    pad: int = 9
+    line_gap: int = 4
+    #: Corner rounding of chips and banners, as a multiple of ``pad``.
+    radius_ratio: float = 0.9
 
 
 # base (nothing observed yet) stroke colour per emphasis
 _BASE_STROKE: dict[OverlayEmphasis, RGB] = {
-    OverlayEmphasis.SUBJECT: _GREEN,
+    OverlayEmphasis.SUBJECT: _CYAN,
     OverlayEmphasis.OBJECT: _BLUE,
     OverlayEmphasis.REGION: _YELLOW,
     OverlayEmphasis.CONTEXT: _SLATE,
@@ -156,9 +174,12 @@ _STROKE_BY_ALERT: dict[OverlayAlert, dict[OverlayEmphasis, RGB]] = {
     OverlayAlert.OBSERVING: _OBSERVING_STROKE,
     OverlayAlert.CONFIRMED: _ALERT_STROKE,
 }
+# Stroke weight ranks the roles: the subject is the heaviest line in a group, the
+# vehicle a step lighter, the head region lighter still (it is a small box and a
+# thick stroke would swallow the crop it delimits).
 _BASE_WIDTH: dict[OverlayEmphasis, int] = {
     OverlayEmphasis.SUBJECT: 3,
-    OverlayEmphasis.OBJECT: 3,
+    OverlayEmphasis.OBJECT: 2,
     OverlayEmphasis.REGION: 2,
     OverlayEmphasis.CONTEXT: 1,
 }
@@ -189,19 +210,35 @@ class OverlayTheme:
             label_bg=_CHIP[alert],
             metric_text=_WHITE,
             meter_track=_METER_TRACK,
-            meter_fill=_WHITE,
+            meter_fill=_AMBER_METER,
         )
 
     def link_style(self, emphasis: OverlayEmphasis, alert: OverlayAlert) -> LinkStyle:
         confirmed = alert is OverlayAlert.CONFIRMED
         stroke = _RED if confirmed else _BASE_STROKE[emphasis]
-        return LinkStyle(stroke=stroke, stroke_width=2, node_radius=3)
+        # Thin with small nodes: an association chain is supporting evidence about a
+        # relationship, not an object, and must not compete with the boxes it joins.
+        return LinkStyle(stroke=stroke, stroke_width=2, node_radius=2)
+
+    def leader_style(self, emphasis: OverlayEmphasis, alert: OverlayAlert) -> LinkStyle:
+        """Styling for the line tying a displaced caption back to its box.
+
+        Light -- it answers "which object is this label about" and should not read as
+        a detection in its own right -- but not a hairline: when two labels stack
+        above two similar objects, this line is the *only* thing that says which
+        belongs to which, so it has to survive a busy background.
+        """
+
+        return LinkStyle(
+            stroke=_STROKE_BY_ALERT[alert][emphasis], stroke_width=2, node_radius=3
+        )
 
     def banner_style(self, alert: OverlayAlert) -> BannerStyle:
         return BannerStyle(
             background=_CHIP[alert],
             title_text=_WHITE,
             body_text=_WHITE,
+            detail_text=_DIM,
             accent=_ALERT_STROKE[OverlayEmphasis.REGION]
             if alert is OverlayAlert.CONFIRMED
             else _AMBER,

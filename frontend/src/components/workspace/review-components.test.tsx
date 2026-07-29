@@ -2,6 +2,7 @@ import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
 import { useNotesStore } from '@/store/notes-store';
 import {
   makeConfirmedEvent,
@@ -99,7 +100,7 @@ describe('EventList (H7E review tools)', () => {
       totalCount: events.length,
       selectedEventId: 'a' as string | null,
       onSelect: vi.fn(),
-      filters: { query: '', violationTypes: [], minConfidence: 0 },
+      filters: DEFAULT_EVENT_FILTERS,
       onFiltersChange: vi.fn(),
       sort: 'time-asc' as const,
       onSortChange: vi.fn(),

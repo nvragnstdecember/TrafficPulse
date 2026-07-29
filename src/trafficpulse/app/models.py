@@ -19,6 +19,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..contracts import ConfidenceBreakdown
 from ..contracts.enums import ViolationType
 from ..engine import EngineMetrics, RuleConfig
 from .registry import JobStatus, OverlayStatus, VideoRecord
@@ -161,7 +162,14 @@ class EventSort(StrEnum):
 
 
 class EventSummary(_ApiModel):
-    """Compact event view for list responses (detail is the full contract)."""
+    """Compact event view for list responses (detail is the full contract).
+
+    ``start_at`` and ``confidence`` are carried here, not just on the detail, so a
+    review list can show each event's observation window and evidential strength
+    without fetching every event individually. Both are read straight off the
+    already-loaded :class:`~trafficpulse.contracts.ConfirmedEvent`, so the list
+    costs exactly what it did before.
+    """
 
     event_id: str = Field(description="Confirmed-event id.")
     video_id: str = Field(description="The video the event was found in.")
@@ -169,8 +177,18 @@ class EventSummary(_ApiModel):
     violation_type: ViolationType = Field(description="The confirmed violation type.")
     camera_id: str = Field(description="Camera id.")
     track_ids: tuple[str, ...] = Field(description="Track ids implicated in the event.")
+    start_at: datetime = Field(
+        description="Media-time instant support for the violation began accruing. "
+        "With trigger_at this gives the observation window the reasoner sustained."
+    )
     trigger_at: datetime = Field(description="Media-time instant the violation triggered.")
     rule_id: str = Field(description="Rule that confirmed the event.")
+    confidence: ConfidenceBreakdown = Field(
+        description="The event's typed confidence components, verbatim. Components "
+        "are published separately and any the rule did not measure are null; in "
+        "particular 'aggregate' is deliberately null unless calibration has been "
+        "demonstrated, so a client must not treat a missing value as zero."
+    )
 
 
 class EventListResponse(_ApiModel):

@@ -219,8 +219,10 @@ describe('useWorkspaceEvents', () => {
 
     act(() => result.current.select('evt-1'));
 
-    await waitFor(() => expect(result.current.selectedEvent?.confidence).toBe(0.91));
-    expect(result.current.selectedDetail?.event_id).toBe('evt-1');
+    // Confidence now arrives with the summary, so it is no longer the signal that
+    // the detail landed — wait on the detail record itself.
+    await waitFor(() => expect(result.current.selectedDetail?.event_id).toBe('evt-1'));
+    expect(result.current.selectedEvent?.confidence).toBe(0.91);
     expect(result.current.evidence?.evidence_package_id).toBe('pkg-1');
     expect(eventsService.get).toHaveBeenCalledWith('evt-1', expect.anything());
   });

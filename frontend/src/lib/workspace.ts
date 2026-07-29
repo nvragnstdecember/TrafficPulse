@@ -1,4 +1,9 @@
-import { type ConfirmedEvent, type EventSummary, type ViolationType } from '@/api/types';
+import {
+  type ConfidenceBreakdown,
+  type ConfirmedEvent,
+  type EventSummary,
+  type ViolationType,
+} from '@/api/types';
 
 /**
  * Workspace domain models + pure logic (H7C).
@@ -121,23 +126,114 @@ export interface WorkspaceEvent {
   violationType: ViolationType;
   cameraId: string;
   trackIds: string[];
+  startAt: string;
   triggerAt: string;
-  /** Position on the video timeline, in seconds. */
+  /** Position on the video timeline, in seconds (the trigger instant). */
   mediaSeconds: number;
+  /** Where support began accruing, in seconds on the same timeline. */
+  startSeconds: number;
+  /** How long support was sustained before confirmation, in seconds. */
+  observationSeconds: number;
   ruleId: string;
-  /** 0..1 when a detail record is loaded, else null. */
+  /** The headline confidence 0..1, or null when the rule measured none. */
   confidence: number | null;
+  /** Which component {@link confidence} came from, for honest labelling. */
+  confidenceSource: ConfidenceSource | null;
+  /** Every published component, for the detail panel. */
+  confidenceComponents: ConfidenceComponent[];
   /** Derived lane locator when the detail carries one, else null. */
   lane: string | null;
 }
 
-function extractConfidence(breakdown: Record<string, unknown> | undefined): number | null {
-  if (!breakdown) return null;
-  for (const key of ['overall', 'combined', 'score', 'value']) {
-    const candidate = breakdown[key];
-    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
-      return Math.min(1, Math.max(0, candidate));
-    }
+// --- confidence ----------------------------------------------------------------
+export type ConfidenceSource =
+  | 'aggregate'
+  | 'classifier'
+  | 'temporal_consistency'
+  | 'association'
+  | 'detector'
+  | 'geometric_margin';
+
+export interface ConfidenceComponent {
+  key: ConfidenceSource | 'track_continuity' | 'calibration_quality';
+  label: string;
+  value: number;
+}
+
+export const CONFIDENCE_LABELS: Record<ConfidenceComponent['key'], string> = {
+  aggregate: 'Aggregate',
+  classifier: 'Classifier',
+  temporal_consistency: 'Temporal consistency',
+  association: 'Association',
+  detector: 'Detector',
+  geometric_margin: 'Geometric margin',
+  track_continuity: 'Track continuity',
+  calibration_quality: 'Calibration quality',
+};
+
+/**
+ * Order in which a component is promoted to *the* headline confidence.
+ *
+ * `aggregate` first because a backend that has demonstrated calibration would
+ * publish it, and it would then be the right single number. It is null in this
+ * system today, so in practice the headline is the strongest evidential component
+ * the rule actually measured — for no-helmet that is the classifier's mean score
+ * across the supporting observations.
+ */
+const CONFIDENCE_PRIORITY: ConfidenceSource[] = [
+  'aggregate',
+  'classifier',
+  'geometric_margin',
+  'temporal_consistency',
+  'association',
+  'detector',
+];
+
+const COMPONENT_ORDER: ConfidenceComponent['key'][] = [
+  'aggregate',
+  'classifier',
+  'temporal_consistency',
+  'association',
+  'detector',
+  'geometric_margin',
+  'track_continuity',
+  'calibration_quality',
+];
+
+function readComponent(
+  breakdown: ConfidenceBreakdown | undefined,
+  key: ConfidenceComponent['key'],
+): number | null {
+  const value = breakdown?.[key];
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.min(1, Math.max(0, value))
+    : null;
+}
+
+/** Every measured component, in a stable display order. */
+export function confidenceComponents(
+  breakdown: ConfidenceBreakdown | undefined,
+): ConfidenceComponent[] {
+  const out: ConfidenceComponent[] = [];
+  for (const key of COMPONENT_ORDER) {
+    const value = readComponent(breakdown, key);
+    if (value !== null) out.push({ key, label: CONFIDENCE_LABELS[key], value });
+  }
+  return out;
+}
+
+/**
+ * The one component to headline, with its provenance — never a blend.
+ *
+ * Returns null when the rule measured nothing, so the UI can say "not measured"
+ * instead of rendering a fabricated 0%.
+ */
+export function headlineConfidence(
+  breakdown: ConfidenceBreakdown | undefined,
+): { value: number; source: ConfidenceSource } | null {
+  for (const source of CONFIDENCE_PRIORITY) {
+    const value = readComponent(breakdown, source);
+    if (value !== null) return { value, source };
   }
   return null;
 }
@@ -150,6 +246,13 @@ function extractLane(detail: ConfirmedEvent | undefined): string | null {
 
 /** Build a workspace view-model from a summary, enriched by an optional detail. */
 export function toWorkspaceEvent(summary: EventSummary, detail?: ConfirmedEvent): WorkspaceEvent {
+  // The summary already carries the window and the confidence components, so a
+  // list row is fully informative without fetching each event's detail. The
+  // detail, when present, only adds what the summary genuinely lacks (the lane).
+  const breakdown = detail?.confidence ?? summary.confidence;
+  const headline = headlineConfidence(breakdown);
+  const startSeconds = eventMediaSeconds(summary.start_at);
+  const mediaSeconds = eventMediaSeconds(summary.trigger_at);
   return {
     id: summary.event_id,
     videoId: summary.video_id,
@@ -157,10 +260,15 @@ export function toWorkspaceEvent(summary: EventSummary, detail?: ConfirmedEvent)
     violationType: summary.violation_type,
     cameraId: summary.camera_id,
     trackIds: summary.track_ids,
+    startAt: summary.start_at,
     triggerAt: summary.trigger_at,
-    mediaSeconds: eventMediaSeconds(summary.trigger_at),
+    mediaSeconds,
+    startSeconds,
+    observationSeconds: Math.max(0, mediaSeconds - startSeconds),
     ruleId: summary.rule_id,
-    confidence: detail ? extractConfidence(detail.confidence) : null,
+    confidence: headline?.value ?? null,
+    confidenceSource: headline?.source ?? null,
+    confidenceComponents: confidenceComponents(breakdown),
     lane: extractLane(detail),
   };
 }
@@ -171,7 +279,15 @@ export function workspaceEventsEqual(a: WorkspaceEvent, b: WorkspaceEvent): bool
     a.id === b.id &&
     a.violationType === b.violationType &&
     a.mediaSeconds === b.mediaSeconds &&
+    a.startSeconds === b.startSeconds &&
     a.confidence === b.confidence &&
+    a.confidenceSource === b.confidenceSource &&
+    a.confidenceComponents.length === b.confidenceComponents.length &&
+    a.confidenceComponents.every(
+      (component, index) =>
+        component.key === b.confidenceComponents[index].key &&
+        component.value === b.confidenceComponents[index].value,
+    ) &&
     a.lane === b.lane &&
     a.cameraId === b.cameraId &&
     a.ruleId === b.ruleId &&
@@ -279,30 +395,73 @@ export interface EventFilters {
   violationTypes: ViolationType[];
   /** Minimum confidence 0..1; 0 disables the filter. */
   minConfidence: number;
+  /** Maximum confidence 0..1; 1 disables the filter. */
+  maxConfidence: number;
+  /** Earliest media-time second to include; 0 disables the filter. */
+  fromSeconds: number;
+  /** Latest media-time second to include; null disables the filter. */
+  toSeconds: number | null;
 }
 
 export const DEFAULT_EVENT_FILTERS: EventFilters = {
   query: '',
   violationTypes: [],
   minConfidence: 0,
+  maxConfidence: 1,
+  fromSeconds: 0,
+  toSeconds: null,
 };
 
 export function hasActiveFilters(filters: EventFilters): boolean {
   return (
     filters.query.trim().length > 0 ||
     filters.violationTypes.length > 0 ||
-    filters.minConfidence > 0
+    filters.minConfidence > 0 ||
+    filters.maxConfidence < 1 ||
+    filters.fromSeconds > 0 ||
+    filters.toSeconds !== null
   );
 }
+
+/**
+ * Parse a clock-ish search term into seconds, or null if it is not one.
+ *
+ * Accepts `1:23`, `01:23`, `1:02:03`, and a bare `90`. Lets an analyst who is
+ * reading a timestamp off the video paste it straight into the search box.
+ */
+export function parseClockQuery(query: string): number | null {
+  const trimmed = query.trim();
+  if (!/^\d{1,2}(:\d{1,2}){0,2}$/.test(trimmed)) return null;
+  const parts = trimmed.split(':').map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return null;
+  const seconds = parts.reduce((total, part) => total * 60 + part, 0);
+  return Number.isFinite(seconds) ? seconds : null;
+}
+
+/** How close (seconds) a timestamp search has to be to count as a hit. */
+export const CLOCK_QUERY_TOLERANCE_SECONDS = 1.5;
 
 function matchesQuery(event: WorkspaceEvent, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (!needle) return true;
+
+  // A timestamp term matches the event's *window*, not just its trigger: an
+  // analyst typing the moment they saw something on screen means "the violation
+  // that was happening then", which starts before it is confirmed.
+  const clock = parseClockQuery(needle);
+  if (clock !== null) {
+    const from = event.startSeconds - CLOCK_QUERY_TOLERANCE_SECONDS;
+    const to = event.mediaSeconds + CLOCK_QUERY_TOLERANCE_SECONDS;
+    if (clock >= from && clock <= to) return true;
+    // fall through: a bare number may still be part of a track id
+  }
+
   const haystack = [
     event.id,
     event.cameraId,
     event.ruleId,
     violationLabel(event.violationType),
+    formatClock(event.mediaSeconds),
     ...event.trackIds,
   ]
     .join(' ')
@@ -318,10 +477,16 @@ export function filterWorkspaceEvents(
   return events.filter((event) => {
     if (!matchesQuery(event, filters.query)) return false;
     if (violationSet.size > 0 && !violationSet.has(event.violationType)) return false;
-    if (filters.minConfidence > 0) {
+    if (filters.minConfidence > 0 || filters.maxConfidence < 1) {
+      // An unmeasured confidence is excluded by a *narrowed* range rather than
+      // treated as zero — the filter asks about evidence, and "not measured" is
+      // not a low score.
       if (event.confidence === null) return false;
       if (event.confidence < filters.minConfidence) return false;
+      if (event.confidence > filters.maxConfidence) return false;
     }
+    if (filters.fromSeconds > 0 && event.mediaSeconds < filters.fromSeconds) return false;
+    if (filters.toSeconds !== null && event.mediaSeconds > filters.toSeconds) return false;
     return true;
   });
 }
@@ -365,6 +530,112 @@ export function sortWorkspaceEvents(
           a.mediaSeconds - b.mediaSeconds,
       );
   }
+}
+
+// --- event narrative (how the violation evolved) --------------------------------
+export type NarrativeStage = 'observation' | 'accumulation' | 'confirmation' | 'evidence';
+
+export interface NarrativeStep {
+  key: string;
+  /** Media-time position of this step, in seconds. */
+  seconds: number;
+  stage: NarrativeStage;
+  title: string;
+  detail: string | null;
+}
+
+/**
+ * The story of one violation, reconstructed from what the reasoner published.
+ *
+ * Reads the event's own window (`start_at` → `trigger_at`), its threshold, and its
+ * evidence manifest. It derives nothing the backend did not decide: the midpoint
+ * step is labelled as elapsed progress toward the rule's own bar, and the evidence
+ * step appears only when a manifest actually exists. Where a value is absent the
+ * step is omitted rather than invented, which is why a rule that publishes no
+ * threshold yields a three-step story instead of a padded four.
+ */
+export function buildEventNarrative(
+  event: WorkspaceEvent,
+  options?: { thresholdSeconds?: number | null; hasEvidence?: boolean },
+): NarrativeStep[] {
+  const steps: NarrativeStep[] = [];
+  const threshold = options?.thresholdSeconds ?? null;
+
+  steps.push({
+    key: 'observation',
+    seconds: event.startSeconds,
+    stage: 'observation',
+    title: `${violationLabel(event.violationType)} observation begins`,
+    detail:
+      event.trackIds.length > 0 ? `Track ${event.trackIds.join(', ')} enters observation` : null,
+  });
+
+  if (event.observationSeconds > 0) {
+    const midpoint = event.startSeconds + event.observationSeconds / 2;
+    steps.push({
+      key: 'accumulation',
+      seconds: midpoint,
+      stage: 'accumulation',
+      title: 'Supporting evidence accumulates',
+      detail:
+        threshold && threshold > 0
+          ? `${(event.observationSeconds / 2).toFixed(2)}s of ${threshold.toFixed(2)}s required`
+          : `${(event.observationSeconds / 2).toFixed(2)}s sustained so far`,
+    });
+  }
+
+  steps.push({
+    key: 'confirmation',
+    seconds: event.mediaSeconds,
+    stage: 'confirmation',
+    title: 'Violation confirmed',
+    detail:
+      event.confidence !== null && event.confidenceSource
+        ? `${CONFIDENCE_LABELS[event.confidenceSource]} ${Math.round(event.confidence * 100)}% · sustained ${event.observationSeconds.toFixed(2)}s`
+        : `Sustained ${event.observationSeconds.toFixed(2)}s`,
+  });
+
+  if (options?.hasEvidence) {
+    steps.push({
+      key: 'evidence',
+      seconds: event.mediaSeconds,
+      stage: 'evidence',
+      title: 'Evidence package finalized',
+      detail: 'Frames, rule trace, and model provenance recorded',
+    });
+  }
+
+  return steps;
+}
+
+// --- review playback window ------------------------------------------------------
+/** Seconds of lead-in before an event's observation window when auto-playing. */
+export const REVIEW_LEAD_IN_SECONDS = 1.5;
+/** Seconds to keep playing past the confirmation instant before stopping. */
+export const REVIEW_TAIL_SECONDS = 2;
+
+export interface PlaybackWindow {
+  /** Where to seek before playing. */
+  from: number;
+  /** Where playback should stop. */
+  to: number;
+}
+
+/**
+ * The clip an analyst should see when they pick a violation.
+ *
+ * Starts a beat before support began accruing — the confirmation instant alone is
+ * the *end* of the story, so seeking there and playing shows the aftermath rather
+ * than the behaviour — and stops shortly after the trigger so review does not
+ * drift into unrelated footage. Clamped to the media so a violation near either
+ * end of the clip still yields a valid range.
+ */
+export function reviewWindow(event: WorkspaceEvent, duration?: number | null): PlaybackWindow {
+  const limit = duration && Number.isFinite(duration) && duration > 0 ? duration : null;
+  const from = Math.max(0, event.startSeconds - REVIEW_LEAD_IN_SECONDS);
+  const rawTo = event.mediaSeconds + REVIEW_TAIL_SECONDS;
+  const to = limit === null ? rawTo : Math.min(limit, rawTo);
+  return { from, to: Math.max(from, to) };
 }
 
 // --- clock ---------------------------------------------------------------------

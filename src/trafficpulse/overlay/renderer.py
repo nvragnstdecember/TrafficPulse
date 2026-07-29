@@ -19,11 +19,22 @@ Draw order & performance
 ------------------------
 Elements are drawn in ascending :class:`~trafficpulse.overlay.metadata.OverlayLayer`
 (objects, subjects, links, regions, labels, banner), so overlays are always legible
-regardless of emission order. Captions are laid out by the pure
-:mod:`~trafficpulse.overlay.layout` solver (which the renderer feeds measured text
-sizes) so labels never stack unreadably. Cost is O(number of elements) with no
-model inference and no per-pixel scene scan -- rendering a frame is linear in the
-handful of tracked objects on it.
+regardless of emission order. Cost is O(number of elements) with no model inference
+and no per-pixel scene scan -- rendering a frame is linear in the handful of tracked
+objects on it.
+
+Keeping labels readable
+-----------------------
+Three passes cooperate, all violation-agnostic:
+
+* banners are **positioned before captions are placed** even though they are painted
+  last, so the pure :mod:`~trafficpulse.overlay.layout` solver can treat them as
+  occupied space instead of letting a pinned banner bury the caption underneath it;
+* the solver also receives every box as a *soft* region to prefer not to cover, so a
+  label is less likely to land on some unrelated vehicle and read as its label;
+* a caption the solver still had to displace gets a **leader line** back to its box,
+  and a box too small for a chip to sit beside gets **no caption at all** -- its
+  geometry is still drawn, only the text is withheld.
 """
 
 from __future__ import annotations
@@ -37,6 +48,7 @@ from numpy.typing import NDArray
 from .layout import LabelRequest, place_labels
 from .metadata import (
     Corner,
+    OverlayAlert,
     OverlayBanner,
     OverlayBox,
     OverlayCaption,
@@ -44,6 +56,10 @@ from .metadata import (
     OverlayScene,
 )
 from .theme import DEFAULT_THEME, OverlayTheme
+
+#: Shorter side (px at the 540p reference scale) below which a box gets no caption.
+#: A chip beside a smaller object is bigger than the object itself.
+_MIN_CAPTION_BOX_PX = 26.0
 
 
 class OverlayError(Exception):
@@ -201,7 +217,9 @@ class PillowOverlayRenderer:
         gap = typ.line_gap * s
 
         captioned: list[tuple[OverlayBox, OverlayCaption]] = [
-            (b, b.caption) for b in boxes if b.caption is not None
+            (b, b.caption)
+            for b in boxes
+            if b.caption is not None and self._is_captionable(b, s)
         ]
         measured = [
             self._measure_caption(draw, cap, line_font, title_font, metric_font, gap)
@@ -211,9 +229,72 @@ class PillowOverlayRenderer:
             LabelRequest(box=b.bounds, width=mw, height=mh, prefer=cap.prefer, pad=pad)
             for (b, cap), (mw, mh) in zip(captioned, measured, strict=True)
         ]
-        positions = place_labels(requests, float(w), float(h), blocked=blocked)
+        positions = place_labels(
+            requests,
+            float(w),
+            float(h),
+            blocked=blocked,
+            avoid=[b.bounds for b in boxes],
+        )
+        # Every leader first, then every chip: a leader must pass *behind* the
+        # labels, never across their text, whatever order the boxes arrived in.
+        for (box, _), rect in zip(captioned, positions, strict=True):
+            self._draw_leader(draw, box, rect, pad)
         for (box, cap), rect in zip(captioned, positions, strict=True):
             self._paint_caption(draw, box, cap, rect, line_font, title_font, metric_font, pad, gap)
+
+    def _is_captionable(self, box: OverlayBox, s: float) -> bool:
+        """Whether ``box`` is big enough that a caption beside it informs rather than clutters.
+
+        A chip is a fixed size, so on a distant object it can be several times the
+        area of the thing it describes -- a wall of text over the scene, each label
+        pushed away from its own subject by the collision solver. Below the
+        threshold the box is still drawn in full: the detection is never hidden,
+        only its label.
+
+        A ``CONFIRMED`` box is exempt at any size. The rule exists to suppress
+        incidental detail, and a confirmed violation is by definition not
+        incidental: with two distant confirmations on screen, silencing the smaller
+        one leaves two identical red boxes and no way to tell which banner belongs
+        to which -- the label is doing real work precisely because the object is
+        too small to identify on its own.
+        """
+
+        if box.alert is OverlayAlert.CONFIRMED:
+            return True
+        x1, y1, x2, y2 = box.bounds
+        return min(abs(x2 - x1), abs(y2 - y1)) >= _MIN_CAPTION_BOX_PX * s
+
+    def _draw_leader(
+        self,
+        draw: Any,
+        box: OverlayBox,
+        rect: tuple[float, float, float, float],
+        pad: float,
+    ) -> None:
+        """Hairline from a displaced caption back to the box it belongs to.
+
+        Drawn only when the chip is not already touching its box: an adjacent label
+        needs no explanation, and a leader line to it would be pure clutter.
+        """
+
+        bx1, by1, bx2, by2 = box.bounds
+        lx1, ly1, lx2, ly2 = rect
+        slack = pad * 2.0
+        touching_x = lx1 <= bx2 + slack and lx2 >= bx1 - slack
+        touching_y = ly1 <= by2 + slack and ly2 >= by1 - slack
+        if touching_x and touching_y:
+            return
+
+        style = self._theme.leader_style(box.emphasis, box.alert)
+        # Nearest points on the two rectangles: the shortest, least crossing route.
+        lx = min(max((bx1 + bx2) / 2.0, lx1), lx2)
+        ly = min(max((by1 + by2) / 2.0, ly1), ly2)
+        bx = min(max((lx1 + lx2) / 2.0, bx1), bx2)
+        by = min(max((ly1 + ly2) / 2.0, by1), by2)
+        draw.line([(lx, ly), (bx, by)], fill=(*style.stroke, 215), width=style.stroke_width)
+        r = style.node_radius
+        draw.ellipse((bx - r, by - r, bx + r, by + r), fill=(*style.stroke, 255))
 
     def _measure_caption(
         self, draw: Any, caption: OverlayCaption, line_font: Any, title_font: Any,
@@ -229,19 +310,22 @@ class PillowOverlayRenderer:
             widths.append(self._text_size(draw, caption.metric, metric_font)[0])
             height += self._line_advance(draw, caption.metric, metric_font) + gap
         if caption.progress is not None:
-            widths.append(self._meter_width(gap))
+            widths.append(self._meter_min_width(gap))
             # two gaps: one above the bar, one keeping it off the chip's bottom edge
             height += self._meter_height(gap) + gap * 2
         pad = gap * 2
         return (max(widths, default=0.0) + pad * 2, height + pad)
 
     # A meter is sized from the caption's own spacing unit, so it scales with the
-    # frame exactly as the text does and needs no separate theme knob.
-    def _meter_width(self, gap: float) -> float:
-        return max(48.0, gap * 32.0)
+    # frame exactly as the text does and needs no separate theme knob. Only a
+    # *minimum* width is reserved during measurement; the bar is then stretched to
+    # the chip's content width when painted, so it always reads as a full-width
+    # track rather than a stub floating in the corner of a wide chip.
+    def _meter_min_width(self, gap: float) -> float:
+        return max(56.0, gap * 18.0)
 
     def _meter_height(self, gap: float) -> float:
-        return max(3.0, gap * 2.0)
+        return max(4.0, gap * 1.4)
 
     def _paint_caption(
         self, draw: Any, box: OverlayBox, caption: OverlayCaption,
@@ -250,12 +334,14 @@ class PillowOverlayRenderer:
     ) -> None:
         style = self._theme.box_style(box.emphasis, box.alert)
         x1, y1, x2, y2 = rect
-        radius = max(3.0, pad)
+        radius = max(4.0, pad * self._theme.typography.radius_ratio)
+        accent_w = max(3.0, pad * 0.42)
         draw.rounded_rectangle((x1, y1, x2, y2), radius=radius, fill=style.label_bg)
         # accent bar keyed to the box stroke, so caption <-> box association is obvious
-        draw.rounded_rectangle((x1, y1, x1 + max(3.0, pad * 0.5), y2), radius=radius,
+        draw.rounded_rectangle((x1, y1, x1 + accent_w, y2), radius=radius,
                                fill=(*style.stroke, 255))
-        tx, ty = x1 + pad * 1.6, y1 + pad * 0.6
+        tx, ty = x1 + accent_w + pad * 0.9, y1 + pad * 0.55
+        text_right = x2 - pad * 0.6
         for i, line in enumerate(caption.lines):
             font = title_font if i == 0 else line_font
             draw.text((tx, ty), line, font=font, fill=(*style.label_text, 255))
@@ -266,25 +352,28 @@ class PillowOverlayRenderer:
         if caption.progress is not None:
             # +gap of leading so the bar reads as its own row, not a strikethrough
             # under the line above it (the measure pass reserves the same space).
-            self._paint_meter(draw, caption.progress, tx, ty + gap, gap, style)
+            self._paint_meter(draw, caption.progress, tx, ty + gap, text_right - tx, gap, style)
 
     def _paint_meter(
-        self, draw: Any, progress: float, x: float, y: float, gap: float, style: Any
+        self, draw: Any, progress: float, x: float, y: float, w: float, gap: float, style: Any
     ) -> None:
         """Draw a caption's generic 0..1 observation-state meter (track + fill).
 
-        Knows nothing about what is progressing -- it paints a fraction. Zero
-        progress still paints the track, so "nothing yet" is visibly distinct from
-        "no meter at all".
+        Knows nothing about what is progressing -- it paints a fraction across the
+        width it is given. Zero progress still paints the track, so "nothing yet" is
+        visibly distinct from "no meter at all"; a non-zero fraction always paints at
+        least a round cap, so early progress is visible rather than sub-pixel.
         """
 
-        w, h = self._meter_width(gap), self._meter_height(gap)
+        h = self._meter_height(gap)
+        w = max(w, self._meter_min_width(gap))
         radius = h / 2.0
         draw.rounded_rectangle((x, y, x + w, y + h), radius=radius, fill=style.meter_track)
-        filled = w * max(0.0, min(1.0, progress))
-        if filled > 0.0:
+        fraction = max(0.0, min(1.0, progress))
+        if fraction > 0.0:
+            filled = max(w * fraction, h)
             draw.rounded_rectangle(
-                (x, y, x + max(filled, h), y + h), radius=radius, fill=(*style.meter_fill, 255)
+                (x, y, x + filled, y + h), radius=radius, fill=(*style.meter_fill, 255)
             )
 
     def _layout_banners(
@@ -299,8 +388,10 @@ class PillowOverlayRenderer:
         """
 
         title_font = self._font(int(typ.banner_title * s))
+        metric_font = self._font(int(typ.banner_metric * s))
         line_font = self._font(int(typ.banner_line * s))
-        pad = typ.pad * s * 1.5
+        detail_font = self._font(int(typ.banner_detail * s))
+        pad = typ.pad * s * 1.35
         gap = typ.line_gap * s
         # stack banners per corner so several confirmed violations never overlap
         offsets: dict[Corner, float] = {}
@@ -308,11 +399,21 @@ class PillowOverlayRenderer:
         for banner in banners:
             tw, th = self._text_size(draw, banner.title, title_font)
             icon_w = (th * 1.3 + gap) if banner.icon else 0.0
-            widths = [tw + icon_w]
-            total_h = self._line_advance(draw, banner.title, title_font) + gap
+            metric_w = (
+                self._text_size(draw, banner.metric, metric_font)[0] + pad * 1.2
+                if banner.metric
+                else 0.0
+            )
+            widths = [tw + icon_w + metric_w]
+            total_h = self._banner_head_advance(draw, banner, title_font, metric_font) + gap
             for line in banner.lines:
                 widths.append(self._text_size(draw, line, line_font)[0])
                 total_h += self._line_advance(draw, line, line_font) + gap
+            if banner.details:
+                total_h += gap  # a rule of whitespace separating primary from detail
+                for detail in banner.details:
+                    widths.append(self._text_size(draw, detail, detail_font)[0])
+                    total_h += self._line_advance(draw, detail, detail_font) + gap
             bw = max(widths) + pad * 2
             bh = total_h + pad
             corner = banner.corner
@@ -331,25 +432,58 @@ class PillowOverlayRenderer:
         typ: Any,
     ) -> None:
         title_font = self._font(int(typ.banner_title * s))
+        metric_font = self._font(int(typ.banner_metric * s))
         line_font = self._font(int(typ.banner_line * s))
-        pad = typ.pad * s * 1.5
+        detail_font = self._font(int(typ.banner_detail * s))
+        pad = typ.pad * s * 1.35
         gap = typ.line_gap * s
+        radius = pad * typ.radius_ratio
         for banner, (x1, y1, x2, y2) in layout:
             style = self._theme.banner_style(banner.alert)
             th = self._text_size(draw, banner.title, title_font)[1]
             icon_w = (th * 1.3 + gap) if banner.icon else 0.0
-            draw.rounded_rectangle((x1, y1, x2, y2), radius=pad, fill=style.background)
-            draw.rounded_rectangle((x1, y1, x1 + max(4.0, pad * 0.4), y2), radius=pad,
+            draw.rounded_rectangle((x1, y1, x2, y2), radius=radius, fill=style.background)
+            draw.rounded_rectangle((x1, y1, x1 + max(4.0, pad * 0.36), y2), radius=radius,
                                    fill=(*style.accent, 255))
-            tx, ty = x1 + pad * 1.4, y1 + pad * 0.5
+            left = x1 + pad * 1.35
+            tx, ty = left, y1 + pad * 0.5
             if banner.icon:
                 self._draw_warning_icon(draw, tx, ty, th, style.accent)
                 tx += icon_w
             draw.text((tx, ty), banner.title, font=title_font, fill=(*style.title_text, 255))
-            ty += self._line_advance(draw, banner.title, title_font) + gap
+            if banner.metric:
+                # The headline figure is set right of the title, on the same
+                # baseline-ish row: one number, unmissable, never repeated below.
+                # Set in the title colour rather than the accent -- the accent is
+                # tuned to sit *against* the banner background, so a figure painted
+                # in it is the least legible text on the most important line.
+                mx = tx + self._text_size(draw, banner.title, title_font)[0] + pad * 1.2
+                draw.text((mx, ty), banner.metric, font=metric_font,
+                          fill=(*style.title_text, 255))
+            ty += self._banner_head_advance(draw, banner, title_font, metric_font) + gap
             for line in banner.lines:
-                draw.text((x1 + pad * 1.4, ty), line, font=line_font, fill=(*style.body_text, 255))
+                draw.text((left, ty), line, font=line_font, fill=(*style.body_text, 255))
                 ty += self._line_advance(draw, line, line_font) + gap
+            if banner.details:
+                ty += gap
+                for detail in banner.details:
+                    draw.text((left, ty), detail, font=detail_font,
+                              fill=(*style.detail_text, 235))
+                    ty += self._line_advance(draw, detail, detail_font) + gap
+
+    def _banner_head_advance(
+        self, draw: Any, banner: OverlayBanner, title_font: Any, metric_font: Any
+    ) -> float:
+        """Height of the title row -- the taller of the title and its metric.
+
+        The metric is set in a larger face, so advancing by the title alone would
+        let the number's descenders run into the first supporting line.
+        """
+
+        advance = self._line_advance(draw, banner.title, title_font)
+        if banner.metric:
+            advance = max(advance, self._line_advance(draw, banner.metric, metric_font))
+        return advance
 
     def _draw_warning_icon(self, draw: Any, x: float, y: float, size: float, accent: Any) -> None:
         """A font-independent warning triangle with an exclamation (generic alert mark)."""

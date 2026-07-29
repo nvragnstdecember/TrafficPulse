@@ -30,8 +30,10 @@ export function makeEventSummary(overrides: Partial<EventSummary> = {}): EventSu
     violation_type: 'wrong_way' as ViolationType,
     camera_id: 'cam-north',
     track_ids: ['t-1'],
+    start_at: mediaSeconds(9),
     trigger_at: mediaSeconds(10),
     rule_id: 'wrong-way-v1',
+    confidence: { classifier: 0.91, temporal_consistency: 0.8 },
     ...overrides,
   };
 }
@@ -58,7 +60,7 @@ export function makeConfirmedEvent(overrides: Partial<ConfirmedEvent> = {}): Con
     measurements: [{ name: 'heading_deviation_deg', value: 172, unit: 'deg' }],
     thresholds: [{ name: 'min_heading_deviation_deg', value: 150, unit: 'deg' }],
     models: [{ name: 'rtdetr', version: '1.0', weights_hash: null }],
-    confidence: { overall: 0.91 },
+    confidence: { classifier: 0.91, temporal_consistency: 0.8 },
     ...overrides,
   };
 }

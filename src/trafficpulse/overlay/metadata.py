@@ -181,15 +181,26 @@ class OverlayLink(_Frozen):
 class OverlayBanner(_Frozen):
     """A pinned headline (e.g. a confirmed-violation banner).
 
-    ``title`` is the headline (``"NO HELMET"``); ``lines`` are supporting detail
-    (track, timestamp, violation id). ``icon`` is an optional leading glyph
-    (``"!"``). Positioned by the renderer at ``corner`` of the frame, stacking when
-    several banners are present, so it never depends on any box's geometry.
+    Three tiers of text, so a banner can stay small while still carrying everything
+    an analyst might want:
+
+    * ``title`` -- the headline (``"NO HELMET"``), with ``metric`` an optional large
+      figure set beside it (``"97%"``) for the one number that matters most;
+    * ``lines`` -- the primary supporting facts, at body size;
+    * ``details`` -- secondary diagnostics (ids, timestamps), rendered smaller and
+      dimmer. Present for anyone who needs them, quiet enough not to compete with
+      the headline.
+
+    ``icon`` is an optional leading glyph (``"!"``). Positioned by the renderer at
+    ``corner`` of the frame, stacking when several banners are present, so it never
+    depends on any box's geometry.
     """
 
     kind: Literal["banner"] = "banner"
     title: str
+    metric: str | None = None
     lines: tuple[str, ...] = ()
+    details: tuple[str, ...] = ()
     icon: str | None = None
     alert: OverlayAlert = OverlayAlert.CONFIRMED
     layer: OverlayLayer = OverlayLayer.BANNER

@@ -119,6 +119,112 @@ def test_a_banner_does_not_bury_the_caption_of_the_track_it_names() -> None:
     assert extra > 400
 
 
+def test_a_box_too_small_to_caption_is_still_drawn() -> None:
+    # A chip beside a distant object is bigger than the object; the label is
+    # dropped, but the detection itself is never hidden.
+    img = np.zeros((160, 200, 3), dtype=np.uint8)
+    tiny = OverlayBox(
+        bounds=(80, 70, 92, 82),  # 12px -- below the caption threshold
+        emphasis=OverlayEmphasis.SUBJECT,
+        alert=OverlayAlert.NONE,
+        layer=OverlayLayer.SUBJECT,
+        caption=OverlayCaption(lines=("Rider", "Track: iou-1"), metric="97%"),
+    )
+    out = PillowOverlayRenderer().render(
+        img, OverlayScene(width=200, height=160, elements=(tiny,))
+    )
+    painted = (out.sum(axis=2) > 0)
+    assert painted.any()  # the box is there
+    # ...but nothing was drawn far from it, which a chip would have been
+    assert not painted[:40, :].any()
+
+
+def test_a_confirmed_box_keeps_its_caption_however_small() -> None:
+    # Two distant confirmations otherwise become two identical red boxes with no
+    # way to tell which banner belongs to which.
+    img = np.zeros((160, 200, 3), dtype=np.uint8)
+    tiny_confirmed = OverlayBox(
+        bounds=(80, 70, 92, 82),
+        emphasis=OverlayEmphasis.SUBJECT,
+        alert=OverlayAlert.CONFIRMED,
+        layer=OverlayLayer.SUBJECT,
+        caption=OverlayCaption(lines=("NO HELMET", "Track iou-209"), metric="48%"),
+    )
+    out = PillowOverlayRenderer().render(
+        img, OverlayScene(width=200, height=160, elements=(tiny_confirmed,))
+    )
+    assert (out.sum(axis=2) > 0)[:40, :].any()  # the chip was placed away from the box
+
+
+def test_a_large_box_keeps_its_caption() -> None:
+    img = np.zeros((160, 200, 3), dtype=np.uint8)
+    big = OverlayBox(
+        bounds=(60, 60, 140, 140),
+        emphasis=OverlayEmphasis.SUBJECT,
+        alert=OverlayAlert.NONE,
+        layer=OverlayLayer.SUBJECT,
+        caption=OverlayCaption(lines=("Rider", "Track: iou-1"), metric="97%"),
+    )
+    out = PillowOverlayRenderer().render(
+        img, OverlayScene(width=200, height=160, elements=(big,))
+    )
+    assert (out.sum(axis=2) > 0)[:50, :].any()  # the chip sits above the box
+
+
+def test_a_displaced_caption_is_tied_back_to_its_box() -> None:
+    # Two boxes crowding one corner force a caption away from its own subject; a
+    # leader line is what stops it reading as a label for whatever it landed on.
+    img = np.zeros((300, 400, 3), dtype=np.uint8)
+    scene = OverlayScene(
+        width=400,
+        height=300,
+        elements=tuple(
+            OverlayBox(
+                bounds=(40 + i * 6, 40 + i * 6, 130 + i * 6, 130 + i * 6),
+                emphasis=OverlayEmphasis.SUBJECT,
+                alert=OverlayAlert.NONE,
+                layer=OverlayLayer.SUBJECT,
+                caption=OverlayCaption(lines=(f"Rider {i}", "Track: x")),
+                key=f"k{i}",
+            )
+            for i in range(4)
+        ),
+    )
+    painted = int((PillowOverlayRenderer().render(img, scene).sum(axis=2) > 0).sum())
+    bare = OverlayScene(
+        width=400,
+        height=300,
+        elements=tuple(e.model_copy(update={"caption": None}) for e in scene.elements),
+    )
+    bare_painted = int((PillowOverlayRenderer().render(img, bare).sum(axis=2) > 0).sum())
+    assert painted > bare_painted  # captions + their leaders were drawn
+
+
+def test_banner_metric_and_details_are_rendered() -> None:
+    img = np.zeros((200, 400, 3), dtype=np.uint8)
+    plain = OverlayBanner(title="NO HELMET", lines=("Track iou-1",))
+    full = OverlayBanner(
+        title="NO HELMET", metric="97%", lines=("Track iou-1",), details=("evt-abc123",)
+    )
+    lean = int(
+        (
+            PillowOverlayRenderer()
+            .render(img, OverlayScene(width=400, height=200, elements=(plain,)))
+            .sum(axis=2)
+            > 0
+        ).sum()
+    )
+    rich = int(
+        (
+            PillowOverlayRenderer()
+            .render(img, OverlayScene(width=400, height=200, elements=(full,)))
+            .sum(axis=2)
+            > 0
+        ).sum()
+    )
+    assert rich > lean
+
+
 def test_banner_only_scene_renders() -> None:
     img = np.zeros((160, 200, 3), dtype=np.uint8)
     scene = OverlayScene(

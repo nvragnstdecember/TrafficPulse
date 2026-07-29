@@ -8,7 +8,7 @@ T = DEFAULT_THEME
 
 
 def test_base_emphasis_colours_match_the_spec() -> None:
-    assert T.box_style(OverlayEmphasis.SUBJECT, OverlayAlert.NONE).stroke == (30, 174, 83)  # green
+    assert T.box_style(OverlayEmphasis.SUBJECT, OverlayAlert.NONE).stroke == (34, 211, 238)  # cyan
     assert T.box_style(OverlayEmphasis.OBJECT, OverlayAlert.NONE).stroke == (59, 130, 246)  # blue
     assert T.box_style(OverlayEmphasis.REGION, OverlayAlert.NONE).stroke == (250, 204, 21)  # yellow
 
@@ -52,5 +52,5 @@ def test_confirmation_turns_everything_red_and_head_brightest() -> None:
 
 def test_links_and_banners_follow_alert() -> None:
     assert T.link_style(OverlayEmphasis.SUBJECT, OverlayAlert.CONFIRMED).stroke == (239, 68, 68)
-    assert T.link_style(OverlayEmphasis.SUBJECT, OverlayAlert.NONE).stroke == (30, 174, 83)
+    assert T.link_style(OverlayEmphasis.SUBJECT, OverlayAlert.NONE).stroke == (34, 211, 238)
     assert T.banner_style(OverlayAlert.CONFIRMED).accent == (255, 71, 71)

@@ -65,15 +65,28 @@ def _candidates(req: LabelRequest) -> list[tuple[float, float]]:
         Corner.BOTTOM_RIGHT: [(right, below), (right, inside_bottom)],
     }
     out: list[tuple[float, float]] = list(corner_first[req.prefer])
-    # a ladder stepping away from the box, then beside it -- the escape hatches
+    # The other three corners before any long displacement: a label one corner over
+    # is still obviously attached to its box, whereas one pushed a ladder-rung away
+    # needs a leader line to be readable at all.
+    for corner, positions in corner_first.items():
+        if corner is not req.prefer:
+            out.extend(positions)
+    # flush beside the box, still touching it
+    out.append((bx2 + pad, by1))  # to the right
+    out.append((bx1 - w - pad, by1))  # to the left
+    # a ladder stepping away above/below -- the last-resort escape hatches
     step = h + 4.0
     for k in range(1, 4):
         out.append((left, above - k * step))
         out.append((left, below + k * step))
-    out.append((bx2 + pad, by1))  # to the right
-    out.append((bx1 - w - pad, by1))  # to the left
     out.append((left, below))
     return out
+
+
+#: How much a square pixel of overlap with a merely *undesirable* region counts
+#: against a candidate, relative to a hard collision. Low enough that covering
+#: scenery always loses to hiding another label, high enough to break ties.
+_SOFT_WEIGHT = 0.2
 
 
 def place_labels(
@@ -81,6 +94,7 @@ def place_labels(
     frame_w: float,
     frame_h: float,
     blocked: Sequence[Rect] = (),
+    avoid: Sequence[Rect] = (),
 ) -> list[Rect]:
     """Return a non-overlapping, in-frame rect per request (index-aligned).
 
@@ -88,21 +102,29 @@ def place_labels(
     -- pinned banners, most importantly, which are drawn *over* captions and would
     otherwise hide the very track a confirmed violation is about. They are treated
     exactly like already-placed labels: candidates that collide with them lose.
+
+    ``avoid`` are *soft* regions -- typically the drawn boxes themselves. A caption
+    sitting on top of another vehicle's box is legible but misleading, since it
+    reads as belonging to whatever it covers. These only break ties: a candidate
+    that avoids them wins, but obscuring one is always preferred to hiding another
+    label outright.
     """
 
     placed: list[Rect] = list(blocked)
     reserved = len(placed)
     for req in requests:
         best: Rect | None = None
-        best_overlap = float("inf")
+        best_cost = float("inf")
         for cx, cy in _candidates(req):
             rect = _clamp((cx, cy, cx + req.width, cy + req.height), frame_w, frame_h)
-            total = sum(_overlap(rect, p) for p in placed)
-            if total == 0.0:
+            hard = sum(_overlap(rect, p) for p in placed)
+            soft = sum(_overlap(rect, a) for a in avoid) if avoid else 0.0
+            cost = hard + soft * _SOFT_WEIGHT
+            if cost == 0.0:
                 best = rect
                 break
-            if total < best_overlap:
-                best, best_overlap = rect, total
+            if cost < best_cost:
+                best, best_cost = rect, cost
         assert best is not None  # _candidates is always non-empty
         placed.append(best)
     return placed[reserved:]

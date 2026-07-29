@@ -19,6 +19,15 @@ export interface PlayerControls {
   setPlaybackRate: (rate: number) => void;
   toggleFullscreen: () => void;
   retry: () => void;
+  /**
+   * Seek to `from`, play, and pause automatically at `to`.
+   *
+   * The review gesture: an analyst picking a violation wants to *watch* it, not
+   * land on a frame and hunt for the play button. Any manual interaction — a
+   * seek, a pause, picking another event — cancels the pending stop, so the
+   * auto-pause can never fight the user for control of the player.
+   */
+  playRange: (from: number, to: number) => void;
 }
 
 export interface VideoController {
@@ -57,6 +66,8 @@ export function useVideoController(options?: { fps?: number }): VideoController 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
+  // The auto-stop boundary for a review range, or null when none is pending.
+  const stopAtRef = useRef<number | null>(null);
   const [state, setState] = useState<PlayerState>(INITIAL_STATE);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -76,7 +87,17 @@ export function useVideoController(options?: { fps?: number }): VideoController 
         patch({ status: 'ready', duration: Number.isFinite(el.duration) ? el.duration : 0 });
       const onDurationChange = () =>
         patch({ duration: Number.isFinite(el.duration) ? el.duration : 0 });
-      const onTimeUpdate = () => patch({ currentTime: el.currentTime });
+      const onTimeUpdate = () => {
+        // Enforce a review range's end from the media clock rather than a timer:
+        // a timer would drift with buffering and with the playback rate, and would
+        // keep running after the user paused.
+        const stopAt = stopAtRef.current;
+        if (stopAt !== null && el.currentTime >= stopAt) {
+          stopAtRef.current = null;
+          el.pause?.();
+        }
+        patch({ currentTime: el.currentTime });
+      };
       const onPlay = () => patch({ status: 'playing' });
       const onPause = () => {
         if (!el.ended) patch({ status: 'paused' });
@@ -123,6 +144,7 @@ export function useVideoController(options?: { fps?: number }): VideoController 
   }, []);
 
   const pause = useCallback(() => {
+    stopAtRef.current = null; // an explicit pause ends any pending review range
     videoRef.current?.pause?.();
   }, []);
 
@@ -133,7 +155,11 @@ export function useVideoController(options?: { fps?: number }): VideoController 
     else pause();
   }, [play, pause]);
 
-  const seek = useCallback(
+  const clearStopAt = useCallback(() => {
+    stopAtRef.current = null;
+  }, []);
+
+  const seekTo = useCallback(
     (time: number) => {
       const el = videoRef.current;
       if (!el) return;
@@ -142,6 +168,27 @@ export function useVideoController(options?: { fps?: number }): VideoController 
       patch({ currentTime: target });
     },
     [patch],
+  );
+
+  const seek = useCallback(
+    (time: number) => {
+      // A manual seek is the user taking over; drop any pending auto-stop.
+      clearStopAt();
+      seekTo(time);
+    },
+    [clearStopAt, seekTo],
+  );
+
+  const playRange = useCallback(
+    (from: number, to: number) => {
+      const el = videoRef.current;
+      if (!el) return;
+      seekTo(from);
+      stopAtRef.current = to > from ? to : null;
+      const promise = el.play?.();
+      if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+    },
+    [seekTo],
   );
 
   const stepFrame = useCallback(
@@ -203,6 +250,7 @@ export function useVideoController(options?: { fps?: number }): VideoController 
       setPlaybackRate,
       toggleFullscreen,
       retry,
+      playRange,
     },
   };
 }

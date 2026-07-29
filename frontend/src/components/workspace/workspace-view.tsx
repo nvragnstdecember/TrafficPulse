@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { type ViolationType } from '@/api/types';
 import { PLAYER_SHORTCUTS, usePlayerShortcuts } from '@/hooks/use-player-shortcuts';
 import { type ProcessingController } from '@/hooks/use-processing';
+import { useMetrics } from '@/hooks/use-system';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
-import { isActivePhase } from '@/lib/job';
+import { type WorkflowStage, isActivePhase } from '@/lib/job';
 import {
   downloadTextFile,
   eventsToCsv,
@@ -17,6 +18,7 @@ import {
   type WorkspaceEvent,
   buildTimelineMarkers,
   filterWorkspaceEvents,
+  reviewWindow,
   sortWorkspaceEvents,
   timelineDuration,
 } from '@/lib/workspace';
@@ -31,8 +33,10 @@ import { EventDetail } from './event-detail';
 import { EvidenceViewer } from './evidence-viewer';
 import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
+import { ReviewSummary } from './review-summary';
 import { Timeline } from './timeline';
 import { VideoPlayer } from './video-player';
+import { WorkflowNav } from './workflow-nav';
 
 export interface WorkspaceViewProps {
   processing: ProcessingController;
@@ -71,6 +75,28 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   const workspace = useWorkspaceEvents(processing.video?.video_id, { active });
   const { events, selectedEventId, selectedEvent, select } = workspace;
 
+  // Anchors for the workflow stepper. The workspace is one page by design, so a
+  // stage is a region to bring into view rather than a route to navigate to —
+  // which keeps the player, the selection, and the polled list all alive.
+  const uploadRef = useRef<HTMLDivElement>(null);
+  const processingRef = useRef<HTMLDivElement>(null);
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const evidenceRef = useRef<HTMLDivElement>(null);
+  const stageRefs: Record<WorkflowStage, React.RefObject<HTMLDivElement>> = {
+    upload: uploadRef,
+    processing: processingRef,
+    review: reviewRef,
+    evidence: evidenceRef,
+  };
+
+  // The engine's own snapshot for the latest run, reused verbatim for statistics.
+  const metricsQuery = useMetrics();
+  const metrics = metricsQuery.data?.latest ?? null;
+
+  // Run-level model provenance. Every event in a run carries the same set, so
+  // whichever record is loaded is representative; nothing is fetched for this.
+  const runModels = workspace.selectedDetail?.models ?? workspace.evidence?.models ?? [];
+
   // Route every selection through here so it is both applied and persisted for
   // recovery — no mirroring effect that could clobber the restored value.
   function handleSelect(eventId: string | null): void {
@@ -78,10 +104,20 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
     useProcessingStore.getState().rememberSelection(eventId);
   }
 
-  function selectAndSeek(eventId: string): void {
+  /**
+   * Open an event for review: select it and play its window.
+   *
+   * Not a bare seek. Landing on the confirmation instant shows the *aftermath* of
+   * the violation — the behaviour that justified it already happened. Playing from
+   * a lead-in before support began, and stopping shortly after the trigger, is the
+   * gesture an analyst would otherwise perform by hand for every single event.
+   */
+  function selectAndReview(eventId: string): void {
     handleSelect(eventId);
     const target = events.find((event) => event.id === eventId);
-    if (target) controls.seek(target.mediaSeconds);
+    if (!target) return;
+    const window = reviewWindow(target, state.duration);
+    controls.playRange(window.from, window.to);
   }
 
   // Restore a persisted selection once, on mount (recovery after a refresh).
@@ -133,7 +169,7 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           ? 0
           : visibleEvents.length - 1
         : (index + offset + visibleEvents.length) % visibleEvents.length;
-    selectAndSeek(visibleEvents[next].id);
+    selectAndReview(visibleEvents[next].id);
   }
 
   usePlayerShortcuts({
@@ -183,8 +219,25 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
     notify({ title: 'Exported evidence manifest.' });
   }
 
+  // Scroll a workflow stage into view. The stages are regions of this one page —
+  // the workspace is deliberately not split across routes, so "navigating" is
+  // moving the analyst's attention, not unmounting and refetching everything.
+  function goToStage(stage: WorkflowStage): void {
+    if (stage === 'evidence' && selectedEvent) {
+      setViewerOpen(true);
+      return;
+    }
+    stageRefs[stage].current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+    <div className="space-y-4">
+      <WorkflowNav
+        phase={processing.phase}
+        hasSelection={Boolean(selectedEventId)}
+        onNavigate={goToStage}
+      />
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <div className="space-y-4">
         {processing.connectionError ? (
           <ErrorBanner
@@ -193,6 +246,7 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
             onRetry={processing.actions.reconnect}
           />
         ) : null}
+        <div ref={stageRefs.upload} />
         <VideoPlayer src={objectUrl} />
         <Timeline
           markers={markers}
@@ -200,7 +254,17 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           selectedEventId={selectedEventId}
           onSelect={handleSelect}
         />
-        <ProcessingPanel controller={processing} />
+        <div ref={stageRefs.processing}>
+          <ProcessingPanel controller={processing} />
+        </div>
+        <ReviewSummary
+          events={events}
+          metrics={metrics}
+          job={processing.job}
+          elapsedSeconds={processing.elapsedSeconds}
+          models={runModels}
+          complete={processing.phase === 'completed'}
+        />
         <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
           {PLAYER_SHORTCUTS.map((shortcut) => (
             <div key={shortcut.keys} className="flex items-center gap-1.5">
@@ -212,11 +276,14 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
       </div>
 
       <div className="space-y-4">
+        <div ref={stageRefs.review} />
         <EventList
           events={visibleEvents}
           totalCount={events.length}
           selectedEventId={selectedEventId}
-          onSelect={selectAndSeek}
+          onSelect={selectAndReview}
+          thumbnailSrc={objectUrl}
+          isProcessing={active}
           filters={filters}
           onFiltersChange={setFilters}
           sort={sort}
@@ -234,9 +301,12 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           onClearChecked={clearChecked}
           onExport={handleExportList}
         />
+        <div ref={stageRefs.evidence} />
         <EventDetail
           event={selectedEvent}
           detail={workspace.selectedDetail}
+          currentTime={state.currentTime}
+          onReplay={() => selectedEvent && selectAndReview(selectedEvent.id)}
           evidence={workspace.evidence}
           isLoading={workspace.isDetailLoading}
           detailError={workspace.detailError}
@@ -251,14 +321,15 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
         />
       </div>
 
-      <EvidenceViewer
-        open={viewerOpen}
-        onOpenChange={setViewerOpen}
-        event={selectedEvent}
-        evidence={workspace.evidence}
-        objectUrl={objectUrl}
-        fps={processing.video?.fps}
-      />
+        <EvidenceViewer
+          open={viewerOpen}
+          onOpenChange={setViewerOpen}
+          event={selectedEvent}
+          evidence={workspace.evidence}
+          objectUrl={objectUrl}
+          fps={processing.video?.fps}
+        />
+      </div>
     </div>
   );
 }

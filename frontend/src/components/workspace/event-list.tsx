@@ -1,4 +1,4 @@
-import { Download, ListChecks, ListX, ShieldCheck, X } from 'lucide-react';
+import { Download, ListChecks, ListX, Loader2, ShieldCheck, X } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 
 import { type ViolationType } from '@/api/types';
@@ -51,6 +51,10 @@ export interface EventListProps {
   onClearChecked: () => void;
   /** Export the checked events, or the visible list when none are checked. */
   onExport: (format: ExportFormat) => void;
+  /** Playable video source, so each card can show the frame it happened on. */
+  thumbnailSrc?: string | null;
+  /** True while the run is still going — an empty list is not yet a verdict. */
+  isProcessing?: boolean;
 }
 
 const ROW_HEIGHT = 76;
@@ -84,6 +88,8 @@ export function EventList({
   onCheckAll,
   onClearChecked,
   onExport,
+  thumbnailSrc = null,
+  isProcessing = false,
 }: EventListProps) {
   const activeIndex = useMemo(
     () => events.findIndex((event) => event.id === selectedEventId),
@@ -198,6 +204,15 @@ export function EventList({
             <Skeleton key={index} className="h-16 w-full rounded-md" />
           ))}
         </div>
+      ) : totalCount === 0 && isProcessing ? (
+        // An empty list mid-run means "nothing confirmed *yet*". Saying "no
+        // violations detected" here would state a conclusion the run has not
+        // reached, and events do appear as the reasoner confirms them.
+        <EmptyState
+          icon={Loader2}
+          title="Video still processing"
+          description="Confirmed violations will appear here as the run finds them."
+        />
       ) : totalCount === 0 ? (
         <EmptyState
           icon={ShieldCheck}
@@ -239,6 +254,7 @@ export function EventList({
                   showCheckbox={selectionMode}
                   checked={checkedIds.has(event.id)}
                   onToggleChecked={onToggleChecked}
+                  thumbnailSrc={thumbnailSrc}
                 />
               </div>
             )}

@@ -116,6 +116,48 @@ describe('VideosPage (video workspace)', () => {
     expect(await screen.findByText('2 of 2')).toBeInTheDocument();
   });
 
+  it('walks upload → processing → review → playback → evidence → back', async () => {
+    // The Phase 2 acceptance path, executed rather than described: every stage of
+    // the analyst workflow has to be reachable in one continuous session without
+    // the page unmounting the player or losing the selection.
+    const user = await uploadAndOpenWorkspace();
+
+    // Processing settles, and the workflow stepper says where we are.
+    await waitFor(() => expect(screen.getByText('Completed')).toBeInTheDocument());
+    const nav = screen.getByRole('navigation', { name: 'Review workflow' });
+    expect(within(nav).getByText('Review')).toBeInTheDocument();
+
+    // The run summary reports what actually happened.
+    expect(screen.getByText('Processing complete')).toBeInTheDocument();
+    expect(screen.getByText('Violations confirmed')).toBeInTheDocument();
+
+    // Review: pick a violation from the dashboard.
+    // Scoped to the list: the timeline renders a marker with the same label.
+    const list = screen.getByRole('region', { name: 'Detected events' });
+    const card = await within(list).findByRole('button', { name: /No helmet at 0:30/ });
+    await user.click(card);
+    expect(card).toHaveAttribute('aria-pressed', 'true');
+
+    // Evidence: the detail panel opens on the selected event and tells its story.
+    await screen.findByText('evt-2');
+    await user.click(screen.getByRole('tab', { name: 'Timeline' }));
+    expect(await screen.findByText('Violation confirmed')).toBeInTheDocument();
+
+    // Back to the dashboard: the list is still there with the selection intact.
+    await user.click(screen.getByRole('tab', { name: 'Overview' }));
+    expect(screen.getByRole('region', { name: 'Detected events' })).toBeInTheDocument();
+    expect(useSelectionStore.getState().selectedEventId).toBe('evt-2');
+  });
+
+  it('searches by a clock timestamp read off the video', async () => {
+    const user = await uploadAndOpenWorkspace();
+    await screen.findByText('2 of 2');
+
+    await user.type(screen.getByRole('searchbox'), '0:30');
+
+    await waitFor(() => expect(screen.getByText('1 of 2')).toBeInTheDocument());
+  });
+
   it('loads the detail of an event selected from the list', async () => {
     const user = await uploadAndOpenWorkspace();
 

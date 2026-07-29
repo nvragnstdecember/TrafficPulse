@@ -231,12 +231,18 @@ describe('EventCard', () => {
   it('summarizes the violation and reports selection', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    const event = makeWorkspaceEvent({ trigger_at: mediaSeconds(65) });
+    const event = makeWorkspaceEvent({
+      start_at: mediaSeconds(63),
+      trigger_at: mediaSeconds(65),
+    });
     renderWithProviders(<EventCard event={event} selected={false} onSelect={onSelect} />);
 
     const card = screen.getByRole('button', { name: 'Wrong way at 1:05' });
     expect(card).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByText('Conf —')).toBeInTheDocument();
+    // The summary carries the confidence components, so a card shows a real figure
+    // and the observation window without any per-event detail fetch.
+    expect(screen.getByText('Conf 91%')).toBeInTheDocument();
+    expect(screen.getByText('Obs 2.0s')).toBeInTheDocument();
 
     await user.click(card);
     expect(onSelect).toHaveBeenCalledWith(event.id);
@@ -378,7 +384,10 @@ describe('EventList', () => {
 });
 
 describe('EventDetail', () => {
-  const event = makeWorkspaceEvent({ trigger_at: mediaSeconds(65) });
+  const event = makeWorkspaceEvent({
+      start_at: mediaSeconds(63),
+      trigger_at: mediaSeconds(65),
+    });
 
   it('prompts for a selection when nothing is selected', () => {
     renderWithProviders(

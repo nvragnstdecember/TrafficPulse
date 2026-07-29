@@ -54,18 +54,33 @@ describe('violation presentation', () => {
 });
 
 describe('toWorkspaceEvent', () => {
-  it('derives the media position from the summary', () => {
-    const event = toWorkspaceEvent(makeEventSummary({ trigger_at: mediaSeconds(42) }));
+  it('derives the media position, window, and confidence from the summary alone', () => {
+    // The summary carries start_at and the confidence components, so a list row is
+    // fully informative without fetching each event's detail.
+    const event = toWorkspaceEvent(
+      makeEventSummary({ start_at: mediaSeconds(40), trigger_at: mediaSeconds(42) }),
+    );
     expect(event.mediaSeconds).toBe(42);
-    expect(event.confidence).toBeNull();
+    expect(event.startSeconds).toBe(40);
+    expect(event.observationSeconds).toBe(2);
+    expect(event.confidence).toBeCloseTo(0.91);
+    expect(event.confidenceSource).toBe('classifier');
     expect(event.lane).toBeNull();
+  });
+
+  it('reports no confidence when the rule measured none', () => {
+    // Absent components must never render as 0% — "not measured" is not a low score.
+    const event = toWorkspaceEvent(makeEventSummary({ confidence: {} }));
+    expect(event.confidence).toBeNull();
+    expect(event.confidenceSource).toBeNull();
+    expect(event.confidenceComponents).toEqual([]);
   });
 
   it('enriches confidence and lane from the detail record', () => {
     const event = toWorkspaceEvent(
       makeEventSummary(),
       makeConfirmedEvent({
-        confidence: { overall: 0.8 },
+        confidence: { classifier: 0.8 },
         measurements: [{ name: 'lane_index', value: 3, unit: null }],
       }),
     );
@@ -149,11 +164,53 @@ describe('filtering', () => {
 
   it('drops events without a known confidence once a threshold is set', () => {
     const withConfidence = { ...events[0], confidence: 0.9 };
-    const filtered = filterWorkspaceEvents([withConfidence, events[1]], {
+    const unmeasured = { ...events[1], confidence: null };
+    const filtered = filterWorkspaceEvents([withConfidence, unmeasured], {
       ...DEFAULT_EVENT_FILTERS,
       minConfidence: 0.5,
     });
     expect(filtered.map((event) => event.id)).toEqual(['a']);
+  });
+
+  it('applies a confidence ceiling as well as a floor', () => {
+    const low = { ...events[0], confidence: 0.3 };
+    const high = { ...events[1], confidence: 0.95 };
+    const filtered = filterWorkspaceEvents([low, high], {
+      ...DEFAULT_EVENT_FILTERS,
+      maxConfidence: 0.5,
+    });
+    expect(filtered.map((event) => event.id)).toEqual(['a']);
+  });
+
+  it('filters by time range', () => {
+    const early = makeWorkspaceEvent({ event_id: 'x', trigger_at: mediaSeconds(5) });
+    const late = makeWorkspaceEvent({ event_id: 'y', trigger_at: mediaSeconds(90) });
+    expect(
+      filterWorkspaceEvents([early, late], { ...DEFAULT_EVENT_FILTERS, fromSeconds: 30 }).map(
+        (event) => event.id,
+      ),
+    ).toEqual(['y']);
+    expect(
+      filterWorkspaceEvents([early, late], { ...DEFAULT_EVENT_FILTERS, toSeconds: 30 }).map(
+        (event) => event.id,
+      ),
+    ).toEqual(['x']);
+  });
+
+  it('matches a clock-style query against the observation window', () => {
+    // An analyst reading a timestamp off the video means "what was happening then",
+    // which starts before the violation is confirmed.
+    const event = makeWorkspaceEvent({
+      event_id: 'w',
+      start_at: mediaSeconds(80),
+      trigger_at: mediaSeconds(95),
+    });
+    expect(
+      filterWorkspaceEvents([event], { ...DEFAULT_EVENT_FILTERS, query: '1:25' }),
+    ).toHaveLength(1);
+    expect(
+      filterWorkspaceEvents([event], { ...DEFAULT_EVENT_FILTERS, query: '0:10' }),
+    ).toHaveLength(0);
   });
 });
 
@@ -168,7 +225,7 @@ describe('sorting', () => {
   });
 
   it('sorts unknown confidence last', () => {
-    const scored = [{ ...early, confidence: 0.4 }, late];
+    const scored = [{ ...early, confidence: 0.4 }, { ...late, confidence: null }];
     expect(sortWorkspaceEvents(scored, 'confidence-desc').map((e) => e.id)).toEqual(['a', 'b']);
   });
 

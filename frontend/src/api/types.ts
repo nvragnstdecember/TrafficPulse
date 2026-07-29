@@ -72,6 +72,25 @@ export interface JobStatusResponse {
   overlay_status: OverlayStatus;
 }
 
+/**
+ * The typed confidence components a rule publishes for an event.
+ *
+ * Deliberately *not* one number. Every component is optional and a missing one
+ * means "not measured", never zero — `aggregate` in particular stays null unless
+ * calibration has been demonstrated, because an uncalibrated blend read as a
+ * probability of guilt is exactly what the rule layer refuses to mint.
+ */
+export interface ConfidenceBreakdown {
+  detector?: number | null;
+  classifier?: number | null;
+  association?: number | null;
+  temporal_consistency?: number | null;
+  track_continuity?: number | null;
+  geometric_margin?: number | null;
+  calibration_quality?: number | null;
+  aggregate?: number | null;
+}
+
 export interface EventSummary {
   event_id: string;
   video_id: string;
@@ -79,8 +98,11 @@ export interface EventSummary {
   violation_type: ViolationType;
   camera_id: string;
   track_ids: string[];
+  /** Media-time instant support began accruing (with trigger_at: the window). */
+  start_at: string;
   trigger_at: string;
   rule_id: string;
+  confidence: ConfidenceBreakdown;
 }
 
 export interface EventListResponse {
@@ -108,7 +130,7 @@ export interface ConfirmedEvent {
   measurements: MeasuredValue[];
   thresholds: MeasuredValue[];
   models: ModelRef[];
-  confidence: Record<string, unknown>;
+  confidence: ConfidenceBreakdown;
 }
 
 export interface MeasuredValue {

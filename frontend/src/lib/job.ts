@@ -152,3 +152,34 @@ export function jobProgressRatio(job: JobStatusResponse | undefined | null): num
   }
   return null;
 }
+
+// --- review workflow stages -----------------------------------------------------
+export type WorkflowStage = 'upload' | 'processing' | 'review' | 'evidence';
+export type StageState = 'done' | 'current' | 'todo';
+
+/**
+ * Where the analyst is in upload → processing → review → evidence.
+ *
+ * Derived entirely from the processing phase and whether an event is selected, so
+ * the stepper can never disagree with the workspace it labels. A stepper that owns
+ * its own "current stage" always eventually drifts out of sync with the state it
+ * is describing; this one has nothing to drift.
+ */
+export function stageStates(
+  phase: ProcessingPhase,
+  hasSelection: boolean,
+): Record<WorkflowStage, StageState> {
+  if (phase === 'idle' || phase === 'uploading') {
+    return { upload: 'current', processing: 'todo', review: 'todo', evidence: 'todo' };
+  }
+  if (phase !== 'completed') {
+    // Includes failed/cancelled: the run is where the story stopped.
+    return { upload: 'done', processing: 'current', review: 'todo', evidence: 'todo' };
+  }
+  return {
+    upload: 'done',
+    processing: 'done',
+    review: hasSelection ? 'done' : 'current',
+    evidence: hasSelection ? 'current' : 'todo',
+  };
+}

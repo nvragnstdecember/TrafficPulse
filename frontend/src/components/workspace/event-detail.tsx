@@ -1,9 +1,11 @@
-import { Crosshair, Download, FileJson, Image, MousePointerClick } from 'lucide-react';
+import { Crosshair, Download, FileJson, Image, MousePointerClick, Play } from 'lucide-react';
 
 import { type ConfirmedEvent, type EvidenceManifest, type MeasuredValue } from '@/api/types';
 import { formatDateTime, formatPercent } from '@/lib/format';
 import {
+  CONFIDENCE_LABELS,
   type WorkspaceEvent,
+  buildEventNarrative,
   formatClock,
   severityLabel,
   severityTone,
@@ -24,6 +26,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Skeleton } from '../ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { EventNarrative } from './event-narrative';
 
 export interface EventDetailProps {
   event: WorkspaceEvent | null;
@@ -43,6 +46,10 @@ export interface EventDetailProps {
   onRetryEvidence?: () => void;
   /** Seek the player to a media-time position (seconds). */
   onSeek: (seconds: number) => void;
+  /** Playhead position, so the narrative shows how far the story has played. */
+  currentTime?: number;
+  /** Replay this event's review window from its lead-in. */
+  onReplay?: () => void;
   // --- H7E quick actions ---
   /** Open the full evidence viewer for this event. */
   onOpenEvidenceViewer?: () => void;
@@ -124,6 +131,8 @@ export function EventDetail({
   evidenceError,
   onRetryEvidence,
   onSeek,
+  currentTime,
+  onReplay,
   onOpenEvidenceViewer,
   onExportJson,
   onExportManifest,
@@ -163,6 +172,12 @@ export function EventDetail({
       <CardContent className="space-y-3 p-4 pt-2">
         {/* Quick actions */}
         <div className="flex flex-wrap items-center gap-1.5">
+          {onReplay ? (
+            <Button variant="outline" size="sm" onClick={onReplay}>
+              <Play className="size-4" />
+              Replay
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" onClick={() => onSeek(event.mediaSeconds)}>
             <Crosshair className="size-4" />
             Jump to {formatClock(event.mediaSeconds)}
@@ -190,6 +205,7 @@ export function EventDetail({
         <Tabs defaultValue="overview">
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="measurements">Measurements</TabsTrigger>
             <TabsTrigger value="evidence">Evidence</TabsTrigger>
           </TabsList>
@@ -202,15 +218,28 @@ export function EventDetail({
             <div className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-2xs uppercase tracking-wide text-muted-foreground">
-                  Confidence
+                  {event.confidenceSource
+                    ? CONFIDENCE_LABELS[event.confidenceSource]
+                    : 'Confidence'}
                 </span>
-                <span className="tabular-nums">{formatPercent(event.confidence)}</span>
+                <span className="tabular-nums">
+                  {event.confidence === null ? 'Not measured' : formatPercent(event.confidence)}
+                </span>
               </div>
               <ProgressBar
                 value={event.confidence}
                 label="Event confidence"
                 tone={severity === 'high' ? 'destructive' : 'primary'}
               />
+              {event.confidenceComponents.length > 1 ? (
+                <ul className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5 text-2xs text-muted-foreground">
+                  {event.confidenceComponents.map((component) => (
+                    <li key={component.key} className="tabular-nums">
+                      {component.label} {formatPercent(component.value)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
 
             <dl className="grid grid-cols-2 gap-3">
@@ -219,7 +248,12 @@ export function EventDetail({
               <Field label="Lane" value={event.lane ?? '—'} />
               <Field label="Tracks" value={event.trackIds.join(', ') || '—'} />
               <Field label="Triggered" value={formatDateTime(event.triggerAt)} />
-              <Field label="Media time" value={formatClock(event.mediaSeconds)} />
+              <Field
+                label="Observed for"
+                value={`${event.observationSeconds.toFixed(2)}s (from ${formatClock(
+                  event.startSeconds,
+                )})`}
+              />
             </dl>
 
             {detail ? (
@@ -237,6 +271,23 @@ export function EventDetail({
             ) : null}
 
             <AnalystNotes eventId={event.id} />
+          </TabsContent>
+
+          <TabsContent value="timeline" className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              How this violation evolved, reconstructed from the reasoner&rsquo;s own
+              window. Pick a step to jump the player there.
+            </p>
+            <EventNarrative
+              steps={buildEventNarrative(event, {
+                thresholdSeconds:
+                  detail?.thresholds.find((threshold) => /persistence/i.test(threshold.name))
+                    ?.value ?? null,
+                hasEvidence: Boolean(evidence),
+              })}
+              currentTime={currentTime}
+              onSeek={onSeek}
+            />
           </TabsContent>
 
           <TabsContent value="measurements" className="space-y-3">

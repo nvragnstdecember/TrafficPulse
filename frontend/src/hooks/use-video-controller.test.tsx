@@ -159,6 +159,78 @@ describe('useVideoController', () => {
   });
 });
 
+describe('playRange (review window)', () => {
+  it('seeks to the lead-in and starts playing', () => {
+    const { video, hook } = mount();
+
+    act(() => hook.result.current.controls.playRange(10, 14));
+
+    expect(video.currentTime).toBe(10);
+    expect(video.play).toHaveBeenCalled();
+  });
+
+  it('pauses once the media clock reaches the end of the range', () => {
+    // Driven by the media clock, not a timer: a timer would drift with buffering
+    // and with the playback rate, and would keep running after a manual pause.
+    const { video, hook } = mount();
+    act(() => hook.result.current.controls.playRange(10, 14));
+
+    act(() => {
+      video.currentTime = 13;
+      video.emit('timeupdate');
+    });
+    expect(video.pause).not.toHaveBeenCalled();
+
+    act(() => {
+      video.currentTime = 14.1;
+      video.emit('timeupdate');
+    });
+    expect(video.pause).toHaveBeenCalled();
+  });
+
+  it('stops only once, then leaves playback alone', () => {
+    const { video, hook } = mount();
+    act(() => hook.result.current.controls.playRange(10, 14));
+    act(() => {
+      video.currentTime = 14.1;
+      video.emit('timeupdate');
+    });
+    video.pause.mockClear();
+
+    act(() => {
+      video.currentTime = 20;
+      video.emit('timeupdate');
+    });
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it('a manual seek cancels the pending stop', () => {
+    // The auto-pause must never fight the user for control of the player.
+    const { video, hook } = mount();
+    act(() => hook.result.current.controls.playRange(10, 14));
+
+    act(() => hook.result.current.controls.seek(30));
+    act(() => {
+      video.currentTime = 40;
+      video.emit('timeupdate');
+    });
+
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+
+  it('ignores a range that ends before it starts', () => {
+    const { video, hook } = mount();
+    act(() => hook.result.current.controls.playRange(10, 10));
+
+    act(() => {
+      video.currentTime = 11;
+      video.emit('timeupdate');
+    });
+
+    expect(video.pause).not.toHaveBeenCalled();
+  });
+});
+
 describe('usePlayerShortcuts', () => {
   function setup(overrides: Partial<PlayerControls> = {}) {
     const controls: PlayerControls = {
@@ -170,6 +242,7 @@ describe('usePlayerShortcuts', () => {
       setPlaybackRate: vi.fn(),
       toggleFullscreen: vi.fn(),
       retry: vi.fn(),
+    playRange: vi.fn(),
       ...overrides,
     };
     const onNextEvent = vi.fn();
