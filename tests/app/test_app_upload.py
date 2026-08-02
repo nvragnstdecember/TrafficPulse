@@ -26,9 +26,12 @@ def test_upload_stores_and_returns_metadata(tmp_path: Path) -> None:
     assert body["size_bytes"] == len(data)
     assert body["width"] == 320 and body["height"] == 240
     assert body["codec"]  # a real decoded codec name
-    # The file is physically stored under the configured storage dir.
-    stored = list((tmp_path / "videos").glob(f"{body['video_id']}*"))
-    assert len(stored) == 1
+    # The file is physically stored under the configured storage dir, alongside the
+    # recovery snapshot that lets a restart rebuild this record (H10).
+    videos_dir = tmp_path / "videos"
+    media = [p for p in videos_dir.glob(f"{body['video_id']}*") if p.suffix != ".json"]
+    assert len(media) == 1
+    assert (videos_dir / f"{body['video_id']}.json").is_file()
 
 
 def test_upload_is_content_addressed(tmp_path: Path) -> None:

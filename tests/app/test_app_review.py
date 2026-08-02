@@ -171,13 +171,10 @@ def test_decisions_survive_a_new_application(tmp_path: Path) -> None:
     _decide(client, event_id, "open", reviewer="analyst-a")
     _decide(client, event_id, "approve", reviewer="analyst-a", note="Confirmed")
 
-    # A brand-new app instance, same storage root. It must re-run the job to
-    # rebuild its in-memory event index (see the module note on that limitation),
-    # but the review journal is read straight off disk.
+    # A brand-new app instance over the same storage root. Since H10 it rebuilds
+    # its job/event index at startup, so the review is reachable immediately --
+    # no re-upload and no reprocessing.
     fresh = make_client(tmp_path, config=make_config(tmp_path))
-    second = tmp_path / "second"
-    second.mkdir()
-    _reviewable_event(fresh, second)
 
     body = fresh.get(f"/api/events/{event_id}/review").json()
     assert body["case"]["status"] == ReviewStatus.APPROVED.value

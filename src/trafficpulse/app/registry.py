@@ -26,7 +26,7 @@ thread-safe snapshot, outside the store lock.
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -53,15 +53,33 @@ class VideoRecord:
 
 
 class VideoStore:
-    """Thread-safe in-memory index of uploaded videos, keyed by content id."""
+    """Thread-safe in-memory index of uploaded videos, keyed by content id.
 
-    def __init__(self) -> None:
+    ``on_change`` is an optional observer invoked after a record is added, used by
+    startup recovery (H10) to write the record's snapshot. The store itself stays
+    in-memory and knows nothing about storage: it calls a function. The callback
+    runs **outside** the lock, so persisting never serialises readers behind I/O.
+    """
+
+    def __init__(self, on_change: Callable[[VideoRecord], None] | None = None) -> None:
         self._videos: dict[str, VideoRecord] = {}
         self._lock = threading.Lock()
+        self._on_change = on_change
 
     def add(self, record: VideoRecord) -> None:
         with self._lock:
             self._videos[record.video_id] = record
+        self._notify(record)
+
+    def restore(self, record: VideoRecord) -> None:
+        """Insert a record rebuilt from disk, without re-persisting it."""
+
+        with self._lock:
+            self._videos[record.video_id] = record
+
+    def _notify(self, record: VideoRecord) -> None:
+        if self._on_change is not None:
+            self._on_change(record)
 
     def get(self, video_id: str) -> VideoRecord | None:
         with self._lock:
@@ -145,32 +163,71 @@ class JobRecord:
     # Where the overlay render has got to; see :class:`OverlayStatus`. Starts at
     # NONE (nothing attempted) and is advanced by the processing service.
     overlay_status: OverlayStatus = OverlayStatus.NONE
+    # Metrics read back from a run snapshot at startup (H10). A recovered job has
+    # neither a live engine nor an in-process result, so this is the only truthful
+    # source left for its frame counts and FPS.
+    restored_metrics: EngineMetrics | None = field(default=None, repr=False)
 
     def metrics(self) -> EngineMetrics | None:
         """The best available metrics snapshot: final if done, else live, else none.
 
         Reads the engine's own thread-safe snapshot for an in-flight job -- never a
-        fabricated value.
+        fabricated value. A job recovered from disk falls through to the metrics its
+        run recorded; a job with none reports ``None`` rather than zeros.
         """
 
         if self.result is not None:
             return self.result.metrics
         if self.engine is not None:
             return self.engine.metrics
-        return None
+        return self.restored_metrics
 
 
 class JobStore:
-    """Thread-safe registry of jobs + an ``event_id -> job_id`` reverse index."""
+    """Thread-safe registry of jobs + an ``event_id -> job_id`` reverse index.
 
-    def __init__(self) -> None:
+    ``on_change`` is an optional observer invoked after **every** state transition,
+    used by startup recovery (H10) to keep each job's snapshot current. Routing it
+    through the store rather than through the calling service is deliberate: a job
+    has eight mutators, and a snapshot call added at each site is one refactor away
+    from being forgotten. The store still knows nothing about storage -- it calls a
+    function, and does so **outside** the lock so persistence never serialises
+    status readers behind I/O.
+
+    Ordering note: one job is driven by a single worker thread, so its transitions
+    -- and therefore its snapshots -- are sequential. Cross-job writes touch
+    different files and cannot interleave.
+    """
+
+    def __init__(self, on_change: Callable[[JobRecord], None] | None = None) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._event_index: dict[str, str] = {}
         self._lock = threading.Lock()
+        self._on_change = on_change
 
     def add(self, record: JobRecord) -> None:
         with self._lock:
             self._jobs[record.job_id] = record
+        self._notify(record.job_id)
+
+    def restore(self, record: JobRecord, event_ids: Sequence[str]) -> None:
+        """Insert a job rebuilt from disk and index its events.
+
+        Bypasses ``on_change``: recovery is reading what was already written, and
+        echoing it straight back would be pointless I/O on every boot.
+        """
+
+        with self._lock:
+            self._jobs[record.job_id] = record
+            for event_id in event_ids:
+                self._event_index[event_id] = record.job_id
+
+    def _notify(self, job_id: str) -> None:
+        if self._on_change is None:
+            return
+        record = self.get(job_id)
+        if record is not None:
+            self._on_change(record)
 
     def get(self, job_id: str) -> JobRecord | None:
         with self._lock:
@@ -181,6 +238,7 @@ class JobStore:
             record = self._jobs[job_id]
             record.status = JobStatus.RUNNING
             record.frames_total = frames_total
+        self._notify(job_id)
 
     def mark_succeeded(self, job_id: str, result: EngineRunResult) -> None:
         with self._lock:
@@ -190,6 +248,7 @@ class JobStore:
             record.event_ids = tuple(event.event_id for event in result.events)
             for event in result.events:
                 self._event_index[event.event_id] = job_id
+        self._notify(job_id)
 
     def mark_overlay_pending(self, job_id: str) -> None:
         """Declare that an overlay render is about to start for this job.
@@ -203,6 +262,7 @@ class JobStore:
             record = self._jobs.get(job_id)
             if record is not None:
                 record.overlay_status = OverlayStatus.PENDING
+        self._notify(job_id)
 
     def set_overlay_video(self, job_id: str, path: Path) -> None:
         """Record the rendered overlay-video artifact and mark it ready."""
@@ -212,6 +272,7 @@ class JobStore:
             if record is not None:
                 record.overlay_video = path
                 record.overlay_status = OverlayStatus.READY
+        self._notify(job_id)
 
     def resolve_overlay(self, job_id: str, status: OverlayStatus) -> None:
         """Settle a pending overlay on a terminal outcome (``NONE`` / ``FAILED``)."""
@@ -220,17 +281,20 @@ class JobStore:
             record = self._jobs.get(job_id)
             if record is not None:
                 record.overlay_status = status
+        self._notify(job_id)
 
     def mark_failed(self, job_id: str, message: str) -> None:
         with self._lock:
             record = self._jobs[job_id]
             record.status = JobStatus.FAILED
             record.error = message
+        self._notify(job_id)
 
     def mark_cancelled(self, job_id: str) -> None:
         with self._lock:
             record = self._jobs[job_id]
             record.status = JobStatus.CANCELLED
+        self._notify(job_id)
 
     def request_cancel(self, job_id: str) -> bool:
         """Flag a non-terminal job for cooperative cancellation.

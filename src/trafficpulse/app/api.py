@@ -34,6 +34,7 @@ from .dependencies import AppContext
 from .engine_provider import EngineProvider, RealEngineProvider
 from .errors import AppError
 from .models import ErrorDetail, ErrorResponse
+from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
 from .routers import events, evidence, health, metrics, process, upload
 from .services import (
@@ -119,14 +120,22 @@ def _build_context(
     *,
     provider: EngineProvider,
     executor: JobExecutor,
-    video_store: VideoStore,
-    job_store: JobStore,
 ) -> AppContext:
     from ..contracts import SceneConfig
     from ..persistence import EventStore, ReviewStore
 
     scene = load_scene(config.scene_path) if config.scene_path is not None else None
     assert scene is None or isinstance(scene, SceneConfig)  # load_scene is typed object
+
+    # Startup recovery (H10). The registries are created with the recovery
+    # observer attached, so every later state change persists itself, and are then
+    # rebuilt from disk *before* anything is served -- no request can observe a
+    # half-populated index. Recovery never raises: an unreadable repository
+    # degrades to a smaller one rather than preventing startup.
+    recovery = RepositoryRecovery(config)
+    video_store = VideoStore(on_change=recovery.snapshot_video)
+    job_store = JobStore(on_change=recovery.snapshot_job)
+    recovery.recover(videos=video_store, jobs=job_store)
 
     videos = VideoService(config, video_store)
     event_store = EventStore(config.runs_dir)
@@ -179,8 +188,6 @@ def create_app(
         config,
         provider=provider,
         executor=executor if executor is not None else ThreadJobExecutor(),
-        video_store=VideoStore(),
-        job_store=JobStore(),
     )
     _register_error_handlers(app)
 
