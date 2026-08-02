@@ -10,10 +10,15 @@ Backend seam (base install stays Pillow-free)
 ---------------------------------------------
 :class:`OverlayRenderer` is a small protocol. :class:`PillowOverlayRenderer` is the
 shipped implementation; it imports Pillow **lazily** inside ``__init__`` (Pillow is
-the optional ``rtdetr`` extra -- it is already required by the real detector/
-classifier backends), so importing this module pulls in no drawing dependency and
-the metadata/theme/providers stay usable in the base install. A missing Pillow
-raises the typed :class:`OverlayBackendUnavailableError`, never a bare ``ImportError``.
+the optional ``overlay`` extra), so importing this module pulls in no drawing
+dependency and the metadata/theme/providers stay usable in the base install. A
+missing Pillow raises the typed :class:`OverlayBackendUnavailableError`, never a
+bare ``ImportError``.
+
+The extra is deliberately its own, not borrowed from ``rtdetr``: this layer is
+model-agnostic, and making a box-drawing routine pull in torch + transformers would
+be a false dependency. ``rtdetr`` declares Pillow separately because the
+transformers image processor genuinely needs it.
 
 Draw order & performance
 ------------------------
@@ -69,8 +74,9 @@ class OverlayError(Exception):
 class OverlayBackendUnavailableError(OverlayError):
     """The drawing backend (Pillow) is not installed.
 
-    Pillow ships with the optional ``rtdetr`` extra (it already backs the real
-    detector/classifier). Install with ``pip install 'trafficpulse[rtdetr]'``.
+    Pillow is the optional ``overlay`` extra. Install with
+    ``pip install 'trafficpulse[overlay]'`` -- which brings in the drawing backend
+    only, with no ML stack attached.
     """
 
 
@@ -94,8 +100,8 @@ class PillowOverlayRenderer:
             from PIL import Image, ImageDraw, ImageFont
         except ImportError as exc:  # pragma: no cover - exercised only without Pillow
             raise OverlayBackendUnavailableError(
-                "the overlay renderer needs Pillow (the optional 'rtdetr' extra); "
-                "install with: pip install 'trafficpulse[rtdetr]'"
+                "the overlay renderer needs Pillow (the optional 'overlay' extra); "
+                "install with: pip install 'trafficpulse[overlay]'"
             ) from exc
         self._Image = Image
         self._ImageDraw = ImageDraw

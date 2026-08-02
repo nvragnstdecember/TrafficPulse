@@ -224,6 +224,8 @@ test-suite stub.
 | Symptom | Cause / fix |
 | --- | --- |
 | `mypy` / `pytest` can't import `fastapi` | Install the `api` extra: `pip install -e ".[dev,api]"`. |
+| `mypy` reports `Cannot find implementation or library stub for module named "PIL"` | Install the `overlay` extra: `pip install -e ".[dev,api,overlay]"`. The renderer imports Pillow, so `mypy src` needs it resolvable. |
+| `OverlayBackendUnavailableError` at runtime | The drawing backend is missing: `pip install 'trafficpulse[overlay]'`. This is Pillow only — no ML stack. |
 | Processing returns `503 engine_unavailable` | No scene configured, or no real inference backend — set `TRAFFICPULSE_APP_SCENE` and/or configure RT-DETR (§9). The UI shows this as a recoverable error. |
 | Upload rejected `400 unsupported_media` | Extension not allowed or the file isn't a readable video; accepted containers are `.mp4/.avi/.mkv/.mov/.webm/.m4v`. |
 | Upload `409 duplicate_video` | The exact bytes are already stored; the UI recognizes this and opens the existing video. |

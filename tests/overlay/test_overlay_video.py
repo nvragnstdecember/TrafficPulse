@@ -13,7 +13,7 @@ from trafficpulse.overlay.providers.no_helmet import NoHelmetOverlayProvider
 from trafficpulse.overlay.video import render_overlay_video
 from trafficpulse.pipeline.helmet_observer import HelmetOverlayFrame, HelmetOverlayRider
 
-pytest.importorskip("PIL", reason="overlay renderer needs Pillow (the rtdetr extra)")
+pytest.importorskip("PIL", reason="overlay renderer needs Pillow (the optional 'overlay' extra)")
 
 
 def _write_clip(path: Path, *, frames: int = 8, w: int = 96, h: int = 64, fps: int = 10) -> None:

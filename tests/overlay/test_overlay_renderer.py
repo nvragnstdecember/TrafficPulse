@@ -16,7 +16,7 @@ from trafficpulse.overlay import (
 )
 from trafficpulse.overlay.renderer import FrameSizeMismatchError
 
-pytest.importorskip("PIL", reason="overlay renderer needs Pillow (the rtdetr extra)")
+pytest.importorskip("PIL", reason="overlay renderer needs Pillow (the optional 'overlay' extra)")
 from trafficpulse.overlay import PillowOverlayRenderer  # noqa: E402
 
 
@@ -57,6 +57,33 @@ def test_confirmed_scene_paints_red() -> None:
     r, g, b = out[..., 0].astype(int), out[..., 1].astype(int), out[..., 2].astype(int)
     reddish = (r > 180) & (g < 120) & (b < 120)
     assert reddish.any()
+
+
+def _painted_count(scene: OverlayScene, width: int = 200, height: int = 160) -> int:
+    img = np.zeros((height, width, 3), dtype=np.uint8)
+    return int((PillowOverlayRenderer().render(img, scene).sum(axis=2) > 0).sum())
+
+
+def _caption_pixels(box: OverlayBox, width: int = 200, height: int = 160) -> int:
+    """Pixels a box's caption contributes, over the same box drawn bare.
+
+    Font-independent by construction: it measures *whether the caption was drawn*
+    rather than where the layout solver happened to put it. Asserting a chip landed
+    in some pixel band encodes the metrics of whichever font the machine has, which
+    differs between a developer box and CI.
+    """
+
+    with_caption = _painted_count(
+        OverlayScene(width=width, height=height, elements=(box,)), width, height
+    )
+    bare = _painted_count(
+        OverlayScene(
+            width=width, height=height, elements=(box.model_copy(update={"caption": None}),)
+        ),
+        width,
+        height,
+    )
+    return with_caption - bare
 
 
 def _meter_scene(progress: float | None) -> OverlayScene:
@@ -122,7 +149,6 @@ def test_a_banner_does_not_bury_the_caption_of_the_track_it_names() -> None:
 def test_a_box_too_small_to_caption_is_still_drawn() -> None:
     # A chip beside a distant object is bigger than the object; the label is
     # dropped, but the detection itself is never hidden.
-    img = np.zeros((160, 200, 3), dtype=np.uint8)
     tiny = OverlayBox(
         bounds=(80, 70, 92, 82),  # 12px -- below the caption threshold
         emphasis=OverlayEmphasis.SUBJECT,
@@ -130,19 +156,14 @@ def test_a_box_too_small_to_caption_is_still_drawn() -> None:
         layer=OverlayLayer.SUBJECT,
         caption=OverlayCaption(lines=("Rider", "Track: iou-1"), metric="97%"),
     )
-    out = PillowOverlayRenderer().render(
-        img, OverlayScene(width=200, height=160, elements=(tiny,))
-    )
-    painted = (out.sum(axis=2) > 0)
-    assert painted.any()  # the box is there
-    # ...but nothing was drawn far from it, which a chip would have been
-    assert not painted[:40, :].any()
+    assert _painted_count(OverlayScene(width=200, height=160, elements=(tiny,))) > 0
+    # The geometry is drawn; the caption contributes nothing, because it is withheld.
+    assert _caption_pixels(tiny) == 0
 
 
 def test_a_confirmed_box_keeps_its_caption_however_small() -> None:
     # Two distant confirmations otherwise become two identical red boxes with no
     # way to tell which banner belongs to which.
-    img = np.zeros((160, 200, 3), dtype=np.uint8)
     tiny_confirmed = OverlayBox(
         bounds=(80, 70, 92, 82),
         emphasis=OverlayEmphasis.SUBJECT,
@@ -150,14 +171,10 @@ def test_a_confirmed_box_keeps_its_caption_however_small() -> None:
         layer=OverlayLayer.SUBJECT,
         caption=OverlayCaption(lines=("NO HELMET", "Track iou-209"), metric="48%"),
     )
-    out = PillowOverlayRenderer().render(
-        img, OverlayScene(width=200, height=160, elements=(tiny_confirmed,))
-    )
-    assert (out.sum(axis=2) > 0)[:40, :].any()  # the chip was placed away from the box
+    assert _caption_pixels(tiny_confirmed) > 0
 
 
 def test_a_large_box_keeps_its_caption() -> None:
-    img = np.zeros((160, 200, 3), dtype=np.uint8)
     big = OverlayBox(
         bounds=(60, 60, 140, 140),
         emphasis=OverlayEmphasis.SUBJECT,
@@ -165,10 +182,7 @@ def test_a_large_box_keeps_its_caption() -> None:
         layer=OverlayLayer.SUBJECT,
         caption=OverlayCaption(lines=("Rider", "Track: iou-1"), metric="97%"),
     )
-    out = PillowOverlayRenderer().render(
-        img, OverlayScene(width=200, height=160, elements=(big,))
-    )
-    assert (out.sum(axis=2) > 0)[:50, :].any()  # the chip sits above the box
+    assert _caption_pixels(big) > 0
 
 
 def test_a_displaced_caption_is_tied_back_to_its_box() -> None:

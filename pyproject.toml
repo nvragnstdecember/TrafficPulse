@@ -70,6 +70,26 @@ api = [
   "python-multipart>=0.0.9",
 ]
 
+# --- Overlay rendering backend (optional) -------------------------------------
+# The drawing backend for the explainable-overlay framework
+# (src/trafficpulse/overlay/renderer.py). Pillow is the ONLY dependency the
+# renderer needs, and it is permissive (HPND), ADR-001-compatible, and pure
+# imaging -- no ML, no network, no model weights.
+#
+# Declared as its own extra rather than borrowed from `rtdetr`: the overlay layer
+# is violation-agnostic AND model-agnostic, so requiring torch + transformers +
+# scipy just to draw a box on a frame would be a false dependency. `rtdetr` keeps
+# its own `pillow` entry because the transformers image processor genuinely needs
+# it -- the two requirements are independent and both are stated.
+#
+# CI installs this extra: `mypy src` type-checks the renderer, and Pillow ships
+# `py.typed`, so with it present the drawing code is checked against real types
+# rather than degraded to Any. It also un-skips tests/overlay/test_overlay_*.py,
+# which otherwise never run in CI.
+overlay = [
+  "pillow>=10",
+]
+
 # --- Real model backends (optional; ADR-001 permissive-only) ------------------
 # Despite its name (kept stable for compatibility), this extra now powers BOTH
 # permissive real backends, which share the same torch/transformers floor and add

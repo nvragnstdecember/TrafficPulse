@@ -28,7 +28,18 @@ jobs:
           # `api` (fastapi, python-multipart) is required alongside `dev`: mypy
           # type-checks src/trafficpulse/app (H7A) and pytest collects tests/app,
           # both of which import fastapi directly (see pyproject.toml, `api`).
-          python -m pip install -e ".[dev,api]"
+          #
+          # `overlay` (pillow) is required for the same reason one level down:
+          # mypy type-checks src/trafficpulse/overlay/renderer.py, which imports
+          # PIL. Pillow ships `py.typed`, so installing it means the renderer is
+          # checked against real types instead of being silenced to Any -- and it
+          # un-skips tests/overlay/test_overlay_{renderer,video}.py, which
+          # `pytest.importorskip("PIL")` otherwise skips entirely in CI.
+          #
+          # `rtdetr` is deliberately NOT installed: torch/transformers are lazily
+          # imported ML backends, CI stays ML-free, and their untyped calls are
+          # handled by the mypy overrides in pyproject.toml.
+          python -m pip install -e ".[dev,api,overlay]"
 
       - name: Ruff (lint)
         run: ruff check .

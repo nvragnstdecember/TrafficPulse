@@ -314,9 +314,11 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 1840 passing; 8 opt-in real-model/GPU tests
-  skipped by default). Install the `api` extra so the web layer is type-checked and
-  tested: `pip install -e ".[dev,api]"`.
+- **Tests:** `pytest -q` (currently 2016 passing; 9 opt-in real-model/GPU tests
+  skipped by default). Install the `api` and `overlay` extras so the web layer and
+  the overlay renderer are both type-checked and tested — this is exactly what CI
+  installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`
+  cannot resolve `PIL` and the renderer tests skip.
 
 **Frontend** (from `frontend/`)
 
