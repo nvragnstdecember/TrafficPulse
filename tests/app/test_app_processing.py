@@ -11,6 +11,7 @@ from _app_helpers import (
     make_client,
     make_config,
     make_metrics,
+    make_scene_service,
     upload_wrong_way_video,
 )
 
@@ -80,12 +81,18 @@ def test_process_with_invalid_rule_for_scene_is_400(tmp_path: Path) -> None:
     assert response.json()["error"]["type"] == "invalid_configuration"
 
 
-def test_process_without_a_configured_scene_is_503(tmp_path: Path) -> None:
+def test_process_with_no_scene_at_all_tells_the_client_to_calibrate(tmp_path: Path) -> None:
+    # H12 changed what "no scene" means. It used to be a 503 engine_unavailable --
+    # a server-side condition a client could do nothing about, because the scene was
+    # server configuration. Now a scene belongs to the *video*, so the absence is a
+    # 400 the analyst can act on: calibrate it.
     client = make_client(tmp_path, config=make_config(tmp_path, scene_path=None))
     video_id = upload_wrong_way_video(client, tmp_path)
     response = client.post("/api/process", json={"video_id": video_id})
-    assert response.status_code == 503
-    assert response.json()["error"]["type"] == "engine_unavailable"
+    assert response.status_code == 400
+    body = response.json()["error"]
+    assert body["type"] == "invalid_configuration"
+    assert "calibrate" in body["message"]
 
 
 def test_process_with_default_provider_and_no_inference_is_503(tmp_path: Path) -> None:
@@ -126,7 +133,7 @@ def _service(tmp_path: Path) -> object:
     return (
         ProcessingService(
             config=make_config(tmp_path),
-            scene=None,
+            scenes=make_scene_service(make_config(tmp_path)),
             provider=StubEngineProvider(),
             store=EventStore(tmp_path / "runs"),
             job_store=job_store,

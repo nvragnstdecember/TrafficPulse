@@ -18,7 +18,8 @@ from _slice_fixtures import scripted_down_detector, write_wrong_way_clip
 from fastapi.testclient import TestClient
 
 from trafficpulse.app import AppConfig, SynchronousJobExecutor, create_app
-from trafficpulse.app.registry import JobExecutor, JobWork
+from trafficpulse.app.registry import JobExecutor, JobWork, VideoStore
+from trafficpulse.app.services import SceneService
 from trafficpulse.classifier.interface import HelmetClassifier
 from trafficpulse.contracts import SceneConfig
 from trafficpulse.detector import DetectorConfig
@@ -110,6 +111,30 @@ def make_config(
         scene_path=scene_path,
         default_rules=default_rules,
         max_upload_bytes=max_upload_bytes,
+    )
+
+
+def make_scene_service(
+    config: AppConfig,
+    *,
+    videos: VideoStore | None = None,
+    fallback: SceneConfig | None = None,
+) -> SceneService:
+    """A :class:`SceneService` over a real (temporary) store, for unit tests.
+
+    ``fallback`` stands in for the server's file-configured scene; leaving it
+    ``None`` is the H12 "this video has no scene at all" case.
+    """
+
+    from trafficpulse.app.services import SceneService, VideoService
+    from trafficpulse.persistence import SceneStore
+
+    store = videos if videos is not None else VideoStore()
+    return SceneService(
+        SceneStore(config.storage_dir),
+        VideoService(config, store),
+        store,
+        fallback=fallback,
     )
 
 
@@ -216,6 +241,7 @@ class UnavailableEngineProvider:
 
 __all__ = [
     "StubEngineProvider",
+    "make_scene_service",
     "DeferredJobExecutor",
     "RaisingEngineProvider",
     "UnavailableEngineProvider",

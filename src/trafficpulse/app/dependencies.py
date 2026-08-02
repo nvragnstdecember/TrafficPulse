@@ -26,6 +26,7 @@ from .services import (
     MetricsService,
     ProcessingService,
     ReviewService,
+    SceneService,
     VideoLibraryService,
     VideoService,
 )
@@ -38,6 +39,7 @@ class AppContext:
     config: AppConfig
     provider: EngineProvider
     videos: VideoService
+    scenes: SceneService
     library: VideoLibraryService
     processing: ProcessingService
     events: EventService
@@ -63,6 +65,10 @@ def get_provider(request: Request) -> EngineProvider:
 
 def get_video_service(request: Request) -> VideoService:
     return get_context(request).videos
+
+
+def get_scene_service(request: Request) -> SceneService:
+    return get_context(request).scenes
 
 
 def get_video_library_service(request: Request) -> VideoLibraryService:
@@ -92,6 +98,7 @@ def get_metrics_service(request: Request) -> MetricsService:
 ConfigDep = Annotated[AppConfig, Depends(get_config)]
 ProviderDep = Annotated[EngineProvider, Depends(get_provider)]
 VideoServiceDep = Annotated[VideoService, Depends(get_video_service)]
+SceneServiceDep = Annotated[SceneService, Depends(get_scene_service)]
 VideoLibraryServiceDep = Annotated[VideoLibraryService, Depends(get_video_library_service)]
 ProcessingServiceDep = Annotated[ProcessingService, Depends(get_processing_service)]
 EventServiceDep = Annotated[EventService, Depends(get_event_service)]

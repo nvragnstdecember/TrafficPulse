@@ -18,6 +18,7 @@ import {
   makeReview,
   makeReviewCase,
   makeReviewEntry,
+  makeSceneSummary,
   makeVideo,
   makeVideoSummary,
   mediaSeconds,
@@ -37,6 +38,14 @@ vi.mock('@/services/videos.service', () => ({
   },
 }));
 
+vi.mock('@/services/scenes.service', () => ({
+  scenesService: {
+    getForVideo: vi.fn(),
+    calibrate: vi.fn(),
+    validate: vi.fn(),
+  },
+}));
+
 vi.mock('@/services/events.service', () => ({
   eventsService: {
     list: vi.fn(),
@@ -49,6 +58,7 @@ vi.mock('@/services/events.service', () => ({
 
 const { videosService } = await import('@/services/videos.service');
 const { eventsService } = await import('@/services/events.service');
+const { scenesService } = await import('@/services/scenes.service');
 
 beforeEach(() => {
   localStorage.clear();
@@ -90,6 +100,16 @@ beforeEach(() => {
     total: 2,
     limit: 200,
     offset: 0,
+  });
+  vi.mocked(scenesService.getForVideo).mockRejectedValue(
+    new ApiError('no scene', { kind: 'http', status: 404, type: 'scene_not_found' }),
+  );
+  vi.mocked(scenesService.calibrate).mockResolvedValue(makeSceneSummary());
+  vi.mocked(scenesService.validate).mockResolvedValue({
+    valid: true,
+    errors: [],
+    supported_violations: ['wrong_way'],
+    scene_hash: 'abc',
   });
   vi.mocked(eventsService.get).mockResolvedValue(makeConfirmedEvent());
   vi.mocked(eventsService.getEvidence).mockResolvedValue(makeEvidence());
@@ -422,6 +442,62 @@ describe('VideosPage — historical video library (H11)', () => {
 
     expect(await screen.findByRole('button', { name: 'Upload a video' })).toBeInTheDocument();
     expect(screen.getByText('No videos yet')).toBeInTheDocument();
+  });
+});
+
+describe('VideosPage — scene calibration and red-light timing (H12/H13)', () => {
+  it('offers calibration inside the workspace without leaving it', async () => {
+    await uploadAndOpenWorkspace();
+
+    expect(await screen.findByText('Scene calibration')).toBeInTheDocument();
+    expect(screen.getByTestId('calibration-surface')).toBeInTheDocument();
+    // The workspace is not replaced: the player and the event list stay mounted.
+    expect(screen.getByRole('region', { name: 'Detected events' })).toBeInTheDocument();
+  });
+
+  it('shows the signal schedule only once a junction scene is calibrated', async () => {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ supported_violations: ['red_light_jumping'] }),
+    );
+    await uploadAndOpenWorkspace();
+
+    expect(await screen.findByLabelText('Signal schedule')).toBeInTheDocument();
+  });
+
+  it('re-runs the analysis with the rules the calibrated scene unlocked', async () => {
+    // The H13 success path through the page: calibrate, declare the timing, re-run.
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ supported_violations: ['wrong_way', 'red_light_jumping'] }),
+    );
+    const user = await uploadAndOpenWorkspace();
+    await screen.findByLabelText('Signal schedule');
+
+    await user.click(screen.getByRole('button', { name: /add phase/i }));
+    vi.mocked(videosService.startProcessing).mockClear();
+    await user.click(screen.getByRole('button', { name: /re-run analysis/i }));
+
+    await waitFor(() => expect(videosService.startProcessing).toHaveBeenCalled());
+    const [input] = vi.mocked(videosService.startProcessing).mock.calls[0];
+    expect(input.rules).toEqual([
+      { kind: 'wrong_way' },
+      { kind: 'red_light_jumping', schedule: [{ at_seconds: 0, state: 'red' }] },
+    ]);
+  });
+
+  it('omits red-light from the re-run when no signal timing was entered', async () => {
+    // The backend refuses a schedule-less red-light rule; the client must not send
+    // one and turn a knowable state into a failed run.
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ supported_violations: ['wrong_way', 'red_light_jumping'] }),
+    );
+    const user = await uploadAndOpenWorkspace();
+
+    vi.mocked(videosService.startProcessing).mockClear();
+    await user.click(await screen.findByRole('button', { name: /re-run analysis/i }));
+
+    await waitFor(() => expect(videosService.startProcessing).toHaveBeenCalled());
+    const [input] = vi.mocked(videosService.startProcessing).mock.calls[0];
+    expect(input.rules).toEqual([{ kind: 'wrong_way' }]);
   });
 });
 

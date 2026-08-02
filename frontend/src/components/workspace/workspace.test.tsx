@@ -127,6 +127,7 @@ function makeController(overrides: Partial<ProcessingController> = {}): Processi
       selectAndUpload: vi.fn(),
       openVideo: vi.fn(),
       startProcessing: vi.fn(),
+      reprocessWith: vi.fn(),
       cancel: vi.fn(),
       cancelUpload: vi.fn(),
       retry: vi.fn(),

@@ -6,14 +6,17 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from trafficpulse.contracts import ObjectClass
+from trafficpulse.contracts.enums import SignalState
 from trafficpulse.engine import (
     EngineConfig,
     EngineConfigurationError,
     IllegalStoppingRuleConfig,
     InferenceConfig,
     NoHelmetRuleConfig,
+    RedLightRuleConfig,
     RuleConfig,
     SchedulerConfig,
+    SignalPhaseSpec,
     WrongWayRuleConfig,
 )
 
@@ -77,10 +80,40 @@ def test_rule_union_parses_by_kind() -> None:
     assert isinstance(adapter.validate_python({"kind": "no_helmet"}), NoHelmetRuleConfig)
 
 
-def test_rule_union_rejects_unknown_kind() -> None:
+def test_rule_union_accepts_red_light_and_still_rejects_an_unshipped_kind() -> None:
+    # H13 moved red_light_jumping from "has a contract, has no reasoner" into the
+    # closed union. Speeding is now the only violation left on the other side.
     adapter: TypeAdapter[RuleConfig] = TypeAdapter(RuleConfig)
+
+    red_light = adapter.validate_python(
+        {"kind": "red_light_jumping", "schedule": [{"at_seconds": 0.0, "state": "red"}]}
+    )
+    assert isinstance(red_light, RedLightRuleConfig)
+    assert red_light.schedule[0].state is SignalState.RED
+
     with pytest.raises(ValidationError):
-        adapter.validate_python({"kind": "red_light_jumping"})
+        adapter.validate_python({"kind": "speeding"})
+
+
+def test_a_red_light_schedule_must_be_declared_in_time_order() -> None:
+    # Out-of-order phases make the step function ambiguous, and the resolver would
+    # silently pick one reading. Refuse the config instead -- as a pydantic
+    # ValidationError, because this config is parsed from a client request body and
+    # that is what the API turns into a clean 422.
+    with pytest.raises(ValidationError):
+        RedLightRuleConfig(
+            schedule=(
+                SignalPhaseSpec(at_seconds=10.0, state=SignalState.RED),
+                SignalPhaseSpec(at_seconds=2.0, state=SignalState.GREEN),
+            )
+        )
+
+
+def test_a_red_light_rule_defaults_to_no_approach_selection() -> None:
+    # A single-approach scene needs no ids; they exist for the ambiguous case only.
+    config = RedLightRuleConfig(schedule=(SignalPhaseSpec(at_seconds=0.0, state=SignalState.RED),))
+    assert config.stop_line_id is None
+    assert config.zone_id is None
 
 
 def test_illegal_stopping_rule_defaults_match_derivation_layer() -> None:

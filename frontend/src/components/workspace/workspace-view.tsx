@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { type ReviewAction, type ViolationType } from '@/api/types';
+import { type ReviewAction, type SignalPhaseSpec, type ViolationType } from '@/api/types';
+import { rulesForRun } from '@/lib/calibration';
 import { PLAYER_SHORTCUTS, usePlayerShortcuts } from '@/hooks/use-player-shortcuts';
 import { type ProcessingController } from '@/hooks/use-processing';
 import { useDecideReview, useReview } from '@/hooks/use-review';
@@ -36,6 +37,7 @@ import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
 import { ReviewPanel } from './review-panel';
 import { ReviewSummary } from './review-summary';
+import { SceneCalibrator } from './scene-calibrator';
 import { Timeline } from './timeline';
 import { VideoPlayer } from './video-player';
 import { WorkflowNav } from './workflow-nav';
@@ -83,6 +85,10 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   const clearChecked = useSelectionStore((s) => s.clearChecked);
 
   const [viewerOpen, setViewerOpen] = useState(false);
+  // The run's signal timing (H13). Deliberately component state rather than a
+  // persisted store: a schedule describes one clip's media time and means nothing
+  // for the next video, so carrying it across would be worse than losing it.
+  const [schedule, setSchedule] = useState<SignalPhaseSpec[]>([]);
 
   const active = isActivePhase(processing.phase);
   const workspace = useWorkspaceEvents(processing.video?.video_id, { active });
@@ -277,6 +283,19 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           selectedEventId={selectedEventId}
           onSelect={handleSelect}
         />
+        {processing.video ? (
+          <SceneCalibrator
+            videoId={processing.video.video_id}
+            frameWidth={processing.video.width ?? 0}
+            frameHeight={processing.video.height ?? 0}
+            posterSrc={objectUrl}
+            schedule={schedule}
+            onScheduleChange={setSchedule}
+            onReprocess={(supported) =>
+              processing.actions.reprocessWith(rulesForRun(supported, schedule))
+            }
+          />
+        ) : null}
         <div ref={stageRefs.processing}>
           <ProcessingPanel controller={processing} />
         </div>

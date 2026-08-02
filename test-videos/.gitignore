@@ -1,0 +1,15 @@
+# Media is deliberately not committed. See README.md "Why the videos are not in
+# the repository": the registry (sources.yaml) plus fetch.py reproduces the whole
+# dataset, and some clips are licensed for use but not for redistribution.
+#
+# What IS committed: sources.yaml, fetch.py, build_index.py, index.csv, the
+# *.meta.yaml sidecars, evaluation/manifest.yaml, and this file.
+
+*.mp4
+*.webm
+*.ogv
+*.avi
+*.mkv
+*.mov
+*.m4v
+*.part

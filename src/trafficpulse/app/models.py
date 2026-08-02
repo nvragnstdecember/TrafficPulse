@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts import ConfidenceBreakdown, ReviewCase, ReviewEntry
 from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
+from ..contracts.scene import CalibrationStatus, SceneStatus
 from ..engine import EngineMetrics, RuleConfig
 from .registry import JobStatus, OverlayStatus, VideoRecord
 
@@ -163,6 +164,19 @@ class VideoSummary(_ApiModel):
         "thumbnail-availability signal: thumbnails are captured from the played "
         "video, so a streamable source is exactly what makes one possible.",
     )
+    scene_hash: str | None = Field(
+        default=None,
+        description="The calibrated scene revision bound to this video (H12), or "
+        "null when it has not been calibrated. Fetch it at "
+        "GET /api/videos/{video_id}/scene.",
+    )
+    supported_violations: tuple[ViolationType, ...] = Field(
+        default=(),
+        description="Violations that can be reasoned about for this video, given "
+        "its bound scene (or the server's configured fallback scene when it has "
+        "none). Calibrating a video is what adds the geometry-dependent ones. "
+        "Empty when no scene resolves at all.",
+    )
 
 
 class VideoListResponse(_ApiModel):
@@ -176,6 +190,77 @@ class VideoListResponse(_ApiModel):
     total: int = Field(description="Total videos in the repository (before paging).")
     limit: int = Field(description="Applied page size.")
     offset: int = Field(description="Applied page offset.")
+
+
+# --- scenes (H12) ----------------------------------------------------------------
+class SceneSummary(_ApiModel):
+    """A stored scene revision, described for browsing and binding.
+
+    Not a parallel scene model: the scene itself is returned verbatim as a
+    ``SceneConfig`` by ``GET /api/scenes/{scene_hash}``. This is the *summary*
+    view -- the same relationship :class:`EventSummary` has to ``ConfirmedEvent``
+    -- carrying what a client needs to render calibration state and decide what to
+    run, without parsing forty nested models to find out.
+    """
+
+    scene_hash: str = Field(
+        description="The revision's address: the scene's own deterministic "
+        "scene_config_hash. Editing a scene mints a new one, so this is exactly "
+        "the value stamped into every ConfirmedEvent reasoned under it."
+    )
+    scene_id: str = Field(
+        description="The scene's logical id, stable across edits (unlike scene_hash)."
+    )
+    scene_name: str = Field(description="Human-readable name for this site.")
+    camera_id: str = Field(description="Camera this scene describes.")
+    site_id: str = Field(description="Site this camera belongs to.")
+    status: SceneStatus = Field(
+        description="Scene lifecycle state. Analyst-drawn scenes are 'draft': the "
+        "geometry has not been verified against ground truth."
+    )
+    calibration_status: CalibrationStatus = Field(
+        description="Metric-calibration state. 'absent' means no world/homography "
+        "calibration was solved -- correct for image-space reasoning, which is what "
+        "wrong-way and illegal-stopping use."
+    )
+    frame_width: int = Field(description="Reference frame width the geometry is drawn in.")
+    frame_height: int = Field(description="Reference frame height the geometry is drawn in.")
+    zone_count: int = Field(description="Zones declared.")
+    has_legal_direction: bool = Field(
+        description="Whether a legal travel direction is declared (wrong-way needs one)."
+    )
+    has_no_stopping_zone: bool = Field(
+        description="Whether an enabled no-stopping zone is declared "
+        "(illegal-stopping needs one)."
+    )
+    supported_violations: tuple[ViolationType, ...] = Field(
+        default=(),
+        description="Violations this scene can actually reason about, probed against "
+        "the shipped rules themselves. A violation absent here would fail fast if "
+        "requested, so a client should offer exactly this set.",
+    )
+
+
+class SceneValidationResponse(_ApiModel):
+    """The result of checking a draft without storing it.
+
+    Lets a calibration surface tell an analyst *why* a drawing is not yet usable
+    -- and which rules it would unlock -- before they commit to saving it.
+    """
+
+    valid: bool = Field(description="Whether the draft forms a valid scene.")
+    errors: tuple[str, ...] = Field(
+        default=(), description="Human-readable validation failures; empty when valid."
+    )
+    supported_violations: tuple[ViolationType, ...] = Field(
+        default=(),
+        description="Violations the draft would unlock if saved. Empty when invalid.",
+    )
+    scene_hash: str | None = Field(
+        default=None,
+        description="The address this draft would be stored under, or null when "
+        "invalid. Equal to the current binding's hash when nothing has changed.",
+    )
 
 
 # --- processing ----------------------------------------------------------------

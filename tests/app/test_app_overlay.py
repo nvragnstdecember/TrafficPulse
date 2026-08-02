@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import pytest
-from _app_helpers import make_client, make_config, upload_wrong_way_video
+from _app_helpers import make_client, make_config, make_scene_service, upload_wrong_way_video
 
 from trafficpulse.app import SynchronousJobExecutor, ThreadJobExecutor
 from trafficpulse.app.errors import JobNotFoundError, OverlayNotFoundError
@@ -153,7 +153,7 @@ def _service(tmp_path: Path) -> tuple[ProcessingService, JobStore]:
     jobs = JobStore()
     service = ProcessingService(
         config=config,
-        scene=None,
+        scenes=make_scene_service(config),
         provider=None,  # type: ignore[arg-type]  # unused by overlay_video_path
         store=EventStore(config.runs_dir),
         job_store=jobs,

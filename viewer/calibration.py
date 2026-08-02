@@ -11,6 +11,15 @@ zero confirmed violations. This module supplies the missing piece: a **per-clip
 calibrated SceneConfig**, derived from the clip itself, fed into the *unchanged*
 backend.
 
+Where the algorithm lives now (H12)
+------------------------------------
+The dominant-flow estimator was **promoted into the runtime** as
+:func:`trafficpulse.scenes.estimate_dominant_flow`, so the application's
+calibration workflow and this demo layer share one implementation and one set of
+thresholds. This module keeps what is genuinely viewer-specific: decoding the
+clip, driving the detector, and recording the raw detections so the slice pass can
+replay them instead of paying a second inference pass. It no longer owns the maths.
+
 What it does (and does not) do
 ------------------------------
 Given one uploaded clip, :func:`calibrate_and_capture` makes a **single real
@@ -19,7 +28,8 @@ RT-DETR inference pass** (genuine per-frame detections through the existing
 
 * the clip's real frame dimensions (from the P1-U5 ingestion metadata);
 * the **observed dominant traffic-flow direction** — the vector sum of the net
-  displacement of every substantial track (alive >= 1 s, net motion >= 40 px).
+  displacement of every substantial track (alive >= 1 s, net motion >= 40 px),
+  computed by the promoted runtime estimator.
 
 :func:`build_calibrated_scene` then constructs a validated ``SceneConfig`` in the
 clip's own pixel space whose single legal direction **is** that observed flow.
@@ -57,7 +67,6 @@ wrong-way slice, which reasons purely on image-space headings.
 from __future__ import annotations
 
 import hashlib
-import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,36 +75,33 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT / "src") not in sys.path:  # standalone import convenience
     sys.path.insert(0, str(_REPO_ROOT / "src"))
 
-from trafficpulse.contracts import ModelRef, ObjectClass, SceneConfig  # noqa: E402
+from trafficpulse.contracts import ModelRef, ObjectClass, SceneConfig, TrackState  # noqa: E402
 from trafficpulse.detector import RawDetection, StubDetector  # noqa: E402
 from trafficpulse.detector.adapter import DetectionAdapter  # noqa: E402
 from trafficpulse.detector.config import DetectorConfig  # noqa: E402
 from trafficpulse.detector.interface import Detector  # noqa: E402
 from trafficpulse.ingestion.video import open_video  # noqa: E402
 from trafficpulse.pipeline.base import frame_record_to_frame  # noqa: E402
+
+# H12 promoted the dominant-flow estimator into the runtime
+# (``trafficpulse.scenes.calibration``), where the application can use it too. The
+# viewer now *consumes* it rather than owning a private copy: same algorithm, same
+# thresholds, one implementation. The names are re-exported so this module's
+# public surface -- and the demo scripts that read the thresholds -- are unchanged.
+from trafficpulse.scenes import (  # noqa: E402
+    FLOW_CLASSES as FLOW_CLASSES,  # re-exported: callers read it from this module
+)
+from trafficpulse.scenes import (  # noqa: E402
+    MIN_NET_DISPLACEMENT_PX,
+    MIN_TRACK_LIFETIME_SECONDS,
+    estimate_dominant_flow,
+)
 from trafficpulse.tracking.iou_tracker import IouTracker  # noqa: E402
 
 # The single legal direction / lane the calibrated scene declares. The wrong-way
 # runner is invoked with this direction id explicitly.
 OBSERVED_DIRECTION_ID = "dir-observed"
 OBSERVED_LANE_ZONE_ID = "zone-lane-observed"
-
-# A track participates in the dominant-flow estimate only if it is a *substantial
-# mover*: alive at least this long and displaced at least this far. This excludes
-# detector jitter on parked/stationary objects from the flow estimate.
-MIN_TRACK_LIFETIME_SECONDS = 1.0
-MIN_NET_DISPLACEMENT_PX = 40.0
-
-# Only *vehicle* tracks define the dominant traffic flow. P4-U1 added ``person`` to
-# the upload label map (helmet reasoning needs riders), but pedestrians do not
-# define a roadway's legal direction -- a pedestrian crossing or walking a footpath
-# would drag the estimated flow vector off the traffic axis and corrupt the
-# calibrated scene for every wrong-way run. Restricting the estimate to vehicles
-# preserves the pre-P4 flow semantics (previously car-only by construction) while
-# letting the broader label map serve perception.
-FLOW_CLASSES: frozenset[ObjectClass] = frozenset(
-    {ObjectClass.CAR, ObjectClass.MOTORCYCLE}
-)
 
 # Fixed timestamp stamped on generated scenes so the scene hash — and therefore
 # the content-derived event ids — stay deterministic across repeated runs of the
@@ -171,7 +177,7 @@ def calibrate_and_capture(
     tracker = IouTracker()
 
     per_frame_raw: dict[int, tuple[RawDetection, ...]] = {}
-    centers: dict[str, list[tuple[float, float, float]]] = {}  # track -> (t, cx, cy)
+    observed: list[TrackState] = []
     frames_seen = 0
     with open_video(clip, camera_id=cam) as reader:
         for frame_record in reader:
@@ -179,34 +185,13 @@ def calibrate_and_capture(
             raws = tuple(detector.detect(frame))
             per_frame_raw[frame_record.frame_index] = raws
             frames_seen += 1
-            for state in tracker.update(adapter.adapt(frame, raws)):
-                if state.object_class not in FLOW_CLASSES:
-                    continue  # pedestrians do not define traffic flow (see FLOW_CLASSES)
-                box = state.bbox
-                centers.setdefault(state.track_id, []).append(
-                    (
-                        frame_record.timestamp_seconds,
-                        (box.x1 + box.x2) / 2.0,
-                        (box.y1 + box.y2) / 2.0,
-                    )
-                )
+            observed.extend(tracker.update(adapter.adapt(frame, raws)))
         metadata = reader.metadata
 
-    sum_dx = sum_dy = 0.0
-    movers = 0
-    for points in centers.values():
-        if len(points) < 2:
-            continue
-        lifetime = points[-1][0] - points[0][0]
-        dx = points[-1][1] - points[0][1]
-        dy = points[-1][2] - points[0][2]
-        if lifetime >= MIN_TRACK_LIFETIME_SECONDS and math.hypot(dx, dy) >= MIN_NET_DISPLACEMENT_PX:
-            movers += 1
-            sum_dx += dx
-            sum_dy += dy
-
-    magnitude = math.hypot(sum_dx, sum_dy)
-    if movers == 0 or magnitude <= 0.0:
+    # The estimate itself is the runtime's (H12) -- this module contributes the I/O
+    # and the recorded-detection replay, not the maths.
+    flow = estimate_dominant_flow(observed)
+    if flow is None:
         raise UploadCalibrationError(
             "scene calibration failed: no sustained vehicle motion observed "
             f"(need a track alive >= {MIN_TRACK_LIFETIME_SECONDS:.1f}s moving >= "
@@ -214,21 +199,15 @@ def calibrate_and_capture(
             "direction for wrong-way reasoning on this clip"
         )
 
-    # Round the unit vector so the scene content (and its hash) is stable against
-    # float-noise across platforms while remaining accurate to ~0.06 degrees.
-    flow_dx = round(sum_dx / magnitude, 4)
-    flow_dy = round(sum_dy / magnitude, 4)
-    heading = math.degrees(math.atan2(flow_dy, flow_dx)) % 360.0
-
     return CalibrationResult(
         camera_id=cam,
         width=metadata.width,
         height=metadata.height,
-        flow_dx=flow_dx,
-        flow_dy=flow_dy,
-        flow_heading_degrees=heading,
-        mover_count=movers,
-        track_count=len(centers),
+        flow_dx=flow.dx,
+        flow_dy=flow.dy,
+        flow_heading_degrees=flow.heading_degrees,
+        mover_count=flow.mover_count,
+        track_count=flow.track_count,
         frames_seen=frames_seen,
         per_frame_raw=per_frame_raw,
     )

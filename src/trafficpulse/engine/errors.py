@@ -27,10 +27,11 @@ class UnsupportedRuleError(EngineError):
     """A configured rule names a violation with no shipped reasoning slice.
 
     The engine composes the *existing* rule implementations (wrong-way,
-    illegal-stopping, no-helmet). Violation types that have contracts but no
-    reasoner yet (red-light jumping, triple riding, speeding) fail loudly here
-    rather than silently confirming nothing; they slot in through the same
-    registry once their reasoners ship.
+    illegal-stopping, no-helmet, triple riding, and red-light jumping since H13).
+    Speeding -- the one violation left with a contract and no reasoner, because it
+    needs metric calibration no scene currently solves -- fails loudly here rather
+    than silently confirming nothing; it slots in through the same registry once
+    its reasoner ships.
     """
 
 

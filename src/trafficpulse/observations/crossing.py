@@ -97,10 +97,21 @@ class CrossingDerivation:
     reasoner's taint-restart handling with no new plumbing. ``taint_restart_ids``
     are the ``observation_id``s of clean observations immediately following one or
     more tainted steps; the reasoner resets its run there.
+
+    ``forward_crossing_ids`` names the observations at whose step the track
+    **forward-crossed the stop line** (H13). It is reported separately from
+    ``is_inside`` because the two are not the same instant: a stop line and the
+    junction it guards need not be contiguous, so a track typically crosses the
+    line several steps before its bottom-centre reaches the polygon. A red-light
+    rule must read the signal at the *crossing*, since that is when the violation
+    is committed -- reading it at polygon entry would exonerate a vehicle that
+    crossed on red and reached the junction after the light changed. Defaulted to
+    empty so every existing construction and consumer is unaffected.
     """
 
     observations: tuple[InZoneObservation, ...]
     taint_restart_ids: frozenset[str]
+    forward_crossing_ids: frozenset[str] = frozenset()
 
 
 def _bottom_center(track_state: TrackState) -> Point:
@@ -155,14 +166,17 @@ def _iter_derivation(
     stop_line: StopLine,
     zone: Zone,
     producer: Producer | None,
-) -> Iterator[tuple[InZoneObservation, bool]]:
-    """Yield ``(observation, is_taint_restart)`` for each usable step.
+) -> Iterator[tuple[InZoneObservation, bool, bool]]:
+    """Yield ``(observation, is_taint_restart, is_forward_crossing)`` per usable step.
 
     ``is_taint_restart`` is ``True`` for the first clean observation resuming after
-    one or more tainted steps. ``is_inside`` is ``point_in_polygon(bottom_center,
-    zone) and crossed_forward``, where ``crossed_forward`` tracks whether the track
-    has forward-crossed the stop line and not since reverse-crossed it (reset on
-    taint).
+    one or more tainted steps. ``is_forward_crossing`` is ``True`` for the step at
+    which the track crossed the stop line **in** ``crossing_direction`` -- the
+    instant the violation is committed, which is generally earlier than the step at
+    which ``is_inside`` first becomes ``True``. ``is_inside`` is
+    ``point_in_polygon(bottom_center, zone) and crossed_forward``, where
+    ``crossed_forward`` tracks whether the track has forward-crossed the stop line
+    and not since reverse-crossed it (reset on taint).
     """
 
     zone_kind = _entry_zone_kind(zone)
@@ -196,7 +210,7 @@ def _iter_derivation(
             zone_kind=zone_kind,
             is_inside=is_inside,
         )
-        yield observation, taint_since_last_emit
+        yield observation, taint_since_last_emit, forward is True
         taint_since_last_emit = False
 
 
@@ -231,7 +245,7 @@ def derive_crossing_observations(
 
     return [
         observation
-        for observation, _ in _iter_derivation(
+        for observation, _, _ in _iter_derivation(
             track, stop_line=stop_line, zone=zone, producer=producer
         )
     ]
@@ -249,6 +263,8 @@ def derive_crossing_observations_with_taint(
     The returned ``taint_restart_ids`` name the observations that resume after a
     tainted interval; the reasoning layer resets its persistence run there so a
     junction entry cannot bridge the tainted (ID-switch) discontinuity.
+    ``forward_crossing_ids`` names the steps at which the stop line was crossed in
+    the configured direction (see :class:`CrossingDerivation`).
 
     Raises:
         ValueError: if ``zone`` is not an intersection or signal-controlled region.
@@ -256,10 +272,15 @@ def derive_crossing_observations_with_taint(
 
     observations: list[InZoneObservation] = []
     restart_ids: set[str] = set()
-    for observation, is_restart in _iter_derivation(
+    crossing_ids: set[str] = set()
+    for observation, is_restart, is_crossing in _iter_derivation(
         track, stop_line=stop_line, zone=zone, producer=producer
     ):
         observations.append(observation)
         if is_restart:
             restart_ids.add(observation.observation_id)
-    return CrossingDerivation(tuple(observations), frozenset(restart_ids))
+        if is_crossing:
+            crossing_ids.add(observation.observation_id)
+    return CrossingDerivation(
+        tuple(observations), frozenset(restart_ids), frozenset(crossing_ids)
+    )

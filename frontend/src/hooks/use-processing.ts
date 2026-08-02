@@ -27,6 +27,15 @@ export interface ProcessingActions {
   /** Open a stored video from the library — its finished run, or start one (H11). */
   openVideo: (video: VideoSummary) => void;
   startProcessing: () => void;
+  /**
+   * Re-run the open video with an explicit rule set (H13).
+   *
+   * Calibrating a scene changes what the video supports, so the rules a run should
+   * request are known only after the scene is saved. Passing them explicitly is what
+   * lets a newly-drawn junction actually be analysed without a server default that
+   * could not know about it.
+   */
+  reprocessWith: (rules: Array<Record<string, unknown>>) => void;
   /** Cancel the in-flight upload (client abort) or the running job (API), as apt. */
   cancel: () => void;
   /** Abort an in-flight upload (client-side only). Kept for the uploading phase. */
@@ -130,9 +139,9 @@ export function useProcessing(): ProcessingController {
   }, []);
 
   const startProcessingFor = useCallback(
-    (videoId: string) => {
+    (videoId: string, rules?: Array<Record<string, unknown>>) => {
       startMutation.mutate(
-        { videoId },
+        { videoId, rules },
         {
           onSuccess: (res) => {
             useProcessingStore.getState().attachJob(videoId, res.job_id);
@@ -310,6 +319,13 @@ export function useProcessing(): ProcessingController {
     startProcessing: () => {
       const video = useUploadStore.getState().video;
       if (video) startProcessingFor(video.video_id);
+    },
+    reprocessWith: (rules) => {
+      const video = useUploadStore.getState().video;
+      if (!video) return;
+      lastStatusRef.current = null;
+      lastOverlayRef.current = null;
+      startProcessingFor(video.video_id, rules);
     },
     cancel: cancelJob,
     cancelUpload,

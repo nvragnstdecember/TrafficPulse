@@ -75,6 +75,19 @@ class VideoMediaNotFoundError(AppError):
     error_type = "video_media_not_found"
 
 
+class SceneNotFoundError(AppError):
+    """No stored scene matches the requested hash, or a video has none (404).
+
+    Covers both "this repository has never stored that revision" and "this video
+    has not been calibrated". They are the same answer to a client -- there is no
+    scene to show you -- and distinguishing them would only invite a caller to
+    branch on something it cannot act on differently.
+    """
+
+    status_code = 404
+    error_type = "scene_not_found"
+
+
 class JobNotFoundError(AppError):
     """No processing job matches the requested id (404)."""
 

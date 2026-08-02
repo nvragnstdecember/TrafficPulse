@@ -151,6 +151,16 @@ def test_only_sanctioned_runtime_packages() -> None:
     # metadata the pipeline already produced -- it runs no detection/tracking/
     # association/classification of its own, and the renderer contains no
     # violation-specific logic (each violation contributes a provider).
+    # And the ``scenes`` authoring + calibration layer (H12), which ends the
+    # application-wide ``SceneConfig``: it expands a minimal analyst-authorable
+    # draft into a complete validated scene (deterministically, so identical
+    # drawings hash identically) and estimates the one calibration fact a clip can
+    # actually show -- its dominant traffic-flow direction, an algorithm *promoted*
+    # from viewer/calibration.py rather than reimplemented. It computes no geometry
+    # of its own (point-in-polygon, crossing, and heading comparison stay in
+    # ``geometry``/``observations``), runs no detector or tracker, imports no ML
+    # framework, and performs no I/O -- it authors declarative data and returns a
+    # vector.
     # Any other package (review, penalty, ...) would be premature scope.
     allowed = {
         "contracts",
@@ -167,6 +177,7 @@ def test_only_sanctioned_runtime_packages() -> None:
         "association",
         "engine",
         "perception",
+        "scenes",
         "app",
         "overlay",
     }

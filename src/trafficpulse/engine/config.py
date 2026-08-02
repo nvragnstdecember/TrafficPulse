@@ -33,6 +33,7 @@ from typing import Annotated, Literal, Self, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..contracts import ModelRef, ObjectClass
+from ..contracts.enums import SignalState
 from ..contracts.primitives import Confidence
 from ..observations.stationary import STATIONARY_EPSILON_PX, STATIONARY_WINDOW
 from ..tracking.iou_tracker import IouTrackerConfig
@@ -151,8 +152,64 @@ class TripleRidingRuleConfig(_EngineModel):
     kind: Literal["triple_riding"] = "triple_riding"
 
 
+class SignalPhaseSpec(_EngineModel):
+    """One declared phase of a run's signal schedule: a state from a media offset.
+
+    ``at_seconds`` is measured from the start of the clip -- the number an operator
+    reads off a player's scrub bar -- and is converted to a media-time instant when
+    the rule is built. Seconds rather than an absolute datetime because that is the
+    form the fact is actually known in, and converting once at the boundary is
+    safer than asking every caller to anchor the epoch correctly."""
+
+    at_seconds: float = Field(ge=0.0)
+    state: SignalState
+
+
+class RedLightRuleConfig(_EngineModel):
+    """Run the red-light-jumping slice (H13).
+
+    Carries the **per-run signal schedule**, which is the one thing about this rule
+    that cannot live in the scene: a phase names a media-time instant, and media
+    time belongs to one clip, whereas a ``SceneConfig`` is per-camera and shared
+    across many. The scene stays camera geometry (stop line, junction zone, signal
+    group); this carries the timing.
+
+    ``stop_line_id`` / ``zone_id`` select the governing approach when the scene
+    declares more than one -- the same shape as ``WrongWayRuleConfig.direction_id``.
+
+    A schedule is **required**: with no phases every instant resolves to
+    ``SignalState.UNKNOWN`` and the rule could never confirm, so accepting an empty
+    one would ship a rule that silently does nothing. The rule registry refuses it
+    at build time, exactly as it refuses a ``no_helmet`` rule with no classifier."""
+
+    kind: Literal["red_light_jumping"] = "red_light_jumping"
+    schedule: tuple[SignalPhaseSpec, ...] = ()
+    stop_line_id: str | None = None
+    zone_id: str | None = None
+
+    @model_validator(mode="after")
+    def _monotonic_schedule(self) -> Self:
+        # A plain ValueError, not the typed EngineConfigurationError the sibling
+        # configs raise: this is a constraint *within* one field rather than a
+        # cross-field semantic rule, and -- unlike the backend declarations -- this
+        # config is parsed straight from a client request body, where pydantic's
+        # ValidationError is what turns a malformed schedule into a clean 422
+        # instead of an unhandled error.
+        offsets = [phase.at_seconds for phase in self.schedule]
+        if offsets != sorted(offsets):
+            raise ValueError(
+                "signal schedule phases must be declared in non-decreasing "
+                "at_seconds order so the step function is unambiguous"
+            )
+        return self
+
+
 RuleConfig: TypeAlias = Annotated[
-    WrongWayRuleConfig | IllegalStoppingRuleConfig | NoHelmetRuleConfig | TripleRidingRuleConfig,
+    WrongWayRuleConfig
+    | IllegalStoppingRuleConfig
+    | NoHelmetRuleConfig
+    | TripleRidingRuleConfig
+    | RedLightRuleConfig,
     Field(discriminator="kind"),
 ]
 

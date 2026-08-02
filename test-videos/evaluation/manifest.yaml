@@ -1,0 +1,208 @@
+# TrafficPulse Regression Dataset — evaluation manifest (T0)
+#
+# What a regression run should produce for each clip, in a shape an automated
+# comparator can read.
+#
+# The rule this file is built on
+# ------------------------------
+# **No expected count appears here unless it can be established.** Guessing "about
+# three helmet violations" from a glance at a clip would produce a benchmark that
+# measures agreement with a guess, and every future milestone would be tuned to
+# satisfy it. That is worse than having no benchmark.
+#
+# So expectations come in exactly two kinds, and each is labelled:
+#
+#   basis: structural
+#       Guaranteed by the system's own design, independent of what is in the
+#       footage. A video with no calibrated scene *cannot* produce a wrong-way or
+#       illegal-stopping event, because the reasoner has no legal direction and no
+#       no-stopping zone to reason against. These are checkable today, need no
+#       human labelling, and catch real regressions -- a non-zero result here means
+#       something is fabricating events or leaking a scene between videos.
+#
+#   basis: annotated
+#       Read from a provider's own frame-level ground truth. Nothing in the
+#       currently-fetchable set ships this. The AI City Challenge Track 5 data does
+#       (see sources.yaml -> manual -> aicity_track5); obtaining it is what turns
+#       this manifest from "did it stay sane?" into "did it get the right answer?".
+#
+# Perception counts that are neither -- how many riders are actually helmetless in
+# a given clip -- are recorded as `established: false` with a null count. They are
+# a TODO list for a labelling pass, not assertions, and a comparator must skip any
+# entry whose `established` is false.
+
+version: 1
+
+defaults:
+  # Every entry below is run with no scene bound to the video unless it says
+  # otherwise, which is what makes the structural expectations hold.
+  scene: uncalibrated
+  rules: [no_helmet, triple_riding]
+
+clips:
+  clean_001.ogv:
+    category: normal-traffic
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Uncalibrated: no legal direction and no no-stopping zone exist, so neither
+      geometry rule can confirm anything. Also the primary transcode check --
+      .ogv is not an accepted upload container.
+    unestablished:
+      no_helmet: null
+      triple_riding: null
+    note: >-
+      Dense two-wheeler traffic; real helmet and triple-riding findings are
+      expected but have not been counted, so no target is asserted.
+
+  clean_002.webm:
+    category: normal-traffic
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+      no_helmet: 0
+      triple_riding: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Orderly Canadian signalised intersection: no motorcycles appear, so the two
+      motorcycle rules have nothing to reason over and the geometry rules are
+      inactive without a scene. The cleanest total-silence case in the set -- any
+      event at all is a false positive.
+
+  clean_003.webm:
+    category: normal-traffic
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Roundabout. Deliberately kept uncalibrated: a roundabout has no single legal
+      direction, so authoring a whole-frame lane scene here would be a calibration
+      error, and this clip exists partly to make that lesson explicit.
+    unestablished:
+      no_helmet: null
+      triple_riding: null
+
+  clean_004.webm:
+    category: normal-traffic
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: Uncalibrated; geometry rules inactive.
+    unestablished:
+      no_helmet: null
+      triple_riding: null
+    note: >-
+      The richest motorcycle footage available under a free licence and the best
+      candidate for the first human labelling pass. 4K Indian street traffic.
+
+  wrongway_001.ogv:
+    category: wrong-way
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Uncalibrated, so zero. The *calibrated* variant of this clip is the more
+      interesting test and is recorded separately below.
+    calibrated_variant:
+      scene: >-
+        Draw a lane zone over the main carriageway with the legal direction set to
+        the normal (non-contraflow) direction of travel.
+      expected:
+        wrong_way: ">0"
+      basis: expected-nonzero
+      established: false
+      rationale: >-
+        Signed contraflow traffic opposes the normal direction, so a scene
+        calibrated to that direction should confirm wrong-way events. The exact
+        count is not established -- vehicles have not been counted -- so only the
+        sign of the result is asserted. Note this is lawful contraflow: the
+        reasoner is detecting opposition to the declared direction, which is what
+        it claims to do, not illegality.
+
+  congestion_001.webm:
+    category: edge-cases/congestion
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Heavy Indian congestion, uncalibrated. The important property is not the
+      count but that the run *completes* under sustained occlusion and near-zero
+      speed, and reports honest metrics.
+    unestablished:
+      no_helmet: null
+      triple_riding: null
+
+  congestion_002.webm:
+    category: edge-cases/congestion
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Gridlocked Indian level crossing: every vehicle is stationary for the whole
+      clip. The strongest illegal-stopping false-positive test available -- being
+      stopped is not the violation, being stopped in a no-stopping zone is, and
+      with no zone drawn the answer must be zero.
+    unestablished:
+      no_helmet: null
+      triple_riding: null
+
+  lowres_001.ogv:
+    category: edge-cases/low-resolution
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      176x144. The graceful-degradation case: the run must complete and report
+      collapsed detection honestly rather than crashing or inventing events.
+      Helmet output at this scale carries no information and must not be read as
+      evidence either way.
+
+  night_001.webm:
+    category: edge-cases/night
+    expected:
+      wrong_way: 0
+      illegal_stopping: 0
+    basis: structural
+    established: true
+    rationale: >-
+      Night with headlight glare. Detector-robustness case; no helmet expectation
+      is recorded because helmet state is not reliably visible in these conditions.
+
+# ---------------------------------------------------------------------------
+# Slots awaiting the annotated data. Populate these from AI City Track 5's own
+# frame-level ground truth (sources.yaml -> manual -> aicity_track5); they are the
+# entries that will make this a real accuracy benchmark rather than a smoke test.
+# ---------------------------------------------------------------------------
+pending_annotated:
+  - category: no-helmet
+    filename_pattern: helmet_1xx.mp4
+    source: aicity_track5
+    basis: annotated
+    note: >-
+      Track 5 labels driver and up to three passengers, each with/without helmet,
+      per frame. Convert to per-clip counts with the same definition TrafficPulse
+      uses (a confirmed event per rider per sustained run), and record the
+      conversion rule here so the comparison is reproducible.
+  - category: triple-riding
+    filename_pattern: triple_1xx.mp4
+    source: aicity_track5
+    basis: annotated
+    note: >-
+      Frames labelled with three occupied passenger positions on one motorcycle
+      give a direct triple-riding ground truth.

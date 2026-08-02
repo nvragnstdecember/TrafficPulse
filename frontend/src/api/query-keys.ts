@@ -31,6 +31,10 @@ export const queryKeys = {
     all: ['videos'] as const,
     list: (params: VideoListParams) => ['videos', 'list', params] as const,
   },
+  scenes: {
+    all: ['scenes'] as const,
+    forVideo: (videoId: string) => ['scenes', 'video', videoId] as const,
+  },
   events: {
     all: ['events'] as const,
     list: (params: EventListParams) => ['events', 'list', params] as const,

@@ -38,11 +38,13 @@ from ..detector.frame import Frame
 from ..pipeline.base import FinalizeStrategy, FrameObserver
 from ..pipeline.illegal_stopping import illegal_stopping_finalize_strategy
 from ..pipeline.no_helmet import no_helmet_finalize_strategy
+from ..pipeline.red_light import phases_from_offsets, red_light_finalize_strategy
 from ..pipeline.triple_riding import triple_riding_finalize_strategy
 from ..pipeline.wrong_way import wrong_way_finalize_strategy
 from .config import (
     IllegalStoppingRuleConfig,
     NoHelmetRuleConfig,
+    RedLightRuleConfig,
     RuleConfig,
     TripleRidingRuleConfig,
     WrongWayRuleConfig,
@@ -51,19 +53,28 @@ from .errors import EngineConfigurationError, UnsupportedRuleError
 
 # Violations with frozen contracts but no shipped reasoner yet: named here so the
 # registry's refusal message states exactly what exists and what does not.
-_UNSHIPPED = (
-    ViolationType.RED_LIGHT_JUMPING,
-    ViolationType.SPEEDING,
-)
+_UNSHIPPED = (ViolationType.SPEEDING,)
 
 
 @dataclass(frozen=True)
 class BuiltRule:
-    """One configured rule, realised: its strategy and (optional) pixel observer."""
+    """One configured rule, realised: its strategy and its optional side-channels.
+
+    ``observer`` is the *pixel* side-channel (P4-U2) a rule needs when its reasoning
+    depends on the decoded image -- no-helmet and triple-riding have one.
+
+    ``overlay_capture`` is the *metadata* a rule produces for the visualization
+    framework when it needs no pixels at all. Red-light reasons purely over
+    ``TrackState`` geometry, so it has no observer, yet it still has something to
+    draw; its capture is populated by the reasoning pass and read afterwards by the
+    composition root. Keeping the two fields separate is what stops "has an overlay"
+    from being conflated with "touches pixels".
+    """
 
     violation: ViolationType
     strategy: FinalizeStrategy[Any]
     observer: FrameObserver | None = None
+    overlay_capture: object | None = None
 
 
 def build_rules(
@@ -127,6 +138,31 @@ def build_rules(
                     observer=observer,
                 )
             )
+        elif isinstance(config, RedLightRuleConfig):
+            if not config.schedule:
+                raise EngineConfigurationError(
+                    "a red_light_jumping rule is configured with no signal schedule; "
+                    "every instant would resolve to 'unknown' and the rule could "
+                    "never confirm — declare the run's signal phases"
+                )
+            rl_strategy, rl_capture = red_light_finalize_strategy(
+                scene,
+                schedule=phases_from_offsets(
+                    [(phase.at_seconds, phase.state) for phase in config.schedule]
+                ),
+                stop_line_id=config.stop_line_id,
+                zone_id=config.zone_id,
+            )
+            built.append(
+                BuiltRule(
+                    violation=ViolationType.RED_LIGHT_JUMPING,
+                    strategy=rl_strategy,
+                    # Red-light reasons purely over TrackState geometry, so it needs
+                    # no pixel observer; its overlay metadata is produced by the
+                    # reasoning pass itself and reached through `overlay_capture`.
+                    overlay_capture=rl_capture,
+                )
+            )
         else:
             assert isinstance(config, TripleRidingRuleConfig)  # closed discriminated union
             # Pure geometry over the perception + association seams: no classifier.
@@ -144,10 +180,10 @@ def build_rules(
 def require_shipped(violation: ViolationType) -> None:
     """Fail loudly for violation types that have no shipped reasoning slice.
 
-    The typed refusal the H6 spec's rule surface needs: contracts exist for all
-    six violation types, reasoners for three. Probing an unshipped one raises
-    :class:`UnsupportedRuleError` naming both sets, so the gap is explicit and
-    additively closeable.
+    The typed refusal the H6 spec's rule surface needs: contracts exist for all six
+    violation types, reasoners for five (H13 added red-light jumping). Probing the
+    remaining one raises :class:`UnsupportedRuleError` naming both sets, so the gap
+    is explicit and additively closeable.
     """
 
     if violation in _UNSHIPPED:
@@ -156,6 +192,7 @@ def require_shipped(violation: ViolationType) -> None:
             ViolationType.ILLEGAL_STOPPING,
             ViolationType.NO_HELMET,
             ViolationType.TRIPLE_RIDING,
+            ViolationType.RED_LIGHT_JUMPING,
         )
         raise UnsupportedRuleError(
             f"violation {violation.value!r} has a frozen contract but no shipped "

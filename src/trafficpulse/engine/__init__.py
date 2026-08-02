@@ -24,8 +24,10 @@ from .config import (
     IllegalStoppingRuleConfig,
     InferenceConfig,
     NoHelmetRuleConfig,
+    RedLightRuleConfig,
     RuleConfig,
     SchedulerConfig,
+    SignalPhaseSpec,
     TripleRidingRuleConfig,
     WrongWayRuleConfig,
 )
@@ -93,6 +95,8 @@ __all__ = [
     "IllegalStoppingRuleConfig",
     "NoHelmetRuleConfig",
     "TripleRidingRuleConfig",
+    "RedLightRuleConfig",
+    "SignalPhaseSpec",
     # sources
     "FrameSource",
     "FileFrameSource",

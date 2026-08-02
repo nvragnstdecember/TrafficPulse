@@ -132,6 +132,11 @@ class InferenceEngine:
         # run (e.g. the overlay framework reads the no-helmet observer's captured
         # metadata to redraw inference -- see frame_observers()).
         self._observers = observers
+        # The pixel-free equivalent (H13): overlay metadata a rule produced from
+        # geometry alone. Held for the same reason and reached the same way.
+        self._overlay_captures = tuple(
+            rule.overlay_capture for rule in rules if rule.overlay_capture is not None
+        )
         self._runner = DetectorRunner(detector, self._recorder)
         self._core = CompositionPipeline(
             detector=self._runner,
@@ -165,6 +170,19 @@ class InferenceEngine:
         """
 
         return self._observers
+
+    def overlay_captures(self) -> tuple[object, ...]:
+        """Per-rule overlay metadata produced without pixels (H13), for the driver.
+
+        The geometry-only counterpart to :meth:`frame_observers`: a rule that
+        reasons purely over ``TrackState``s has no pixel observer but may still have
+        something to draw. Returned untyped because the engine deliberately does not
+        know any violation's capture shape -- the composition root narrows by
+        ``isinstance``, exactly as it already does for observers. Empty when no such
+        rule ran.
+        """
+
+        return self._overlay_captures
 
     # --- lifecycle ------------------------------------------------------------------
     def reset(self) -> None:

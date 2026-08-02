@@ -63,17 +63,16 @@ def test_scene_resolution_failures_propagate_unchanged() -> None:
 
 
 def test_require_shipped_names_the_gap() -> None:
-    for violation in (
-        ViolationType.RED_LIGHT_JUMPING,
-        ViolationType.SPEEDING,
-    ):
-        with pytest.raises(UnsupportedRuleError, match=violation.value):
-            require_shipped(violation)
+    # Speeding is the last violation with a contract and no reasoner: it is
+    # feasibility-gated on metric calibration, and no homography is ever applied.
+    with pytest.raises(UnsupportedRuleError, match=ViolationType.SPEEDING.value):
+        require_shipped(ViolationType.SPEEDING)
     for violation in (
         ViolationType.WRONG_WAY,
         ViolationType.ILLEGAL_STOPPING,
         ViolationType.NO_HELMET,
         ViolationType.TRIPLE_RIDING,  # shipped in v1.1 U3
+        ViolationType.RED_LIGHT_JUMPING,  # shipped in H13
     ):
         require_shipped(violation)  # shipped: no error
 

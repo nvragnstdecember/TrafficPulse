@@ -1,9 +1,18 @@
 name: CI
 
-# Single-environment Linux quality gate for the Phase 0-F repository baseline.
-# Deliberately minimal: one OS, one Python version, three checks
-# (ruff, mypy, pytest). No matrix, GPU, Docker, dataset, model-download,
-# or deployment jobs (see docs/phase-0-plan.md, U1).
+# Two quality gates, one per half of the product.
+#
+# `quality` is the backend gate that has existed since the Phase 0-F baseline:
+# one OS, one Python version, three checks (ruff, mypy, pytest). No matrix, GPU,
+# Docker, dataset, model-download, or deployment jobs (see docs/phase-0-plan.md, U1).
+#
+# `frontend` was added in H13. Until then CI ran only the backend, so roughly 16k
+# lines of TypeScript -- the entire analyst-facing product -- could be broken by a
+# merged PR with no signal at all. "CI is green" now means both halves are green.
+#
+# The jobs are deliberately independent: the frontend depends on the API's JSON
+# contract, not on its Python, so there is nothing to share and a backend failure
+# should not mask a frontend one (or vice versa).
 
 on:
   push:
@@ -12,6 +21,7 @@ on:
 
 jobs:
   quality:
+    name: Backend (ruff, mypy, pytest)
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -49,3 +59,36 @@ jobs:
 
       - name: pytest (tests)
         run: pytest -q
+
+  frontend:
+    name: Frontend (lint, typecheck, vitest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # The lockfile is the cache key, so a dependency change invalidates it.
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+        # fails if package.json and the lock have drifted, which is what makes the
+        # gate reproducible.
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript (project references, no emit)
+        run: npm run typecheck
+
+      - name: Vitest
+        run: npm test -- --run

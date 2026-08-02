@@ -49,6 +49,133 @@ export interface VideoUploadResponse {
   codec: string;
 }
 
+/** Traffic-signal states the scene contract models. */
+export type SignalState = 'red' | 'amber' | 'green' | 'off' | 'unknown';
+
+/** Scene lifecycle. Analyst-drawn scenes are `draft` — geometry, not ground truth. */
+export type SceneStatus =
+  | 'draft'
+  | 'calibration_pending'
+  | 'validation_pending'
+  | 'validated'
+  | 'archived';
+
+/** Metric-calibration state. `absent` = image-space only, which is what we solve. */
+export type CalibrationStatus =
+  | 'absent'
+  | 'provisional'
+  | 'unverified'
+  | 'validated'
+  | 'rejected';
+
+/** The zone kinds an analyst can draw. Mirrors the scene contract's vocabulary. */
+export type ZoneType =
+  | 'lane'
+  | 'approach'
+  | 'exit'
+  | 'intersection'
+  | 'no_stopping'
+  | 'speed_measurement'
+  | 'signal_controlled_region'
+  | 'roi';
+
+/** A point in the video's own pixel space (origin top-left, +x right, +y down). */
+export type ScenePoint = [number, number];
+
+export interface ZoneDraft {
+  zone_id: string;
+  zone_type: ZoneType;
+  polygon: ScenePoint[];
+  description?: string | null;
+}
+
+export interface DirectionDraft {
+  direction_id?: string;
+  dx: number;
+  dy: number;
+  zone_id: string;
+  description?: string;
+}
+
+export interface StopLineDraft {
+  stop_line_id: string;
+  a: ScenePoint;
+  b: ScenePoint;
+  crossing_dx: number;
+  crossing_dy: number;
+  signal_group_id: string;
+  zone_ids?: string[];
+}
+
+export interface SignalGroupDraft {
+  signal_group_id: string;
+  roi_polygon: ScenePoint[];
+  zone_ids?: string[];
+}
+
+export interface RuleTuning {
+  heading_deviation_max_degrees?: number | null;
+  wrong_way_min_persistence_seconds?: number | null;
+  stationary_duration_seconds?: number | null;
+  red_light_min_persistence_seconds?: number | null;
+}
+
+/**
+ * The minimal analyst-authorable description of a site.
+ *
+ * Deliberately *not* a parallel scene model: the backend expands this into the
+ * frozen `SceneConfig` and always returns that. Everything omitted here —
+ * provenance, statuses, schema versions, calibration blocks — is bookkeeping that
+ * must be correct rather than chosen, so the client never authors it.
+ */
+export interface SceneDraft {
+  scene_name: string;
+  camera_id: string;
+  site_id?: string;
+  description?: string;
+  frame_width: number;
+  frame_height: number;
+  zones: ZoneDraft[];
+  direction?: DirectionDraft | null;
+  stop_lines?: StopLineDraft[];
+  signal_groups?: SignalGroupDraft[];
+  tuning?: RuleTuning;
+}
+
+/** A stored scene revision, summarised for browsing and binding. */
+export interface SceneSummary {
+  /** The revision's address: the scene's own content hash, as stamped on events. */
+  scene_hash: string;
+  /** The logical id, stable across edits (unlike `scene_hash`). */
+  scene_id: string;
+  scene_name: string;
+  camera_id: string;
+  site_id: string;
+  status: SceneStatus;
+  calibration_status: CalibrationStatus;
+  frame_width: number;
+  frame_height: number;
+  zone_count: number;
+  has_legal_direction: boolean;
+  has_no_stopping_zone: boolean;
+  /** What this scene can actually reason about, probed against the shipped rules. */
+  supported_violations: ViolationType[];
+}
+
+export interface SceneValidationResponse {
+  valid: boolean;
+  errors: string[];
+  supported_violations: ViolationType[];
+  /** The address this draft would be stored under, or null when invalid. */
+  scene_hash: string | null;
+}
+
+/** One declared phase of a run's signal schedule (H13), in media seconds. */
+export interface SignalPhaseSpec {
+  at_seconds: number;
+  state: SignalState;
+}
+
 export type VideoSort = 'uploaded_at' | '-uploaded_at' | 'filename' | '-filename';
 
 /**

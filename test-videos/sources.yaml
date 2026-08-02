@@ -1,0 +1,424 @@
+# TrafficPulse Regression Dataset — source registry (T0)
+#
+# The single source of truth for every clip in the dataset. `fetch.py` reads the
+# `fetchable` entries and downloads them into place; `build_index.py` probes what
+# is on disk and regenerates `index.csv` and the per-video metadata sidecars.
+#
+# Nothing here is guessed. Every `licence` and `url` was read off the source page,
+# and every field that could not be established from the source (duration,
+# resolution, expected violation counts) is left null until it is *measured* from
+# the file or *read* from the provider's own annotations. See README.md §Honesty.
+#
+# tiers
+# -----
+#   redistributable : an explicit free licence (CC0 / CC BY / CC BY-SA / public
+#                     domain). Downloadable, and the file itself may be re-shared
+#                     provided the attribution below travels with it.
+#   fetch_on_demand : free to *use* but the licence restricts redistribution, or
+#                     the provider asks that the data not be mirrored. We record
+#                     the URL and download to a git-ignored path; we never commit
+#                     the bytes.
+#   manual          : requires registration, a signed data agreement, or an email
+#                     request. `fetch.py` will not touch these. Follow
+#                     `instructions` by hand.
+
+meta:
+  version: 1
+  generated_for: TrafficPulse
+  # Media is deliberately NOT committed to git (see README.md §Why the videos are
+  # not in the repository). This file plus fetch.py reproduces the dataset.
+  media_committed: false
+
+# ---------------------------------------------------------------------------
+# Tier: redistributable — explicit free licences, auto-downloaded by fetch.py
+# ---------------------------------------------------------------------------
+videos:
+  - name: clean_001
+    tier: redistributable
+    category: normal-traffic
+    source: Wikimedia Commons
+    title: A intersection with traffic in Chiang Mai, Thailand
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0 — share-alike applies to derivatives."
+    page: https://commons.wikimedia.org/wiki/File:A_intersection_with_traffic_in_Chiang_Mai,_Thailand.ogv
+    url: https://upload.wikimedia.org/wikipedia/commons/2/21/A_intersection_with_traffic_in_Chiang_Mai%2C_Thailand.ogv
+    filename: clean_001.ogv
+    country: Thailand
+    camera_type: handheld_elevated
+    primary_violation: none
+    secondary_features: [motorcycle_heavy, intersection, daylight]
+    difficulty: medium
+    expected_behavior: >-
+      Dense South-East Asian intersection traffic with a high two-wheeler share —
+      the closest freely-licensed analogue to Indian traffic composition. Vehicles
+      and motorcycles should be detected and tracked; with no calibrated scene no
+      geometry rule applies, so a run with only motorcycle rules should report
+      helmet/triple-riding findings and nothing else.
+    notes: >-
+      .ogv is NOT in TrafficPulse's accepted upload extensions — transcode before
+      use (see README.md §Transcoding). Not a fixed CCTV mount.
+
+  - name: clean_002
+    tier: redistributable
+    category: normal-traffic
+    source: Wikimedia Commons
+    title: Intersection Pie-IX-Sherbrooke
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0."
+    page: https://commons.wikimedia.org/wiki/File:Intersection_Pie-IX-Sherbrooke.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/1/18/Intersection_Pie-IX-Sherbrooke.webm
+    filename: clean_002.webm
+    country: Canada
+    camera_type: fixed_elevated
+    primary_violation: none
+    secondary_features: [intersection, signalised, daylight]
+    difficulty: easy
+    expected_behavior: >-
+      Orderly signalised intersection, near-static viewpoint. The control case for
+      false positives: a calibrated scene should confirm zero wrong-way and zero
+      illegal-stopping events here.
+
+  - name: clean_003
+    tier: redistributable
+    category: normal-traffic
+    source: Wikimedia Commons
+    title: Conflict multi-lane roundabout
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0."
+    page: https://commons.wikimedia.org/wiki/File:Conflict-mutli-lane-roundabout.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/8/8b/Conflict-mutli-lane-roundabout.webm
+    filename: clean_003.webm
+    country: unknown
+    camera_type: fixed_elevated
+    primary_violation: none
+    secondary_features: [roundabout, 4k, daylight]
+    difficulty: medium
+    expected_behavior: >-
+      4K overhead roundabout. A deliberate stress case for wrong-way calibration:
+      on a roundabout there is no single legal direction, so a whole-frame lane
+      scene MUST NOT be authored here. Correct behaviour is that calibration is
+      declined or restricted to one approach arm.
+
+  - name: wrongway_001
+    tier: redistributable
+    category: wrong-way
+    source: Wikimedia Commons
+    title: Contraflow traffic through roundabout on North Beach Road
+    licence: CC0
+    attribution: "Public-domain dedication (CC0); no attribution required."
+    page: https://commons.wikimedia.org/wiki/File:Contraflow_traffic_through_roundabout_on_North_Beach_Road.ogv
+    url: https://upload.wikimedia.org/wikipedia/commons/c/c7/Contraflow_traffic_through_roundabout_on_North_Beach_Road.ogv
+    filename: wrongway_001.ogv
+    country: Australia
+    camera_type: fixed_elevated
+    primary_violation: wrong_way
+    secondary_features: [roundabout, contraflow, daylight]
+    difficulty: hard
+    expected_behavior: >-
+      Signed contraflow: traffic is *lawfully* routed against the normal direction
+      of the carriageway. Read it as a wrong-way TRUE-POSITIVE only if the scene is
+      calibrated to the normal direction, and as a calibration lesson otherwise —
+      the reasoner detects opposition to the declared legal direction, which is
+      exactly what it claims to do and is not the same as detecting illegality.
+    notes: >-
+      .ogv — transcode before use. The expected count is deliberately unset: the
+      number of contraflow vehicles has not been counted frame by frame.
+
+  - name: congestion_001
+    tier: redistributable
+    category: edge-cases/congestion
+    source: Wikimedia Commons
+    title: Traffic Congestion, 6th Mile, Gangtok
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0."
+    page: https://commons.wikimedia.org/wiki/File:Traffic_Congestion,_6th_Mile,_Gangtok.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/8/85/Traffic_Congestion%2C_6th_Mile%2C_Gangtok.webm
+    filename: congestion_001.webm
+    country: India
+    camera_type: handheld
+    primary_violation: none
+    secondary_features: [india, congestion, occlusion, portrait_orientation]
+    difficulty: hard
+    expected_behavior: >-
+      Real Indian congestion. Heavy mutual occlusion and near-zero vehicle speed —
+      the tracker's ID-stability case, and a false-positive trap for
+      illegal-stopping (stationary in congestion is not stopping in a no-stopping
+      zone). Portrait orientation additionally exercises non-16:9 handling.
+
+  - name: congestion_002
+    tier: redistributable
+    category: edge-cases/congestion
+    source: Wikimedia Commons
+    title: A train stuck in traffic at a railway crossing in Raxaul, Bihar in 2018
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0."
+    page: https://commons.wikimedia.org/wiki/File:A_train_stuck_in_traffic_at_a_railway_crossing_in_Raxaul,_Bihar_in_2018.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/5/57/A_train_stuck_in_traffic_at_a_railway_crossing_in_Raxaul%2C_Bihar_in_2018.webm
+    filename: congestion_002.webm
+    country: India
+    camera_type: handheld
+    primary_violation: none
+    secondary_features: [india, motorcycle_heavy, congestion, level_crossing]
+    difficulty: hard
+    expected_behavior: >-
+      Indian level crossing, motorcycle-dense and fully gridlocked. Every vehicle
+      is stationary for the whole clip, so this is the strongest available
+      illegal-stopping false-positive test: with no no-stopping zone drawn, the
+      correct output is zero events.
+
+  - name: lowres_001
+    tier: redistributable
+    category: edge-cases/low-resolution
+    source: Wikimedia Commons
+    title: John Burdon Sanderson Haldane Avenue - Kolkata 2011
+    licence: CC BY 3.0
+    attribution: "See file page; CC BY 3.0 — attribution required."
+    page: https://commons.wikimedia.org/wiki/File:John_Burdon_Sanderson_Haldane_Avenue_-_Kolkata_2011-04-30_00033.ogv
+    url: https://upload.wikimedia.org/wikipedia/commons/0/0a/John_Burdon_Sanderson_Haldane_Avenue_-_Kolkata_2011-04-30_00033.ogv
+    filename: lowres_001.ogv
+    country: India
+    camera_type: handheld
+    primary_violation: none
+    secondary_features: [india, motorcycle_heavy, very_low_resolution]
+    difficulty: hard
+    expected_behavior: >-
+      176x144 Indian street traffic. Far below any sane detector input size — the
+      graceful-degradation case. Detection recall should collapse; what matters is
+      that the pipeline completes, reports honest metrics, and does not fabricate
+      events or crash. Helmet classification at this scale is meaningless and the
+      run should not be read as evidence about helmets either way.
+    notes: >-
+      .ogv — transcode before use.
+
+  - name: night_001
+    tier: redistributable
+    category: edge-cases/night
+    source: Wikimedia Commons
+    title: Night Views of Caton Farm Road in Crest Hill, Illinois 01
+    licence: CC BY 4.0
+    attribution: "See file page; CC BY 4.0 — attribution required."
+    page: https://commons.wikimedia.org/wiki/File:Night_Views_of_Caton_Farm_Road_in_Crest_Hill,_Illinois_01.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/8/8a/Night_Views_of_Caton_Farm_Road_in_Crest_Hill%2C_Illinois_01.webm
+    filename: night_001.webm
+    country: United States
+    camera_type: fixed_elevated
+    primary_violation: none
+    secondary_features: [night, headlight_glare, 4k]
+    difficulty: hard
+    large: true
+    expected_behavior: >-
+      Night roadway with headlight glare and heavy motion blur. Detector-robustness
+      case; helmet classification is not meaningfully testable in these conditions
+      and no helmet expectation should be recorded from it.
+
+  - name: clean_004
+    tier: redistributable
+    category: normal-traffic
+    source: Wikimedia Commons
+    title: Traffic in Hyderabad
+    licence: CC BY-SA 4.0
+    attribution: "See file page; CC BY-SA 4.0."
+    page: https://commons.wikimedia.org/wiki/File:Traffic_in_Hyderabad.webm
+    url: https://upload.wikimedia.org/wikipedia/commons/3/33/Traffic_in_Hyderabad.webm
+    filename: clean_004.webm
+    country: India
+    camera_type: handheld
+    primary_violation: none
+    secondary_features: [india, motorcycle_heavy, 4k, daylight]
+    difficulty: medium
+    large: true
+    expected_behavior: >-
+      4K Indian street traffic with a very high two-wheeler share — the best
+      freely-licensed footage in the set for motorcycle perception, rider
+      association, helmet classification, and triple riding. Expect real helmet and
+      possibly real triple-riding findings; counts are NOT pre-recorded because
+      they have not been established frame by frame.
+    notes: >-
+      789 MB. Excluded from the default fetch; pass --large to download it.
+
+# ---------------------------------------------------------------------------
+# Tier: manual — registration / data agreement / email request required.
+# These are the footage TrafficPulse actually wants. fetch.py never touches them.
+# ---------------------------------------------------------------------------
+manual:
+  - name: aicity_track5
+    priority: 1
+    category: no-helmet, triple-riding
+    title: AI City Challenge 2024/2025 — Track 5, Helmet Rule Violation Detection
+    source: NVIDIA AI City Challenge
+    url: https://www.aicitychallenge.org/
+    country: India
+    camera_type: fixed_cctv
+    content: >-
+      100 training + 100 test videos, 20 s each, 10 fps, 1920x1080, recorded in an
+      Indian city. Frame-level bounding boxes over eight classes: motorcycle,
+      driver with/without helmet, and up to three passenger positions each
+      with/without helmet.
+    licence: >-
+      Dataset licence agreement must be accepted before download. Redistribution is
+      NOT permitted — do not commit these files or re-host them.
+    instructions: |
+      1. Register a team at https://www.aicitychallenge.org/ and request the
+         Track 5 data; accept the dataset licence agreement.
+      2. Download the training split (it is the one with public annotations).
+      3. Place clips as test-videos/no-helmet/helmet_1xx.mp4 and record each in
+         sources.yaml under a new `videos:` entry with tier `manual_local`.
+      4. Convert the provided per-frame boxes into evaluation/manifest.yaml
+         expectations. This is the ONLY source in this registry that ships ground
+         truth precise enough to establish expected violation counts.
+    why_it_matters: >-
+      Indian, fixed CCTV, 1080p, motorcycle-centric, and annotated for exactly the
+      two violations TrafficPulse runs in production. Obtaining this converts the
+      regression suite from "did it crash?" to "did it get the right answer?".
+
+  - name: iith_helmet_1
+    priority: 2
+    category: no-helmet
+    title: IITH Helmet 1
+    source: IIT Hyderabad — VIGIL group
+    url: https://www.iith.ac.in/vigil/resources.html
+    contact: cs14resch1100 [at] iith [dot] ac [dot] in
+    country: India
+    camera_type: fixed_cctv
+    content: Two hours of campus surveillance video at 30 fps.
+    licence: >-
+      NO LICENCE IS STATED on the source page — only a citation requirement. Absence
+      of a stated licence is NOT permission to redistribute. Obtain it yourself,
+      keep it local, cite Singh et al. (ICMLA 2016), Vishnu et al. (IJCNN 2017) and
+      Dahiya et al. (IJCNN 2016).
+    instructions: |
+      1. Visit the VIGIL resources page (or email the contact above) and request
+         access, stating your research purpose.
+      2. Store locally only. Do not commit and do not re-host.
+
+  - name: iith_helmet_2
+    priority: 2
+    category: no-helmet
+    title: IITH Helmet 2
+    source: IIT Hyderabad — VIGIL group
+    url: https://www.iith.ac.in/vigil/resources.html
+    country: India
+    camera_type: fixed_cctv
+    content: >-
+      1.5 hours from the Hyderabad city CCTV surveillance network at 25 fps —
+      crowded real city traffic rather than a campus.
+    licence: As iith_helmet_1 — no stated licence; citation required.
+    instructions: As iith_helmet_1.
+
+  - name: bmd45
+    priority: 3
+    category: normal-traffic, no-helmet
+    title: BMD-45 — large-scale CCTV vehicle detection for urban traffic
+    source: arXiv (Bengaluru Traffic Police cameras, IRB-approved release)
+    url: https://arxiv.org/abs/2604.24419
+    country: India
+    camera_type: fixed_cctv
+    content: >-
+      Footage from publicly deployed Bengaluru Traffic Police cameras. Licence
+      plates, faces and camera text overlays are blurred before release.
+    licence: >-
+      Stated as a public release under institutional oversight; confirm the exact
+      terms in the paper before use or redistribution.
+    instructions: |
+      Read the paper for the download location and terms, then place clips in the
+      matching category folder and register them here.
+
+  - name: uvh26
+    priority: 4
+    category: evaluation
+    title: UVH-26 — Urban Vision Hackathon dataset
+    source: arXiv / Bengaluru Safe-City CCTV
+    url: https://arxiv.org/abs/2511.02563
+    country: India
+    camera_type: fixed_cctv
+    content: >-
+      26,646 annotated 1080p IMAGES (not video) from 2,800 Bengaluru Safe-City CCTV
+      cameras; 1.8 M boxes over 14 Indian vehicle classes.
+    licence: Stated by the authors as a permissive release; verify before use.
+    instructions: |
+      Images only, so it cannot join the video regression suite. Use it for
+      detector evaluation on Indian vehicle classes (experiments/), not here.
+
+  - name: gram_rtm
+    priority: 3
+    category: normal-traffic
+    title: GRAM Road-Traffic Monitoring (M-30, M-30-HD, Urban1)
+    source: University of Alcala
+    url: https://gram.web.uah.es/data/datasets/rtm/index.html
+    country: Spain
+    camera_type: fixed_cctv
+    content: >-
+      Three annotated fixed-camera sequences. Urban1 is a busy intersection from a
+      real video-surveillance traffic camera: 600x360, 23,435 frames at 25 fps,
+      237 annotated vehicles.
+    licence: >-
+      The source page states the database is "made publicly available for
+      scientific research purposes" and requires citing Guerrero-Gomez-Olmedo et
+      al. 2013. Some third-party pages describe it as CC BY 4.0; that is NOT
+      confirmed on the provider's own page, so treat it as research-use-only and
+      do not redistribute.
+    instructions: |
+      Download the sequences from the provider page, transcode the frame sets to
+      video if needed, and register them locally.
+    why_it_matters: >-
+      A genuine fixed traffic-surveillance viewpoint with vehicle annotations —
+      the right camera geometry for scene calibration and wrong-way testing, even
+      though it is not Indian and has few motorcycles.
+
+  - name: ua_detrac
+    priority: 4
+    category: normal-traffic, edge-cases
+    title: UA-DETRAC
+    source: University at Albany
+    url: https://detrac-db.rit.albany.edu/
+    country: China
+    camera_type: fixed_cctv
+    content: >-
+      100 sequences from 24 locations (urban highway, crossings, T-junctions),
+      140k+ annotated frames, with weather/occlusion/scale attribute labels that
+      map directly onto the edge-case folders.
+    licence: Research use; check the current terms on the provider site.
+    instructions: |
+      Useful mainly for populating edge-cases/{rain,night,occlusion} with
+      attribute-labelled sequences.
+
+  - name: iith_accident
+    priority: 5
+    category: edge-cases
+    title: IITH Accident Dataset
+    source: IIT Hyderabad
+    url: https://sites.google.com/site/dineshsinghindian/iith_accident-dataset
+    country: India
+    camera_type: fixed_cctv
+    content: >-
+      Real accident clips from the Hyderabad city CCTV network at 30 fps, each
+      starting minutes before the incident.
+    licence: Not stated; citation requested. Do not redistribute.
+    instructions: |
+      Out of scope for the shipped violations, but valuable later for anomaly
+      handling and for proving the pipeline degrades safely on chaotic scenes.
+
+# ---------------------------------------------------------------------------
+# Stock-footage platforms: free to use, but we deliberately do not mirror them.
+# ---------------------------------------------------------------------------
+stock_platforms:
+  - name: pexels
+    url: https://www.pexels.com/search/videos/indian%20traffic/
+    licence_url: https://www.pexels.com/license/
+    licence_summary: >-
+      Free to use, attribution optional. Explicitly prohibits "redistribute or sell
+      the photos and videos on other stock photo or wallpaper platforms" and
+      selling unaltered copies. Using a clip as a local test fixture is permitted;
+      committing the file into a public repository is close enough to
+      redistribution that this dataset does not do it.
+    guidance: >-
+      Search "indian traffic", "traffic intersection cctv", "motorcycle traffic".
+      Download by hand into the right folder, add a `videos:` entry with tier
+      `fetch_on_demand`, and let .gitignore keep the bytes out of git.
+  - name: pixabay
+    url: https://pixabay.com/videos/search/traffic%20india/
+    licence_url: https://pixabay.com/service/license-summary/
+    licence_summary: >-
+      Content Licence: free to use, no attribution required; prohibits
+      redistribution on other stock platforms. Same treatment as Pexels.
+    guidance: As Pexels.

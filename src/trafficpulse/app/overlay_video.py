@@ -24,8 +24,11 @@ from ..contracts import ConfirmedEvent
 from ..engine import InferenceEngine
 from ..overlay import OverlayCompositor
 from ..overlay.providers.no_helmet import NoHelmetOverlayProvider
+from ..overlay.providers.red_light import RedLightOverlayProvider
+from ..overlay.registry import OverlayProvider
 from ..overlay.video import OverlayVideoResult, render_overlay_video
 from ..pipeline.helmet_observer import HelmetFrameObserver, HelmetOverlayFrame
+from ..pipeline.red_light import RedLightOverlayCapture
 
 
 def collect_helmet_overlay_frames(engine: InferenceEngine) -> tuple[HelmetOverlayFrame, ...]:
@@ -42,20 +45,41 @@ def collect_helmet_overlay_frames(engine: InferenceEngine) -> tuple[HelmetOverla
     return tuple(frames)
 
 
+def collect_red_light_captures(engine: InferenceEngine) -> tuple[RedLightOverlayCapture, ...]:
+    """Gather the red-light overlay capture from an engine's geometry-only captures.
+
+    The pixel-free counterpart of :func:`collect_helmet_overlay_frames`: red-light
+    reasons over ``TrackState``s, so its metadata arrives through
+    ``engine.overlay_captures()`` rather than through a frame observer. Empty when
+    the run had no red-light rule.
+    """
+
+    return tuple(
+        capture
+        for capture in engine.overlay_captures()
+        if isinstance(capture, RedLightOverlayCapture)
+    )
+
+
 def build_job_compositor(
     engine: InferenceEngine, events: Sequence[ConfirmedEvent]
 ) -> OverlayCompositor | None:
     """Build the overlay compositor for a finished run, or ``None`` if nothing to draw.
 
-    One provider is registered per violation that produced overlay metadata. Today
-    that is no-helmet; a future violation adds its provider here (the renderer and
-    metadata model are untouched).
+    One provider per violation that produced overlay metadata. A violation whose
+    rule did not run contributes nothing, so the annotated video always describes
+    exactly the rules that were actually applied.
     """
 
-    providers = []
+    providers: list[OverlayProvider] = []
     helmet_frames = collect_helmet_overlay_frames(engine)
     if helmet_frames:
         providers.append(NoHelmetOverlayProvider(helmet_frames, events))
+    for capture in collect_red_light_captures(engine):
+        # The scene geometry is worth drawing even when no vehicle was tracked
+        # through the junction: a mis-drawn stop line should be visible on the
+        # first frame, not deduced from an absence of events.
+        providers.append(RedLightOverlayProvider(capture, events))
     if not providers:
         return None
     return OverlayCompositor(providers)

@@ -55,7 +55,7 @@ class, not touching the services or the registries.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
@@ -126,6 +126,15 @@ class VideoSnapshot(BaseModel):
     this field existed still validates; :meth:`to_record` then supplies the media
     file's modification time, which is the closest fact the filesystem retains."""
 
+    scene_hash: str | None = None
+    """The scene revision this video is calibrated against (H12).
+
+    The second linkage that exists nowhere else on disk. A ``SceneConfig`` names a
+    camera, not an upload -- exactly as a ``ConfirmedEvent`` does -- so without
+    this field a restart would recover the scenes *and* the videos and have no way
+    to tell which belongs to which, and every calibrated video would silently fall
+    back to the server default."""
+
     @classmethod
     def of(cls, record: VideoRecord) -> VideoSnapshot:
         return cls(
@@ -139,6 +148,7 @@ class VideoSnapshot(BaseModel):
             duration_seconds=record.duration_seconds,
             codec=record.codec,
             uploaded_at=record.uploaded_at,
+            scene_hash=record.scene_hash,
         )
 
     def to_record(self, path: Path) -> VideoRecord:
@@ -154,6 +164,7 @@ class VideoSnapshot(BaseModel):
             duration_seconds=self.duration_seconds,
             codec=self.codec,
             uploaded_at=self.uploaded_at or _media_mtime(path),
+            scene_hash=self.scene_hash,
         )
 
 
@@ -301,9 +312,21 @@ class RepositoryRecovery:
                 # advertise a playable upload whose bytes are gone.
                 skipped.append(f"{snapshot_path.name}: no media file for {snapshot.video_id}")
                 continue
-            videos.restore(snapshot.to_record(media))
+            record = snapshot.to_record(media)
+            if record.scene_hash is not None and not self._scene_exists(record.scene_hash):
+                # The binding outlived its scene. Keeping it would send processing
+                # looking for geometry that is gone; dropping it degrades the video
+                # to "not calibrated", which the analyst can see and fix.
+                skipped.append(
+                    f"{snapshot_path.name}: bound scene {record.scene_hash} is missing"
+                )
+                record = replace(record, scene_hash=None)
+            videos.restore(record)
             recovered += 1
         return recovered
+
+    def _scene_exists(self, scene_hash: str) -> bool:
+        return (self._config.scenes_dir / f"{scene_hash}.json").is_file()
 
     @staticmethod
     def _locate_media(directory: Path, video_id: str) -> Path | None:

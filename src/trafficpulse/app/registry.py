@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -58,6 +58,17 @@ class VideoRecord:
     existed: recovery falls back to the media file's modification time, and a
     record with neither reports ``None`` rather than inventing an instant."""
 
+    scene_hash: str | None = None
+    """The scene revision this video is calibrated against (H12), or ``None``.
+
+    The binding that replaces the application-wide scene: processing resolves the
+    scene *of the video* rather than of the server. It is a content hash, so it
+    names one immutable revision -- re-calibrating rebinds to a new one and leaves
+    every event already reasoned under the old one still able to resolve it.
+
+    ``None`` means "not calibrated": the video falls back to the server's
+    configured scene, if it has one, and only the geometry-free rules apply."""
+
 
 class VideoStore:
     """Thread-safe in-memory index of uploaded videos, keyed by content id.
@@ -83,6 +94,24 @@ class VideoStore:
 
         with self._lock:
             self._videos[record.video_id] = record
+
+    def bind_scene(self, video_id: str, scene_hash: str | None) -> VideoRecord | None:
+        """Point a video at a scene revision (H12); return the updated record.
+
+        Returns ``None`` for an unknown video. The record is frozen, so this
+        replaces it rather than mutating -- and because the replacement goes
+        through the change observer, the video's snapshot is rewritten and the
+        binding survives a restart with no extra call site to forget.
+        """
+
+        with self._lock:
+            existing = self._videos.get(video_id)
+            if existing is None:
+                return None
+            updated = replace(existing, scene_hash=scene_hash)
+            self._videos[video_id] = updated
+        self._notify(updated)
+        return updated
 
     def _notify(self, record: VideoRecord) -> None:
         if self._on_change is not None:

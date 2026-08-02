@@ -118,6 +118,16 @@ class AppConfig(BaseModel):
         return self.storage_dir / "runs"
 
     @property
+    def scenes_dir(self) -> Path:
+        """Where calibrated scene revisions are stored, one file per revision (H12).
+
+        A sibling of ``videos_dir`` / ``runs_dir`` rather than a subdirectory of
+        either: a scene belongs to a *camera* and can serve many uploads and many
+        runs, so nesting it under one of them would misstate its lifetime."""
+
+        return self.storage_dir / "scenes"
+
+    @property
     def overlays_dir(self) -> Path:
         """Where rendered overlay (annotated) videos are stored, one per job.
 

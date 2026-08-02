@@ -36,13 +36,14 @@ from .errors import AppError
 from .models import ErrorDetail, ErrorResponse
 from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
-from .routers import events, evidence, health, metrics, process, upload, videos
+from .routers import events, evidence, health, metrics, process, scenes, upload, videos
 from .services import (
     EventService,
     EvidenceService,
     MetricsService,
     ProcessingService,
     ReviewService,
+    SceneService,
     VideoLibraryService,
     VideoService,
 )
@@ -123,8 +124,11 @@ def _build_context(
     executor: JobExecutor,
 ) -> AppContext:
     from ..contracts import SceneConfig
-    from ..persistence import EventStore, ReviewStore
+    from ..persistence import EventStore, ReviewStore, SceneStore
 
+    # The file-configured scene is no longer *the* scene (H12): it is the fallback
+    # for videos nobody has calibrated, so a single-camera deployment keeps working
+    # unchanged while per-video calibration takes precedence.
     scene = load_scene(config.scene_path) if config.scene_path is not None else None
     assert scene is None or isinstance(scene, SceneConfig)  # load_scene is typed object
 
@@ -145,9 +149,19 @@ def _build_context(
     # The review journal shares the runtime root with the event store but writes to
     # its own `reviews/` subtree -- it can never touch a write-once event record.
     review_store = ReviewStore(config.runs_dir)
+    scene_service = SceneService(
+        SceneStore(config.storage_dir),
+        video_service,
+        video_store,
+        # AppConfig is the production authority on whether a helmet classifier
+        # exists: RealEngineProvider builds one from exactly this field, so a
+        # deployment without it cannot run no_helmet whatever a scene declares.
+        classifier_available=config.helmet_classifier is not None,
+        fallback=scene,
+    )
     processing = ProcessingService(
         config=config,
-        scene=scene,
+        scenes=scene_service,
         provider=provider,
         store=event_store,
         job_store=job_store,
@@ -159,9 +173,10 @@ def _build_context(
         config=config,
         provider=provider,
         videos=video_service,
+        scenes=scene_service,
         # The library reads the same registries recovery just rebuilt, which is what
         # makes a recovered video indistinguishable from a freshly uploaded one.
-        library=VideoLibraryService(video_store, job_store, review_store),
+        library=VideoLibraryService(video_store, job_store, review_store, scene_service),
         processing=processing,
         events=event_service,
         evidence=EvidenceService(event_service),
@@ -207,7 +222,7 @@ def create_app(
             allow_headers=["*"],
         )
 
-    for router in (health, upload, videos, process, events, evidence, metrics):
+    for router in (health, upload, videos, scenes, process, events, evidence, metrics):
         app.include_router(router.router)
 
     # The SPA mount is registered last so every /api route matches first; it is

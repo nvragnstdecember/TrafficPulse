@@ -28,6 +28,8 @@ from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ..contracts import (
     ConfirmedEvent,
     EvidenceManifest,
@@ -36,7 +38,8 @@ from ..contracts import (
     can_transition,
     next_status,
 )
-from ..contracts.enums import ReviewAction, ReviewStatus
+from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
+from ..contracts.scene import ZoneType, scene_config_hash
 from ..detector.errors import DetectorError
 from ..engine import EngineRunResult, FileFrameSource, InferenceEngine, RuleConfig
 from ..engine.errors import (
@@ -45,8 +48,10 @@ from ..engine.errors import (
     UnsupportedRuleError,
 )
 from ..ingestion.video import VideoIngestionError
-from ..persistence import EventStore, ReviewStore, RunNotFoundError
+from ..persistence import CorruptRecordError, EventStore, ReviewStore, RunNotFoundError, SceneStore
 from ..pipeline.errors import SceneConfigurationError
+from ..scenes import SceneDraft, build_scene
+from .capabilities import supported_violations
 from .config import AppConfig
 from .engine_provider import EngineProvider
 from .errors import (
@@ -59,6 +64,7 @@ from .errors import (
     JobNotFoundError,
     OverlayNotFoundError,
     PayloadTooLargeError,
+    SceneNotFoundError,
     UnsupportedMediaError,
     VideoMediaNotFoundError,
     VideoNotFoundError,
@@ -71,6 +77,8 @@ from .models import (
     MetricsResponse,
     ReviewDecisionRequest,
     ReviewResponse,
+    SceneSummary,
+    SceneValidationResponse,
     VideoListResponse,
     VideoSort,
     VideoSummary,
@@ -191,6 +199,200 @@ class VideoService:
         return record.path
 
 
+class SceneService:
+    """Authors, stores, and binds per-video scenes (H12).
+
+    The service that ends the application-wide scene. It owns three things and
+    delegates the rest:
+
+    * **authoring** -- delegated wholly to
+      :func:`~trafficpulse.scenes.builder.build_scene`, which is deterministic and
+      pure, so this service invents no geometry and stamps no provenance;
+    * **storage** -- delegated to the content-addressed
+      :class:`~trafficpulse.persistence.SceneStore`, so an edit is a new revision
+      rather than an overwrite and every historical event's ``scene_config_hash``
+      stays resolvable;
+    * **binding** -- one call to ``VideoStore.bind_scene``, which persists through
+      the same recovery observer every other video change uses.
+
+    Scene *validity* is never decided here: the ``SceneConfig`` contract validates
+    its own structure and references, and the shipped rules decide what they can
+    reason over (see :mod:`trafficpulse.app.capabilities`). This service only
+    reports what they said.
+    """
+
+    def __init__(
+        self,
+        store: SceneStore,
+        videos: VideoService,
+        video_store: VideoStore,
+        *,
+        classifier_available: bool = False,
+        fallback: SceneConfig | None = None,
+    ) -> None:
+        self._store = store
+        self._videos = videos
+        self._video_store = video_store
+        self._classifier_available = classifier_available
+        # The server's configured scene, used only for videos nobody has
+        # calibrated. Retained so an operator with one fixed camera keeps working
+        # exactly as before H12; it is a default, no longer the only answer.
+        self._fallback = fallback
+
+    # --- reading -------------------------------------------------------------
+    def get(self, scene_hash: str) -> SceneConfig:
+        """One stored scene revision, verbatim (404 when this repository has none).
+
+        Addressable by any ``scene_config_hash``, including one read off a
+        historical ``ConfirmedEvent`` -- which is what makes an event's declared
+        provenance something a client can actually fetch and inspect.
+        """
+
+        try:
+            scene = self._store.get(scene_hash)
+        except CorruptRecordError as exc:
+            raise SceneNotFoundError(f"scene {scene_hash!r} is stored but unreadable") from exc
+        if scene is None:
+            raise SceneNotFoundError(f"no stored scene with hash {scene_hash!r}")
+        return scene
+
+    def for_video(self, video_id: str) -> SceneConfig | None:
+        """The scene processing should use for a video: its own, else the fallback.
+
+        Resolution order is the whole point of H12 -- the video's binding wins, and
+        the server's configured scene is consulted only when there is no binding.
+        Returns ``None`` when neither exists, which the caller reports as a clean
+        "this video has no scene" rather than processing against unrelated geometry.
+        """
+
+        record = self._video_store.get(video_id)
+        if record is not None and record.scene_hash is not None:
+            stored = self._store.get(record.scene_hash)
+            if stored is not None:
+                return stored
+            # The binding survived but its revision did not. Falling through to the
+            # server default silently would reason over another camera's geometry.
+            _logger.warning(
+                "video %s is bound to missing scene %s; treating as uncalibrated",
+                video_id,
+                record.scene_hash,
+            )
+        return self._fallback
+
+    def summary_for_video(self, video_id: str) -> SceneSummary:
+        """The bound scene's summary, or 404 when the video is not calibrated."""
+
+        record = self._videos.require(video_id)
+        if record.scene_hash is None:
+            raise SceneNotFoundError(f"video {video_id!r} has no calibrated scene")
+        return self.summarise(self.get(record.scene_hash))
+
+    def summarise(self, scene: SceneConfig) -> SceneSummary:
+        """Present a scene for browsing (see :class:`SceneSummary`)."""
+
+        return SceneSummary(
+            scene_hash=scene_config_hash(scene),
+            scene_id=scene.scene.scene_id,
+            scene_name=scene.scene.scene_name,
+            camera_id=scene.scene.camera_id,
+            site_id=scene.scene.site_id,
+            status=scene.scene.status,
+            calibration_status=scene.calibration.status,
+            frame_width=scene.frame.reference_width,
+            frame_height=scene.frame.reference_height,
+            zone_count=len(scene.zones),
+            has_legal_direction=bool(scene.legal_directions),
+            has_no_stopping_zone=any(
+                zone.enabled and zone.zone_type is ZoneType.NO_STOPPING
+                for zone in scene.zones
+            ),
+            supported_violations=self.supported_violations(scene),
+        )
+
+    def supported_violations(self, scene: SceneConfig) -> tuple[ViolationType, ...]:
+        return supported_violations(scene, classifier_available=self._classifier_available)
+
+    def violations_for_video(self, video_id: str) -> tuple[ViolationType, ...]:
+        """What can be run for a video, given whichever scene resolves for it."""
+
+        scene = self.for_video(video_id)
+        return () if scene is None else self.supported_violations(scene)
+
+    # --- writing -------------------------------------------------------------
+    def calibrate(self, video_id: str, draft: SceneDraft) -> SceneSummary:
+        """Author this video's scene from a draft, store it, and bind it.
+
+        One call because the three steps have no independent meaning: an authored
+        scene nobody bound is orphaned data, and a binding to a scene nobody stored
+        is dangling. Idempotent by construction -- an unchanged drawing rebuilds
+        the same content, hashes to the same address, and rewrites the same bytes.
+
+        The draft's frame size must match the video's decoded dimensions: geometry
+        drawn against a different frame would land in the wrong place, and the
+        contract's in-bounds check would only catch the cases that overflow.
+        """
+
+        video = self._videos.require(video_id)
+        if (draft.frame_width, draft.frame_height) != (video.width, video.height):
+            raise InvalidConfigurationError(
+                f"the drawing is against a {draft.frame_width}x{draft.frame_height} "
+                f"frame but video {video_id!r} is {video.width}x{video.height}; "
+                "geometry must be drawn in the video's own pixel space"
+            )
+
+        scene = self._build(draft, video_id=video_id)
+        scene_hash = self._store.put(scene)
+        self._video_store.bind_scene(video_id, scene_hash)
+        return self.summarise(scene)
+
+    def validate(self, video_id: str, draft: SceneDraft) -> SceneValidationResponse:
+        """Check a draft without storing it, reporting what it would unlock.
+
+        The calibration surface's live feedback. A draft that cannot form a valid
+        scene comes back with the contract's own messages rather than a 422, so a
+        half-finished drawing is a *state* the UI can render, not a request error.
+        """
+
+        video = self._videos.require(video_id)
+        if (draft.frame_width, draft.frame_height) != (video.width, video.height):
+            return SceneValidationResponse(
+                valid=False,
+                errors=(
+                    f"drawing frame {draft.frame_width}x{draft.frame_height} does not "
+                    f"match the video's {video.width}x{video.height}",
+                ),
+            )
+        try:
+            scene = self._build(draft, video_id=video_id)
+        except ValidationError as exc:
+            return SceneValidationResponse(valid=False, errors=_validation_messages(exc))
+        return SceneValidationResponse(
+            valid=True,
+            supported_violations=self.supported_violations(scene),
+            scene_hash=scene_config_hash(scene),
+        )
+
+    def _build(self, draft: SceneDraft, *, video_id: str) -> SceneConfig:
+        """Expand a draft, giving the scene a logical id derived from the video.
+
+        The logical ``scene_id`` is stable across edits of the same video's scene
+        (the *hash* is what changes), so successive revisions are recognisably the
+        same site rather than looking like unrelated scenes.
+        """
+
+        return build_scene(draft, scene_id=f"scene-{video_id}")
+
+
+def _validation_messages(error: ValidationError) -> tuple[str, ...]:
+    """Flatten a pydantic error into client-safe lines naming the offending field."""
+
+    lines: list[str] = []
+    for detail in error.errors():
+        location = ".".join(str(part) for part in detail["loc"]) or "scene"
+        lines.append(f"{location}: {detail['msg']}")
+    return tuple(lines)
+
+
 class VideoLibraryService:
     """Browsable metadata for every stored video -- the historical library (H11).
 
@@ -216,6 +418,7 @@ class VideoLibraryService:
         videos: VideoStore,
         jobs: JobStore,
         reviews: ReviewStore | None = None,
+        scenes: SceneService | None = None,
     ) -> None:
         self._videos = videos
         self._jobs = jobs
@@ -223,6 +426,10 @@ class VideoLibraryService:
         # without the review layer, and then every video honestly reports that no
         # event has been reviewed.
         self._reviews = reviews
+        # Optional likewise: without the scene layer a row reports no calibration
+        # and no supported violations, which is the truthful answer for a library
+        # built without it rather than a guess.
+        self._scenes = scenes
 
     def list(self, *, limit: int, offset: int, sort: VideoSort) -> VideoListResponse:
         """Return a deterministic page of video summaries."""
@@ -283,6 +490,12 @@ class VideoLibraryService:
                 and opening.overlay_video.exists()
             ),
             media_available=record.path.is_file(),
+            scene_hash=record.scene_hash,
+            supported_violations=(
+                self._scenes.violations_for_video(record.video_id)
+                if self._scenes is not None
+                else ()
+            ),
         )
 
 
@@ -294,7 +507,7 @@ class ProcessingService:
         self,
         *,
         config: AppConfig,
-        scene: SceneConfig | None,
+        scenes: SceneService,
         provider: EngineProvider,
         store: EventStore,
         job_store: JobStore,
@@ -303,7 +516,10 @@ class ProcessingService:
         job_id_factory: JobIdFactory = _default_job_id,
     ) -> None:
         self._config = config
-        self._scene = scene
+        # H12: the scene is resolved *per video* at submit time, not held here.
+        # A service that owns one scene is exactly the singleton this milestone
+        # removed -- it made every upload reason against one camera's geometry.
+        self._scenes = scenes
         self._provider = provider
         self._store = store
         self._jobs = job_store
@@ -316,15 +532,21 @@ class ProcessingService:
     ) -> JobRecord:
         """Validate the request, create a job, and schedule its execution.
 
+        The scene comes from the **video** (its calibration, else the server's
+        configured fallback), so two videos from different cameras are reasoned
+        over their own geometry in the same process.
+
         Validation is eager: the engine is *built* here (so an invalid scene/rule
         combination or an unavailable backend fails as a clean HTTP error) before
         the job is scheduled. Only the actual inference runs on the executor.
         """
 
         video = self._videos.require(video_id)
-        if self._scene is None:
-            raise EngineUnavailableError(
-                "no scene is configured; the server cannot process video yet"
+        scene = self._scenes.for_video(video_id)
+        if scene is None:
+            raise InvalidConfigurationError(
+                f"video {video_id!r} has no calibrated scene and the server has no "
+                "default scene configured; calibrate the video before processing it"
             )
         resolved = rules if rules is not None else self._config.default_rules
         if not resolved:
@@ -332,17 +554,17 @@ class ProcessingService:
                 "no rules were specified and the server has no default rule set"
             )
 
-        engine = self._build_engine(resolved)
+        engine = self._build_engine(scene, resolved)
         job = JobRecord(job_id=self._job_id_factory(), video_id=video_id, engine=engine)
         self._jobs.add(job)
-        scene = self._scene
         self._executor.submit(lambda: self._run(job, video, scene))
         return job
 
-    def _build_engine(self, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
-        assert self._scene is not None
+    def _build_engine(
+        self, scene: SceneConfig, rules: tuple[RuleConfig, ...]
+    ) -> InferenceEngine:
         try:
-            return self._provider.create(scene=self._scene, rules=rules)
+            return self._provider.create(scene=scene, rules=rules)
         except (
             SceneConfigurationError,
             EngineConfigurationError,
@@ -812,6 +1034,7 @@ def _sorted_summaries(
 __all__ = [
     "VideoService",
     "VideoLibraryService",
+    "SceneService",
     "ProcessingService",
     "EventService",
     "EvidenceService",

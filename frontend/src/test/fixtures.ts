@@ -8,6 +8,7 @@ import {
   type ReviewCase,
   type ReviewEntry,
   type ReviewResponse,
+  type SceneSummary,
   type VideoSummary,
   type VideoUploadResponse,
   type ViolationType,
@@ -153,6 +154,26 @@ export function makeVideo(overrides: Partial<VideoUploadResponse> = {}): VideoUp
   };
 }
 
+/** A calibrated scene summary (H12/H13). */
+export function makeSceneSummary(overrides: Partial<SceneSummary> = {}): SceneSummary {
+  return {
+    scene_hash: 'a'.repeat(64),
+    scene_id: 'scene-vid-1',
+    scene_name: 'Scene for vid-1',
+    camera_id: 'cam-vid-1',
+    site_id: 'site-default',
+    status: 'draft',
+    calibration_status: 'absent',
+    frame_width: 320,
+    frame_height: 240,
+    zone_count: 1,
+    has_legal_direction: false,
+    has_no_stopping_zone: false,
+    supported_violations: ['no_helmet', 'triple_riding'],
+    ...overrides,
+  };
+}
+
 /** A historical-library row (H11); defaults to an analysed video with events. */
 export function makeVideoSummary(overrides: Partial<VideoSummary> = {}): VideoSummary {
   return {
@@ -207,6 +228,7 @@ export function makeProcessingController(
     selectAndUpload: vi.fn(),
     openVideo: vi.fn(),
     startProcessing: vi.fn(),
+    reprocessWith: vi.fn(),
     cancel: vi.fn(),
     cancelUpload: vi.fn(),
     retry: vi.fn(),
