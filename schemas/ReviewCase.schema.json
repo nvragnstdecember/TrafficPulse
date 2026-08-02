@@ -1,11 +1,13 @@
 {
   "$defs": {
     "ReviewStatus": {
-      "description": "Human-review decision states (architecture-review §21).",
+      "description": "Human-review decision states (architecture-review §21).\n\n``IN_REVIEW`` and ``FALSE_POSITIVE`` were added for the analyst decision\nworkflow (H9). ``NEEDS_MORE_EVIDENCE`` predates it and is retained: removing a\npublished contract value would be a breaking change, and \"park this until\nbetter evidence exists\" is a decision an analyst genuinely needs that none of\nthe other states expresses.\n\n``FALSE_POSITIVE`` is deliberately distinct from ``REJECTED``. Rejecting says\n*this is not an offence worth pursuing*; marking a false positive says *the\nsystem was wrong*. Collapsing them would make the one signal that measures\ndetector quality indistinguishable from ordinary enforcement discretion.",
       "enum": [
         "pending",
+        "in_review",
         "approved",
         "rejected",
+        "false_positive",
         "needs_more_evidence"
       ],
       "title": "ReviewStatus",
@@ -13,7 +15,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "The human-review state attached to one evidence package.\n\n``reviewer_id`` is an opaque identifier only. ``audit_ref`` is a pointer to\nan append-only audit record maintained elsewhere; the log itself is not\npart of this contract.",
+  "description": "The human-review state attached to one evidence package.\n\n``reviewer_id`` is an opaque identifier only. ``audit_ref`` is a pointer to\nan append-only audit record maintained elsewhere; the log itself is not\npart of this contract.\n\nFields added in H9 (``event_id``, ``reason``, ``updated_at``) are optional so\nrecords written before the analyst workflow existed still validate.\n``event_id`` addresses the case by the id every other layer already uses.",
   "properties": {
     "audit_ref": {
       "anyOf": [
@@ -46,6 +48,19 @@
       "default": null,
       "title": "Decided At"
     },
+    "event_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Event Id"
+    },
     "evidence_package_id": {
       "minLength": 1,
       "title": "Evidence Package Id",
@@ -62,6 +77,18 @@
       ],
       "default": null,
       "title": "Note"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
     },
     "review_case_id": {
       "minLength": 1,
@@ -83,6 +110,19 @@
     },
     "status": {
       "$ref": "#/$defs/ReviewStatus"
+    },
+    "updated_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Updated At"
     }
   },
   "required": [

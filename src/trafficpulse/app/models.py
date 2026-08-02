@@ -19,8 +19,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..contracts import ConfidenceBreakdown
-from ..contracts.enums import ViolationType
+from ..contracts import ConfidenceBreakdown, ReviewCase, ReviewEntry
+from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
 from ..engine import EngineMetrics, RuleConfig
 from .registry import JobStatus, OverlayStatus, VideoRecord
 
@@ -188,6 +188,54 @@ class EventSummary(_ApiModel):
         "are published separately and any the rule did not measure are null; in "
         "particular 'aggregate' is deliberately null unless calibration has been "
         "demonstrated, so a client must not treat a missing value as zero."
+    )
+    review_status: ReviewStatus = Field(
+        default=ReviewStatus.PENDING,
+        description="Current analyst-review state, folded from the event's review "
+        "journal. 'pending' means no analyst has acted on it yet.",
+    )
+
+
+class ReviewDecisionRequest(_ApiModel):
+    """One analyst action to record against an event (H9).
+
+    ``reviewer`` is an opaque identifier supplied by the client: TrafficPulse has
+    no authentication layer (architecture-review §21), so the API records *who the
+    client says acted* and never implies it verified them. When identity becomes
+    authenticated this field is where it lands, unchanged.
+    """
+
+    action: ReviewAction = Field(description="The action the analyst performed.")
+    reviewer: str = Field(
+        default="analyst",
+        min_length=1,
+        max_length=128,
+        description="Opaque reviewer identifier; not authenticated.",
+    )
+    note: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="Free-text analyst note recorded with this action.",
+    )
+    reason: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Short justification for a decision (optional).",
+    )
+
+
+class ReviewResponse(_ApiModel):
+    """An event's current review case plus its full audit history (H9).
+
+    Both are returned together because the case is a *fold over* the history --
+    serving them from separate endpoints would let a client render a status and a
+    log that disagree, which is precisely what the append-only design exists to
+    make impossible.
+    """
+
+    case: ReviewCase = Field(description="Current review state, derived from the history.")
+    history: tuple[ReviewEntry, ...] = Field(
+        description="Every recorded analyst action, oldest first. Append-only."
     )
 
 

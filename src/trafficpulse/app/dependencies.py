@@ -25,6 +25,7 @@ from .services import (
     EvidenceService,
     MetricsService,
     ProcessingService,
+    ReviewService,
     VideoService,
 )
 
@@ -39,6 +40,7 @@ class AppContext:
     processing: ProcessingService
     events: EventService
     evidence: EvidenceService
+    reviews: ReviewService
     metrics: MetricsService
 
 
@@ -73,6 +75,10 @@ def get_evidence_service(request: Request) -> EvidenceService:
     return get_context(request).evidence
 
 
+def get_review_service(request: Request) -> ReviewService:
+    return get_context(request).reviews
+
+
 def get_metrics_service(request: Request) -> MetricsService:
     return get_context(request).metrics
 
@@ -83,4 +89,5 @@ VideoServiceDep = Annotated[VideoService, Depends(get_video_service)]
 ProcessingServiceDep = Annotated[ProcessingService, Depends(get_processing_service)]
 EventServiceDep = Annotated[EventService, Depends(get_event_service)]
 EvidenceServiceDep = Annotated[EvidenceService, Depends(get_evidence_service)]
+ReviewServiceDep = Annotated[ReviewService, Depends(get_review_service)]
 MetricsServiceDep = Annotated[MetricsService, Depends(get_metrics_service)]

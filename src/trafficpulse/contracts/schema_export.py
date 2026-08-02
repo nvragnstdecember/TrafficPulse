@@ -27,11 +27,11 @@ from .evidence import EvidenceManifest
 from .hypothesis import ViolationHypothesis
 from .observations import OBSERVATION_VARIANTS, ObservationAdapter
 from .penalty import SimulatedPenalty
-from .review import ReviewCase
+from .review import ReviewCase, ReviewEntry
 from .temporal import TemporalState
 from .track import TrackState
 
-# The nine top-level contract models exported individually.
+# The ten top-level contract models exported individually.
 TOP_LEVEL_CONTRACTS: tuple[type[BaseModel], ...] = (
     Detection,
     TrackState,
@@ -41,6 +41,7 @@ TOP_LEVEL_CONTRACTS: tuple[type[BaseModel], ...] = (
     ConfirmedEvent,
     EvidenceManifest,
     ReviewCase,
+    ReviewEntry,
     SimulatedPenalty,
 )
 

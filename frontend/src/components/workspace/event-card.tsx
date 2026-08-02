@@ -1,6 +1,7 @@
 import { memo } from 'react';
 
 import { formatPercent } from '@/lib/format';
+import { reviewStatusLabel, reviewStatusTone } from '@/lib/review';
 import { cn } from '@/lib/utils';
 import {
   CONFIDENCE_LABELS,
@@ -103,6 +104,14 @@ export const EventCard = memo(function EventCard({
               dot={false}
               className="text-2xs"
             />
+            {event.reviewStatus === 'pending' ? null : (
+              <StatusChip
+                tone={reviewStatusTone(event.reviewStatus)}
+                label={reviewStatusLabel(event.reviewStatus)}
+                dot={false}
+                className="text-2xs"
+              />
+            )}
             <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
               {formatClock(event.mediaSeconds)}
             </span>

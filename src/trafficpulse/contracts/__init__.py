@@ -25,6 +25,7 @@ from .enums import (
     LifecycleState,
     ObjectClass,
     ProducerKind,
+    ReviewAction,
     ReviewStatus,
     RiderSlot,
     SignalState,
@@ -61,7 +62,13 @@ from .primitives import (
     TimeInterval,
     Velocity,
 )
-from .review import ReviewCase
+from .review import (
+    REVIEW_TRANSITIONS,
+    ReviewCase,
+    ReviewEntry,
+    can_transition,
+    next_status,
+)
 from .scene import (
     Calibration,
     CalibrationStatus,
@@ -107,6 +114,7 @@ __all__ = [
     "TrackStatus",
     "AssociationType",
     "LifecycleState",
+    "ReviewAction",
     "ReviewStatus",
     "SimulatedPenaltyStatus",
     "HelmetState",
@@ -142,6 +150,10 @@ __all__ = [
     "RuleTraceStep",
     "EvidenceManifest",
     "ReviewCase",
+    "ReviewEntry",
+    "REVIEW_TRANSITIONS",
+    "can_transition",
+    "next_status",
     "SimulatedAmount",
     "SimulatedPenalty",
     # scene configuration (U5)

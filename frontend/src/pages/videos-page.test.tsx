@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '@/api/errors';
 import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
-import { useNotesStore } from '@/store/notes-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useProcessingStore } from '@/store/processing-store';
 import { useSelectionStore } from '@/store/selection-store';
@@ -16,6 +15,9 @@ import {
   makeEvidence,
   makeFile,
   makeJob,
+  makeReview,
+  makeReviewCase,
+  makeReviewEntry,
   makeVideo,
   mediaSeconds,
 } from '@/test/fixtures';
@@ -37,6 +39,8 @@ vi.mock('@/services/events.service', () => ({
     list: vi.fn(),
     get: vi.fn(),
     getEvidence: vi.fn(),
+    getReview: vi.fn(),
+    decide: vi.fn(),
   },
 }));
 
@@ -49,7 +53,6 @@ beforeEach(() => {
     useUploadStore.getState().reset();
     useProcessingStore.getState().reset();
     useSelectionStore.getState().clearSelection();
-    useNotesStore.setState({ notes: {} });
     useWorkspacePrefsStore.setState({
       filters: DEFAULT_EVENT_FILTERS,
       sort: 'time-asc',
@@ -81,6 +84,13 @@ beforeEach(() => {
   });
   vi.mocked(eventsService.get).mockResolvedValue(makeConfirmedEvent());
   vi.mocked(eventsService.getEvidence).mockResolvedValue(makeEvidence());
+  vi.mocked(eventsService.getReview).mockResolvedValue(makeReview());
+  vi.mocked(eventsService.decide).mockResolvedValue(
+    makeReview({
+      case: makeReviewCase({ status: 'in_review', reviewer_id: 'analyst' }),
+      history: [makeReviewEntry()],
+    }),
+  );
 });
 
 /** Upload a file and wait for the workspace to replace the dropzone. */
@@ -337,13 +347,58 @@ describe('VideosPage — review workflow (H7E)', () => {
     expect(persisted.state.filters.query).toBe('helmet');
   });
 
-  it('saves an analyst note for the selected event', async () => {
+  it('records a decision with its note, and shows the audit history', async () => {
+    // The H9 success path, end to end through the real components: open a case,
+    // type a justification, approve, and see both the status and the history move.
     const user = await uploadAndOpenWorkspace();
     const list = screen.getByRole('region', { name: 'Detected events' });
     await user.click(await within(list).findByRole('button', { name: 'Wrong way at 0:04' }));
 
-    const notes = await screen.findByPlaceholderText('Add a review note…');
-    await user.type(notes, 'Confirmed');
-    expect(useNotesStore.getState().notes['evt-1']).toBe('Confirmed');
+    await user.click(await screen.findByRole('tab', { name: 'Review' }));
+    await user.click(await screen.findByRole('button', { name: 'Start review' }));
+
+    vi.mocked(eventsService.decide).mockResolvedValueOnce(
+      makeReview({
+        case: makeReviewCase({ status: 'approved', reviewer_id: 'analyst', note: 'Confirmed' }),
+        history: [
+          makeReviewEntry(),
+          makeReviewEntry({
+            entry_id: 'rev-2',
+            action: 'approve',
+            status_before: 'in_review',
+            status_after: 'approved',
+            note: 'Confirmed',
+          }),
+        ],
+      }),
+    );
+    await user.type(await screen.findByLabelText('Analyst note'), 'Confirmed');
+    await user.click(screen.getByRole('button', { name: 'Approve' }));
+
+    await waitFor(() =>
+      expect(eventsService.decide).toHaveBeenCalledWith('evt-1', {
+        action: 'approve',
+        reviewer: 'analyst',
+        note: 'Confirmed',
+      }),
+    );
+    // The decision propagates to every surface at once — header badge, panel
+    // status, metadata, and history — so scope the assertions.
+    const audit = await screen.findByRole('region', { name: 'Audit history' });
+    expect(within(audit).getByText('Review opened')).toBeInTheDocument();
+    expect(within(audit).getByText('Approved')).toBeInTheDocument();
+    expect(screen.getAllByText('Approved').length).toBeGreaterThan(1);
+  });
+
+  it('offers only the decisions legal from the current state', async () => {
+    // A pending case cannot be approved: the lifecycle exists to make "somebody
+    // looked at this" auditable, so the button is simply not offered.
+    const user = await uploadAndOpenWorkspace();
+    const list = screen.getByRole('region', { name: 'Detected events' });
+    await user.click(await within(list).findByRole('button', { name: 'Wrong way at 0:04' }));
+    await user.click(await screen.findByRole('tab', { name: 'Review' }));
+
+    expect(await screen.findByRole('button', { name: 'Start review' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   });
 });

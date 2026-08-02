@@ -35,9 +35,11 @@ from .evidence_stub import (
     evidence_package_id_for,
     trigger_frame_locator_for,
 )
+from .review_store import ReviewStore
 from .store import DEFAULT_RUN_ROOT, EventStore, StoredEvent
 
 __all__ = [
+    "ReviewStore",
     # store
     "EventStore",
     "StoredEvent",

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { type ViolationType } from '@/api/types';
+import { type ReviewAction, type ViolationType } from '@/api/types';
 import { PLAYER_SHORTCUTS, usePlayerShortcuts } from '@/hooks/use-player-shortcuts';
 import { type ProcessingController } from '@/hooks/use-processing';
+import { useDecideReview, useReview } from '@/hooks/use-review';
 import { useMetrics } from '@/hooks/use-system';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { type WorkflowStage, isActivePhase } from '@/lib/job';
@@ -33,10 +34,22 @@ import { EventDetail } from './event-detail';
 import { EvidenceViewer } from './evidence-viewer';
 import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
+import { ReviewPanel } from './review-panel';
 import { ReviewSummary } from './review-summary';
 import { Timeline } from './timeline';
 import { VideoPlayer } from './video-player';
 import { WorkflowNav } from './workflow-nav';
+
+/**
+ * Who the API records as having acted.
+ *
+ * TrafficPulse has no authentication layer (architecture-review §21), so the
+ * backend records *who the client says* acted and never implies it verified them.
+ * A single honest placeholder is better than inventing a per-session identity that
+ * would look like an authenticated user in the audit trail; when real identity
+ * arrives it replaces this constant and nothing else.
+ */
+const REVIEWER = 'analyst';
 
 export interface WorkspaceViewProps {
   processing: ProcessingController;
@@ -92,6 +105,16 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   // The engine's own snapshot for the latest run, reused verbatim for statistics.
   const metricsQuery = useMetrics();
   const metrics = metricsQuery.data?.latest ?? null;
+
+  // Review is server state: the case + its append-only history come from the API
+  // and there is deliberately no client store mirroring them.
+  const reviewQuery = useReview(selectedEventId ?? undefined);
+  const decide = useDecideReview();
+
+  function handleDecide(action: ReviewAction, note: string | null): void {
+    if (!selectedEventId) return;
+    decide.mutate({ eventId: selectedEventId, action, reviewer: REVIEWER, note });
+  }
 
   // Run-level model provenance. Every event in a run carries the same set, so
   // whichever record is loaded is representative; nothing is fetched for this.
@@ -307,6 +330,22 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           detail={workspace.selectedDetail}
           currentTime={state.currentTime}
           onReplay={() => selectedEvent && selectAndReview(selectedEvent.id)}
+          reviewStatus={selectedEvent?.reviewStatus}
+          reviewSlot={
+            selectedEventId ? (
+              <ReviewPanel
+                eventId={selectedEventId}
+                reviewCase={reviewQuery.data?.case}
+                history={reviewQuery.data?.history ?? []}
+                isLoading={reviewQuery.isLoading}
+                error={reviewQuery.isError ? reviewQuery.error : null}
+                onRetry={() => void reviewQuery.refetch()}
+                onDecide={handleDecide}
+                isDeciding={decide.isPending}
+                reviewer={REVIEWER}
+              />
+            ) : null
+          }
           evidence={workspace.evidence}
           isLoading={workspace.isDetailLoading}
           detailError={workspace.detailError}

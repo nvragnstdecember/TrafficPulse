@@ -1,6 +1,7 @@
-import { ListFilter, SlidersHorizontal, X } from 'lucide-react';
+import { ClipboardCheck, ListFilter, SlidersHorizontal, X } from 'lucide-react';
 
-import { type ViolationType } from '@/api/types';
+import { type ReviewStatus, type ViolationType } from '@/api/types';
+import { ALL_REVIEW_STATUSES, reviewStatusLabel } from '@/lib/review';
 import { formatPercent } from '@/lib/format';
 import {
   DEFAULT_EVENT_FILTERS,
@@ -38,6 +39,13 @@ export function EventFiltersBar({
   onSortChange,
   availableViolations,
 }: EventFiltersBarProps) {
+  const toggleReviewStatus = (status: ReviewStatus) => {
+    const next = filters.reviewStatuses.includes(status)
+      ? filters.reviewStatuses.filter((value) => value !== status)
+      : [...filters.reviewStatuses, status];
+    onFiltersChange({ ...filters, reviewStatuses: next });
+  };
+
   const toggleViolation = (violation: ViolationType) => {
     const next = filters.violationTypes.includes(violation)
       ? filters.violationTypes.filter((v) => v !== violation)
@@ -72,6 +80,30 @@ export function EventFiltersBar({
                 onSelect={(event) => event.preventDefault()}
               >
                 {violationLabel(violation)}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <ClipboardCheck className="size-4" />
+              Review
+              {filters.reviewStatuses.length > 0 ? ` (${filters.reviewStatuses.length})` : ''}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>Filter by review state</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {ALL_REVIEW_STATUSES.map((status) => (
+              <DropdownMenuCheckboxItem
+                key={status}
+                checked={filters.reviewStatuses.includes(status)}
+                onCheckedChange={() => toggleReviewStatus(status)}
+                onSelect={(event) => event.preventDefault()}
+              >
+                {reviewStatusLabel(status)}
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>

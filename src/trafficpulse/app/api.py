@@ -41,6 +41,7 @@ from .services import (
     EvidenceService,
     MetricsService,
     ProcessingService,
+    ReviewService,
     VideoService,
 )
 
@@ -122,13 +123,16 @@ def _build_context(
     job_store: JobStore,
 ) -> AppContext:
     from ..contracts import SceneConfig
-    from ..persistence import EventStore
+    from ..persistence import EventStore, ReviewStore
 
     scene = load_scene(config.scene_path) if config.scene_path is not None else None
     assert scene is None or isinstance(scene, SceneConfig)  # load_scene is typed object
 
     videos = VideoService(config, video_store)
     event_store = EventStore(config.runs_dir)
+    # The review journal shares the runtime root with the event store but writes to
+    # its own `reviews/` subtree -- it can never touch a write-once event record.
+    review_store = ReviewStore(config.runs_dir)
     processing = ProcessingService(
         config=config,
         scene=scene,
@@ -138,7 +142,7 @@ def _build_context(
         executor=executor,
         videos=videos,
     )
-    event_service = EventService(event_store, job_store)
+    event_service = EventService(event_store, job_store, review_store)
     return AppContext(
         config=config,
         provider=provider,
@@ -146,6 +150,7 @@ def _build_context(
         processing=processing,
         events=event_service,
         evidence=EvidenceService(event_service),
+        reviews=ReviewService(event_service, review_store),
         metrics=MetricsService(job_store),
     )
 

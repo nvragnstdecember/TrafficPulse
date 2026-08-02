@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
 
-import { useNotesStore } from './notes-store';
 import { useSelectionStore } from './selection-store';
 import { useWorkspacePrefsStore } from './workspace-prefs-store';
 
@@ -11,7 +10,6 @@ beforeEach(() => {
   localStorage.clear();
   act(() => {
     useSelectionStore.getState().clearSelection();
-    useNotesStore.setState({ notes: {} });
     useWorkspacePrefsStore.setState({
       filters: DEFAULT_EVENT_FILTERS,
       sort: 'time-asc',
@@ -48,28 +46,6 @@ describe('workspace-prefs store (H7E)', () => {
     });
     expect(useWorkspacePrefsStore.getState().filters).toEqual(DEFAULT_EVENT_FILTERS);
     expect(useWorkspacePrefsStore.getState().sort).toBe('severity-desc');
-  });
-});
-
-describe('notes store (H7E)', () => {
-  it('sets, persists, and prunes blank notes', () => {
-    act(() => useNotesStore.getState().setNote('evt-1', 'Confirmed on review'));
-    expect(useNotesStore.getState().notes['evt-1']).toBe('Confirmed on review');
-
-    const persisted = JSON.parse(localStorage.getItem('trafficpulse-notes') ?? '{}');
-    expect(persisted.state.notes['evt-1']).toBe('Confirmed on review');
-
-    act(() => useNotesStore.getState().setNote('evt-1', '   '));
-    expect('evt-1' in useNotesStore.getState().notes).toBe(false);
-  });
-
-  it('clears a single note', () => {
-    act(() => {
-      useNotesStore.getState().setNote('evt-1', 'a');
-      useNotesStore.getState().setNote('evt-2', 'b');
-      useNotesStore.getState().clearNote('evt-1');
-    });
-    expect(useNotesStore.getState().notes).toEqual({ 'evt-2': 'b' });
   });
 });
 

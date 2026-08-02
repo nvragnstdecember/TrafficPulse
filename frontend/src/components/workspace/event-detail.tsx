@@ -1,6 +1,12 @@
 import { Crosshair, Download, FileJson, Image, MousePointerClick, Play } from 'lucide-react';
 
-import { type ConfirmedEvent, type EvidenceManifest, type MeasuredValue } from '@/api/types';
+import {
+  type ConfirmedEvent,
+  type EvidenceManifest,
+  type MeasuredValue,
+  type ReviewStatus,
+} from '@/api/types';
+import { reviewStatusLabel, reviewStatusTone } from '@/lib/review';
 import { formatDateTime, formatPercent } from '@/lib/format';
 import {
   CONFIDENCE_LABELS,
@@ -14,7 +20,6 @@ import {
   violationSeverity,
   violationTone,
 } from '@/lib/workspace';
-import { useNotesStore } from '@/store/notes-store';
 
 import { CollapsibleSection } from '../common/collapsible-section';
 import { CopyButton } from '../common/copy-button';
@@ -50,6 +55,10 @@ export interface EventDetailProps {
   currentTime?: number;
   /** Replay this event's review window from its lead-in. */
   onReplay?: () => void;
+  /** The analyst decision surface, rendered as the Review tab (H9). */
+  reviewSlot?: React.ReactNode;
+  /** Current review status, badged in the header. */
+  reviewStatus?: ReviewStatus;
   // --- H7E quick actions ---
   /** Open the full evidence viewer for this event. */
   onOpenEvidenceViewer?: () => void;
@@ -91,25 +100,6 @@ function MeasurementTable({ title, rows }: { title: string; rows: MeasuredValue[
   );
 }
 
-function AnalystNotes({ eventId }: { eventId: string }) {
-  const note = useNotesStore((state) => state.notes[eventId] ?? '');
-  const setNote = useNotesStore((state) => state.setNote);
-  return (
-    <label className="block space-y-1">
-      <span className="text-2xs uppercase tracking-wide text-muted-foreground">
-        Analyst notes (private, saved locally)
-      </span>
-      <textarea
-        value={note}
-        onChange={(e) => setNote(eventId, e.target.value)}
-        rows={3}
-        placeholder="Add a review note…"
-        className="w-full resize-y rounded-md border bg-background p-2 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
-      />
-    </label>
-  );
-}
-
 /**
  * The selected event's detail panel (H7C; review tooling in H7E).
  *
@@ -133,6 +123,8 @@ export function EventDetail({
   onSeek,
   currentTime,
   onReplay,
+  reviewSlot,
+  reviewStatus,
   onOpenEvidenceViewer,
   onExportJson,
   onExportManifest,
@@ -166,6 +158,12 @@ export function EventDetail({
             dot={false}
           />
           <StatusChip tone={severityTone(severity)} label={`${severityLabel(severity)} severity`} />
+          {reviewStatus ? (
+            <StatusChip
+              tone={reviewStatusTone(reviewStatus)}
+              label={reviewStatusLabel(reviewStatus)}
+            />
+          ) : null}
         </div>
       </CardHeader>
 
@@ -208,6 +206,7 @@ export function EventDetail({
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
             <TabsTrigger value="measurements">Measurements</TabsTrigger>
             <TabsTrigger value="evidence">Evidence</TabsTrigger>
+            {reviewSlot ? <TabsTrigger value="review">Review</TabsTrigger> : null}
           </TabsList>
 
           <TabsContent value="overview" className="space-y-3">
@@ -270,7 +269,6 @@ export function EventDetail({
               </CollapsibleSection>
             ) : null}
 
-            <AnalystNotes eventId={event.id} />
           </TabsContent>
 
           <TabsContent value="timeline" className="space-y-3">
@@ -395,6 +393,11 @@ export function EventDetail({
               <p className="text-sm text-muted-foreground">No evidence manifest for this event.</p>
             )}
           </TabsContent>
+          {reviewSlot ? (
+            <TabsContent value="review" className="space-y-3">
+              {reviewSlot}
+            </TabsContent>
+          ) : null}
         </Tabs>
       </CardContent>
     </Card>

@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
-import { useNotesStore } from '@/store/notes-store';
 import {
   makeConfirmedEvent,
   makeEvidence,
@@ -27,7 +26,6 @@ function renderInPlayer(ui: React.ReactElement) {
 
 beforeEach(() => {
   localStorage.clear();
-  useNotesStore.setState({ notes: {} });
 });
 
 describe('CopyButton', () => {
@@ -256,7 +254,9 @@ describe('EventDetail (H7E)', () => {
     expect(onExportJson).toHaveBeenCalled();
   });
 
-  it('persists an analyst note to the local store', async () => {
+  it('renders the analyst decision surface as a Review tab', async () => {
+    // Notes and decisions moved to the backend in H9, so the detail panel no
+    // longer owns any review state — it hosts whatever the workspace injects.
     const user = userEvent.setup();
     renderWithProviders(
       <EventDetail
@@ -265,11 +265,14 @@ describe('EventDetail (H7E)', () => {
         evidence={undefined}
         isLoading={false}
         onSeek={vi.fn()}
+        reviewStatus="approved"
+        reviewSlot={<p>decision surface</p>}
       />,
     );
-    const notes = screen.getByPlaceholderText('Add a review note…');
-    await user.type(notes, 'Reviewed');
-    expect(useNotesStore.getState().notes[event.id]).toBe('Reviewed');
+
+    expect(screen.getByText('Approved')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Review' }));
+    expect(screen.getByText('decision surface')).toBeInTheDocument();
   });
 });
 

@@ -2,6 +2,7 @@ import {
   type ConfidenceBreakdown,
   type ConfirmedEvent,
   type EventSummary,
+  type ReviewStatus,
   type ViolationType,
 } from '@/api/types';
 
@@ -143,6 +144,8 @@ export interface WorkspaceEvent {
   confidenceComponents: ConfidenceComponent[];
   /** Derived lane locator when the detail carries one, else null. */
   lane: string | null;
+  /** Analyst-review state, folded server-side from the event's review journal. */
+  reviewStatus: ReviewStatus;
 }
 
 // --- confidence ----------------------------------------------------------------
@@ -270,6 +273,7 @@ export function toWorkspaceEvent(summary: EventSummary, detail?: ConfirmedEvent)
     confidenceSource: headline?.source ?? null,
     confidenceComponents: confidenceComponents(breakdown),
     lane: extractLane(detail),
+    reviewStatus: summary.review_status,
   };
 }
 
@@ -289,6 +293,7 @@ export function workspaceEventsEqual(a: WorkspaceEvent, b: WorkspaceEvent): bool
         component.value === b.confidenceComponents[index].value,
     ) &&
     a.lane === b.lane &&
+    a.reviewStatus === b.reviewStatus &&
     a.cameraId === b.cameraId &&
     a.ruleId === b.ruleId &&
     a.trackIds.length === b.trackIds.length &&
@@ -401,6 +406,8 @@ export interface EventFilters {
   fromSeconds: number;
   /** Latest media-time second to include; null disables the filter. */
   toSeconds: number | null;
+  /** Review states to include; empty means every state (H9). */
+  reviewStatuses: ReviewStatus[];
 }
 
 export const DEFAULT_EVENT_FILTERS: EventFilters = {
@@ -410,6 +417,7 @@ export const DEFAULT_EVENT_FILTERS: EventFilters = {
   maxConfidence: 1,
   fromSeconds: 0,
   toSeconds: null,
+  reviewStatuses: [],
 };
 
 export function hasActiveFilters(filters: EventFilters): boolean {
@@ -419,7 +427,8 @@ export function hasActiveFilters(filters: EventFilters): boolean {
     filters.minConfidence > 0 ||
     filters.maxConfidence < 1 ||
     filters.fromSeconds > 0 ||
-    filters.toSeconds !== null
+    filters.toSeconds !== null ||
+    filters.reviewStatuses.length > 0
   );
 }
 
@@ -462,6 +471,7 @@ function matchesQuery(event: WorkspaceEvent, query: string): boolean {
     event.ruleId,
     violationLabel(event.violationType),
     formatClock(event.mediaSeconds),
+    event.reviewStatus,
     ...event.trackIds,
   ]
     .join(' ')
@@ -474,6 +484,7 @@ export function filterWorkspaceEvents(
   filters: EventFilters,
 ): WorkspaceEvent[] {
   const violationSet = new Set(filters.violationTypes);
+  const reviewSet = new Set(filters.reviewStatuses);
   return events.filter((event) => {
     if (!matchesQuery(event, filters.query)) return false;
     if (violationSet.size > 0 && !violationSet.has(event.violationType)) return false;
@@ -487,6 +498,7 @@ export function filterWorkspaceEvents(
     }
     if (filters.fromSeconds > 0 && event.mediaSeconds < filters.fromSeconds) return false;
     if (filters.toSeconds !== null && event.mediaSeconds > filters.toSeconds) return false;
+    if (reviewSet.size > 0 && !reviewSet.has(event.reviewStatus)) return false;
     return true;
   });
 }

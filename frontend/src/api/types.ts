@@ -91,6 +91,74 @@ export interface ConfidenceBreakdown {
   aggregate?: number | null;
 }
 
+/**
+ * Analyst review lifecycle states (H9).
+ *
+ * `false_positive` is deliberately distinct from `rejected`: rejecting says the
+ * offence is not worth pursuing, marking a false positive says the system was
+ * wrong. Collapsing them would destroy the only detector-quality signal review
+ * produces.
+ */
+export type ReviewStatus =
+  | 'pending'
+  | 'in_review'
+  | 'approved'
+  | 'rejected'
+  | 'false_positive'
+  | 'needs_more_evidence';
+
+/** What an analyst did. `note` and `export` are activity, not decisions. */
+export type ReviewAction =
+  | 'open'
+  | 'note'
+  | 'approve'
+  | 'reject'
+  | 'false_positive'
+  | 'needs_more_evidence'
+  | 'reopen'
+  | 'export';
+
+/** One immutable entry in an event's append-only review journal. */
+export interface ReviewEntry {
+  entry_id: string;
+  event_id: string;
+  action: ReviewAction;
+  status_before: ReviewStatus;
+  status_after: ReviewStatus;
+  reviewer: string;
+  /** Wall-clock instant of the human action (not media time). */
+  at: string;
+  note: string | null;
+  reason: string | null;
+}
+
+/** The current review state — derived from the history, never stored beside it. */
+export interface ReviewCase {
+  review_case_id: string;
+  evidence_package_id: string;
+  event_id: string | null;
+  status: ReviewStatus;
+  reviewer_id: string | null;
+  decided_at: string | null;
+  note: string | null;
+  reason: string | null;
+  updated_at: string | null;
+  audit_ref: string | null;
+  created_at: string;
+}
+
+export interface ReviewResponse {
+  case: ReviewCase;
+  history: ReviewEntry[];
+}
+
+export interface ReviewDecisionRequest {
+  action: ReviewAction;
+  reviewer?: string;
+  note?: string | null;
+  reason?: string | null;
+}
+
 export interface EventSummary {
   event_id: string;
   video_id: string;
@@ -103,6 +171,8 @@ export interface EventSummary {
   trigger_at: string;
   rule_id: string;
   confidence: ConfidenceBreakdown;
+  /** Current analyst-review state, folded from the event's review journal. */
+  review_status: ReviewStatus;
 }
 
 export interface EventListResponse {

@@ -97,6 +97,19 @@ class DuplicateVideoError(AppError):
         self.video_id = video_id
 
 
+class InvalidTransitionError(AppError):
+    """The requested review action is not legal from the event's current state (409).
+
+    A conflict rather than a validation error: the request is well-formed and the
+    action exists, but the case has moved on. Returning 409 is what lets a client
+    distinguish "you sent nonsense" from "somebody else decided this while you were
+    looking at it" -- the latter must never silently overwrite their decision.
+    """
+
+    status_code = 409
+    error_type = "invalid_transition"
+
+
 class PayloadTooLargeError(AppError):
     """The upload exceeds the configured maximum size (413)."""
 

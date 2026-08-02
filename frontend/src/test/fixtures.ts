@@ -5,6 +5,9 @@ import {
   type EventSummary,
   type EvidenceManifest,
   type JobStatusResponse,
+  type ReviewCase,
+  type ReviewEntry,
+  type ReviewResponse,
   type VideoUploadResponse,
   type ViolationType,
 } from '@/api/types';
@@ -34,6 +37,7 @@ export function makeEventSummary(overrides: Partial<EventSummary> = {}): EventSu
     trigger_at: mediaSeconds(10),
     rule_id: 'wrong-way-v1',
     confidence: { classifier: 0.91, temporal_consistency: 0.8 },
+    review_status: 'pending',
     ...overrides,
   };
 }
@@ -63,6 +67,42 @@ export function makeConfirmedEvent(overrides: Partial<ConfirmedEvent> = {}): Con
     confidence: { classifier: 0.91, temporal_consistency: 0.8 },
     ...overrides,
   };
+}
+
+export function makeReviewEntry(overrides: Partial<ReviewEntry> = {}): ReviewEntry {
+  return {
+    entry_id: 'rev-1',
+    event_id: 'evt-1',
+    action: 'open',
+    status_before: 'pending',
+    status_after: 'in_review',
+    reviewer: 'analyst',
+    at: '2026-07-29T12:00:00Z',
+    note: null,
+    reason: null,
+    ...overrides,
+  };
+}
+
+export function makeReviewCase(overrides: Partial<ReviewCase> = {}): ReviewCase {
+  return {
+    review_case_id: 'case-evt-1',
+    evidence_package_id: 'pkg-1',
+    event_id: 'evt-1',
+    status: 'pending',
+    reviewer_id: null,
+    decided_at: null,
+    note: null,
+    reason: null,
+    updated_at: null,
+    audit_ref: null,
+    created_at: '1970-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+export function makeReview(overrides: Partial<ReviewResponse> = {}): ReviewResponse {
+  return { case: makeReviewCase(), history: [], ...overrides };
 }
 
 export function makeEvidence(overrides: Partial<EvidenceManifest> = {}): EvidenceManifest {

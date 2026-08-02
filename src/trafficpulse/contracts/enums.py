@@ -63,12 +63,57 @@ class LifecycleState(StrEnum):
 
 
 class ReviewStatus(StrEnum):
-    """Human-review decision states (architecture-review §21)."""
+    """Human-review decision states (architecture-review §21).
+
+    ``IN_REVIEW`` and ``FALSE_POSITIVE`` were added for the analyst decision
+    workflow (H9). ``NEEDS_MORE_EVIDENCE`` predates it and is retained: removing a
+    published contract value would be a breaking change, and "park this until
+    better evidence exists" is a decision an analyst genuinely needs that none of
+    the other states expresses.
+
+    ``FALSE_POSITIVE`` is deliberately distinct from ``REJECTED``. Rejecting says
+    *this is not an offence worth pursuing*; marking a false positive says *the
+    system was wrong*. Collapsing them would make the one signal that measures
+    detector quality indistinguishable from ordinary enforcement discretion.
+    """
 
     PENDING = "pending"
+    IN_REVIEW = "in_review"
     APPROVED = "approved"
     REJECTED = "rejected"
+    FALSE_POSITIVE = "false_positive"
     NEEDS_MORE_EVIDENCE = "needs_more_evidence"
+
+    @property
+    def is_decided(self) -> bool:
+        """Whether this status records a completed analyst decision."""
+
+        return self in (
+            ReviewStatus.APPROVED,
+            ReviewStatus.REJECTED,
+            ReviewStatus.FALSE_POSITIVE,
+        )
+
+
+class ReviewAction(StrEnum):
+    """What an analyst did to a review case (architecture-review §21).
+
+    The vocabulary of the append-only audit journal. An action is a *verb the
+    analyst performed*, which is not the same thing as the state it produces:
+    ``NOTE`` and ``EXPORT`` record real, auditable activity while leaving the
+    status untouched, and ``REOPEN`` returns a decided case to review. Modelling
+    the journal in actions rather than in states is what lets the history show
+    "notes added, then approved" instead of collapsing both into "approved".
+    """
+
+    OPEN = "open"
+    NOTE = "note"
+    APPROVE = "approve"
+    REJECT = "reject"
+    FALSE_POSITIVE = "false_positive"
+    NEEDS_MORE_EVIDENCE = "needs_more_evidence"
+    REOPEN = "reopen"
+    EXPORT = "export"
 
 
 class SimulatedPenaltyStatus(StrEnum):

@@ -29,4 +29,8 @@ export const queryKeys = {
   evidence: {
     detail: (eventId: string) => ['evidence', eventId] as const,
   },
+  review: {
+    all: ['review'] as const,
+    detail: (eventId: string) => ['review', eventId] as const,
+  },
 } as const;

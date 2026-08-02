@@ -22,10 +22,19 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 
-from ..contracts import ConfirmedEvent, EvidenceManifest, SceneConfig
+from ..contracts import (
+    ConfirmedEvent,
+    EvidenceManifest,
+    ReviewEntry,
+    SceneConfig,
+    can_transition,
+    next_status,
+)
+from ..contracts.enums import ReviewAction, ReviewStatus
 from ..detector.errors import DetectorError
 from ..engine import EngineRunResult, FileFrameSource, InferenceEngine, RuleConfig
 from ..engine.errors import (
@@ -34,7 +43,7 @@ from ..engine.errors import (
     UnsupportedRuleError,
 )
 from ..ingestion.video import VideoIngestionError
-from ..persistence import EventStore, RunNotFoundError
+from ..persistence import EventStore, ReviewStore, RunNotFoundError
 from ..pipeline.errors import SceneConfigurationError
 from .config import AppConfig
 from .engine_provider import EngineProvider
@@ -44,6 +53,7 @@ from .errors import (
     EngineUnavailableError,
     EventNotFoundError,
     InvalidConfigurationError,
+    InvalidTransitionError,
     JobNotFoundError,
     OverlayNotFoundError,
     PayloadTooLargeError,
@@ -56,6 +66,8 @@ from .models import (
     EventSummary,
     JobStatusResponse,
     MetricsResponse,
+    ReviewDecisionRequest,
+    ReviewResponse,
 )
 from .overlay_video import render_job_overlay
 from .registry import (
@@ -370,9 +382,18 @@ class ProcessingService:
 class EventService:
     """Reads persisted confirmed events back from the H6 ``EventStore``."""
 
-    def __init__(self, store: EventStore, job_store: JobStore) -> None:
+    def __init__(
+        self,
+        store: EventStore,
+        job_store: JobStore,
+        reviews: ReviewStore | None = None,
+    ) -> None:
         self._store = store
         self._jobs = job_store
+        # Optional so an EventService can still be built without the review layer
+        # (older tests, and any caller that only reads events). Absent it, every
+        # summary reports the honest default of PENDING.
+        self._reviews = reviews
 
     def list(
         self,
@@ -412,6 +433,21 @@ class EventService:
 
         ordered = _sorted_summaries(summaries, sort)
         page = ordered[offset : offset + limit]
+        # Fold review status only for the page actually returned: badging is a
+        # per-event journal read, so doing it for the whole result set would make
+        # paging cost more the deeper you go for data nobody asked for.
+        if self._reviews is not None and page:
+            statuses = self._reviews.statuses(summary.event_id for summary in page)
+            page = [
+                summary.model_copy(
+                    update={
+                        "review_status": statuses.get(
+                            summary.event_id, ReviewStatus.PENDING
+                        )
+                    }
+                )
+                for summary in page
+            ]
         return EventListResponse(
             items=tuple(page), total=len(ordered), limit=limit, offset=offset
         )
@@ -439,6 +475,99 @@ class EventService:
         raise EventNotFoundError(  # pragma: no cover - index guarantees membership
             f"event {event_id!r} is indexed to a run that does not contain it"
         )
+
+
+class ReviewService:
+    """Records analyst decisions and serves the review case + audit history (H9).
+
+    The application-layer guard on the review lifecycle. It owns exactly three
+    responsibilities and delegates everything else:
+
+    * the event must exist (delegated to :class:`EventService`, so a decision can
+      never be recorded against an id the system cannot produce evidence for);
+    * the transition must be legal (delegated to the contract's pure state
+      machine, so the API and any future caller enforce one rule set);
+    * the action is **appended**, never written over (delegated to
+      :class:`~trafficpulse.persistence.review_store.ReviewStore`).
+
+    It holds no state. The current status is always re-folded from the journal, so
+    two concurrent reviewers cannot leave the service caching a decision that disk
+    disagrees with.
+    """
+
+    def __init__(self, events: EventService, store: ReviewStore) -> None:
+        self._events = events
+        self._store = store
+
+    def get(self, event_id: str) -> ReviewResponse:
+        """The event's current case and its full history (raises if unknown)."""
+
+        _, manifest = self._events.locate(event_id)
+        return ReviewResponse(
+            case=self._store.case(
+                event_id, evidence_package_id=manifest.evidence_package_id
+            ),
+            history=self._store.history(event_id),
+        )
+
+    def decide(self, event_id: str, request: ReviewDecisionRequest) -> ReviewResponse:
+        """Record one analyst action and return the resulting case + history.
+
+        Raises :class:`~trafficpulse.app.errors.EventNotFoundError` for an unknown
+        event and :class:`~trafficpulse.app.errors.InvalidTransitionError` when the
+        action is not legal from the current status -- the latter is a 409, not a
+        422, because the request is well-formed and it is the *state* that refuses
+        it. Re-sending a decision after somebody else has decided therefore fails
+        loudly instead of silently overwriting their call.
+        """
+
+        _, manifest = self._events.locate(event_id)
+        current = self._store.status(event_id)
+        action = request.action
+        if not can_transition(current, action):
+            raise InvalidTransitionError(
+                f"cannot {action.value!r} an event that is {current.value!r}"
+            )
+
+        resulting = next_status(current, action)
+        at = datetime.now(UTC)
+        note = request.note.strip() if request.note else None
+        reason = request.reason.strip() if request.reason else None
+        entry = ReviewEntry(
+            entry_id=self._entry_id(event_id, action, at),
+            event_id=event_id,
+            action=action,
+            status_before=current,
+            status_after=resulting,
+            reviewer=request.reviewer,
+            at=at,
+            note=note or None,
+            reason=reason or None,
+        )
+        self._store.append(entry)
+        return ReviewResponse(
+            case=self._store.case(
+                event_id, evidence_package_id=manifest.evidence_package_id
+            ),
+            history=self._store.history(event_id),
+        )
+
+    def statuses_for(self, event_ids: Iterable[str]) -> dict[str, ReviewStatus]:
+        """Review statuses for many events, for badging a list."""
+
+        return self._store.statuses(event_ids)
+
+    @staticmethod
+    def _entry_id(event_id: str, action: ReviewAction, at: datetime) -> str:
+        """A content-derived id for one journal entry.
+
+        Follows the project's existing identity convention (a SHA-256 over the
+        identity-bearing fields, as ``event_id`` uses) rather than a random uuid, so
+        an entry's id is reproducible from the entry itself.
+        """
+
+        material = f"{event_id}|{action.value}|{at.isoformat()}"
+        return "rev-" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 class EvidenceService:

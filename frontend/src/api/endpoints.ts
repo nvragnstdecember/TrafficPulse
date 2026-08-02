@@ -15,4 +15,5 @@ export const endpoints = {
   events: '/api/events',
   event: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}`,
   evidence: (eventId: string) => `/api/evidence/${encodeURIComponent(eventId)}`,
+  review: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}/review`,
 } as const;
