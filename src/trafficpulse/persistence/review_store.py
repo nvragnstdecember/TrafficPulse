@@ -146,6 +146,26 @@ class ReviewStore:
 
         return {event_id: self.status(event_id) for event_id in event_ids}
 
+    def reviewed_event_ids(self) -> frozenset[str]:
+        """Every event id an analyst has acted on, from one directory listing (H11).
+
+        The cheap half of review reporting, and the same trick H10 uses for the
+        event index: a journal's *name* already records which event it belongs to,
+        so "has anybody touched this event" is answerable without opening a single
+        file. That matters for the historical library, which summarises review
+        progress across every video in the repository -- folding each journal to a
+        status there would cost one read per event, per listing.
+
+        It answers *touched*, deliberately not *decided*: opening a case writes a
+        journal without concluding anything, and only :meth:`status` can tell those
+        apart. Callers that need the outcome must fold.
+        """
+
+        directory = self._root / _REVIEWS_DIR
+        if not directory.is_dir():
+            return frozenset()
+        return frozenset(path.stem for path in directory.glob("*.jsonl"))
+
     def case(self, event_id: str, *, evidence_package_id: str) -> ReviewCase:
         """Fold the journal into the current :class:`ReviewCase`.
 

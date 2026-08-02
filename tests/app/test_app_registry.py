@@ -41,6 +41,20 @@ def test_video_store_add_get_contains() -> None:
     assert store.get("vid-a") is not None
 
 
+def test_video_store_enumerates_in_insertion_order() -> None:
+    # The accessor the historical library needs (H11): a store you can only query by
+    # id cannot be browsed.
+    store = VideoStore()
+    for video_id in ("vid-a", "vid-b", "vid-c"):
+        store.add(_video(video_id))
+
+    assert [record.video_id for record in store.videos()] == ["vid-a", "vid-b", "vid-c"]
+
+
+def test_video_store_starts_empty() -> None:
+    assert VideoStore().videos() == ()
+
+
 # --- job store -----------------------------------------------------------------
 def test_job_lifecycle_transitions() -> None:
     store = JobStore()
@@ -80,6 +94,18 @@ def test_succeeded_for_video_filters() -> None:
     assert [r.job_id for r in store.succeeded_for_video("v1")] == ["j1"]
     assert store.succeeded_for_video("v2") == ()
     assert [r.job_id for r in store.succeeded_for_video(None)] == ["j1"]
+
+
+def test_for_video_returns_every_run_whatever_its_status() -> None:
+    # The library has to describe a video whose processing failed, which
+    # succeeded_for_video would report as having no runs at all (H11).
+    store = JobStore()
+    for job_id, video in (("j1", "v1"), ("j2", "v2"), ("j3", "v1")):
+        store.add(JobRecord(job_id=job_id, video_id=video))
+    store.mark_failed("j1", "it broke")
+
+    assert [r.job_id for r in store.for_video("v1")] == ["j1", "j3"]
+    assert store.for_video("v-unknown") == ()
 
 
 # --- job record metrics snapshot -----------------------------------------------

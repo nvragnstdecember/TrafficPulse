@@ -19,6 +19,7 @@ import {
   makeReviewCase,
   makeReviewEntry,
   makeVideo,
+  makeVideoSummary,
   mediaSeconds,
 } from '@/test/fixtures';
 import { renderWithProviders } from '@/test/utils';
@@ -31,6 +32,8 @@ vi.mock('@/services/videos.service', () => ({
     startProcessing: vi.fn(),
     getJob: vi.fn(),
     cancelJob: vi.fn(),
+    list: vi.fn(),
+    getVideo: vi.fn(),
   },
 }));
 
@@ -69,6 +72,12 @@ beforeEach(() => {
     makeJob({ status: 'succeeded', progress: 1, event_count: 2 }),
   );
   vi.mocked(videosService.cancelJob).mockResolvedValue(makeJob({ status: 'running' }));
+  vi.mocked(videosService.list).mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 50,
+    offset: 0,
+  });
   vi.mocked(eventsService.list).mockResolvedValue({
     items: [
       makeEventSummary({ event_id: 'evt-1', trigger_at: mediaSeconds(4) }),
@@ -286,6 +295,133 @@ describe('VideosPage — live processing (H7D)', () => {
     await screen.findByRole('region', { name: 'Detected events' });
     // The previously-selected event's detail is fetched on restore.
     await waitFor(() => expect(useSelectionStore.getState().selectedEventId).toBe('evt-2'));
+  });
+});
+
+describe('VideosPage — historical video library (H11)', () => {
+  it('lists stored videos beside the dropzone', async () => {
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [
+        makeVideoSummary({ video_id: 'vid-old', filename: 'yesterday.mp4', event_count: 3 }),
+        makeVideoSummary({ video_id: 'vid-older', filename: 'monday.mp4', event_count: 0 }),
+      ],
+      total: 2,
+      limit: 50,
+      offset: 0,
+    });
+    renderWithProviders(<VideosPage />);
+
+    const library = await screen.findByRole('list', { name: 'Stored videos' });
+    expect(within(library).getByText('yesterday.mp4')).toBeInTheDocument();
+    expect(within(library).getByText('monday.mp4')).toBeInTheDocument();
+    expect(within(library).getByText('3 events')).toBeInTheDocument();
+    // A succeeded run that confirmed nothing is not the same as an unprocessed video.
+    expect(within(library).getByText('No violations')).toBeInTheDocument();
+  });
+
+  it('opens a previously processed video without re-uploading it', async () => {
+    // The milestone's success path: browse → select → the analysis loads, with no
+    // upload call and no new job.
+    const user = userEvent.setup();
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [makeVideoSummary({ video_id: 'vid-old', filename: 'yesterday.mp4' })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    vi.mocked(videosService.getJob).mockResolvedValue(
+      makeJob({ job_id: 'job-1', video_id: 'vid-old', status: 'succeeded', event_count: 2 }),
+    );
+    renderWithProviders(<VideosPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open yesterday.mp4' }));
+
+    // The workspace mounts on the stored video, exactly as it would after an upload.
+    await screen.findByRole('region', { name: 'Detected events' });
+    expect(await screen.findByText('2 of 2')).toBeInTheDocument();
+    expect(videosService.upload).not.toHaveBeenCalled();
+    expect(videosService.startProcessing).not.toHaveBeenCalled();
+    expect(useProcessingStore.getState().jobId).toBe('job-1');
+  });
+
+  it('plays a stored video from the server when this session has no local file', async () => {
+    // The gap that made the library unusable on its own: playback was a browser
+    // object URL for the picked file, which a reopened video never has.
+    const user = userEvent.setup();
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [makeVideoSummary({ video_id: 'vid-old', filename: 'yesterday.mp4' })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    renderWithProviders(<VideosPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open yesterday.mp4' }));
+
+    const player = await screen.findByLabelText('Video preview');
+    await waitFor(() => expect(player).toHaveAttribute('src', '/api/videos/vid-old/media'));
+  });
+
+  it('processes a stored video that has never been analysed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [
+        makeVideoSummary({
+          video_id: 'vid-raw',
+          filename: 'unprocessed.mp4',
+          job_id: null,
+          status: null,
+          job_count: 0,
+          event_count: 0,
+        }),
+      ],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    renderWithProviders(<VideosPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Process unprocessed.mp4' }));
+
+    await waitFor(() =>
+      expect(videosService.startProcessing).toHaveBeenCalledWith({ videoId: 'vid-raw' }),
+    );
+  });
+
+  it('shows a useful empty state for a repository with no videos', async () => {
+    renderWithProviders(<VideosPage />);
+
+    expect(await screen.findByText('No videos yet')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Stored videos' })).not.toBeInTheDocument();
+  });
+
+  it('surfaces a retryable error when the library cannot be loaded', async () => {
+    const user = userEvent.setup();
+    vi.mocked(videosService.list).mockRejectedValue(
+      new ApiError('Network request failed', { kind: 'network' }),
+    );
+    renderWithProviders(<VideosPage />);
+
+    expect(await screen.findByText('Could not load the video library')).toBeInTheDocument();
+
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [makeVideoSummary()],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    await user.click(screen.getByRole('button', { name: /retry/i }));
+
+    expect(await screen.findByRole('list', { name: 'Stored videos' })).toBeInTheDocument();
+  });
+
+  it('returns to the library from an open video', async () => {
+    const user = await uploadAndOpenWorkspace();
+
+    await user.click(screen.getByRole('button', { name: 'Video library' }));
+
+    expect(await screen.findByRole('button', { name: 'Upload a video' })).toBeInTheDocument();
+    expect(screen.getByText('No videos yet')).toBeInTheDocument();
   });
 });
 

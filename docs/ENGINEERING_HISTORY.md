@@ -580,6 +580,75 @@ append-only review journal (`persistence/review_store.py`), `ReviewEntry`, a
 transition table, `ReviewService`, two endpoints, and a `ReviewPanel` in the
 existing detail card. Deleted the localStorage notes store as now-duplicated state.
 
+### H10 — Persistent repository recovery (2026-08-01)
+
+**Commit:** `9b979ad`
+
+Closed the gap §9.5 described: events were on disk after a restart but unreachable,
+because nothing rehydrated the in-memory `VideoStore`/`JobStore` from `runs/`.
+
+`app/recovery.py` writes two small per-entity sidecars — `videos/<video_id>.json`
+(`VideoSnapshot`) and `runs/<job_id>/run.json` (`RunSnapshot`) — and rebuilds both
+registries from them at startup. The persistence model was **not** touched:
+`EventStore` stays write-once, `ReviewStore` stays an append-only journal.
+
+Three decisions worth keeping:
+
+- **What must be stored is exactly what is unrecoverable.** A `ConfirmedEvent`
+  names a camera, not an upload, so the **job→video linkage exists nowhere else**;
+  neither does the client-supplied filename. Everything else is derived — an event
+  id *is* a filename, so the event index is rebuilt from a directory listing with
+  **no `ConfirmedEvent` deserialised**; overlay availability is a file-existence
+  check; review state needs no recovery at all.
+- **Per-entity sidecars, not one `index.json`.** A single index would be a mutable
+  hot file every job rewrites: write amplification, a concurrent-writer hazard, and
+  one corruption losing the whole repository.
+- **A job recorded as running is settled as failed**, with a message saying a
+  restart interrupted it — restoring it as `running` would leave a client polling
+  a job nothing can advance. Same reasoning retires a `pending` overlay.
+
+### H11 — Historical video library (2026-08-02)
+
+The frontend completion of H10. Recovery made persisted work *reachable by id*;
+nothing made it **discoverable**. Three gaps, all read-side:
+
+1. `VideoStore` was addressable but not enumerable (`get`/`contains`, no listing),
+   so no endpoint could have listed videos even if one had existed.
+2. The SPA's notion of "the video" was literally the one `VideoUploadResponse` in
+   `localStorage`; `VideosPage` branched on it. Historical videos were not hidden,
+   they were **unrepresentable**.
+3. **The source video was not servable.** Playback used
+   `URL.createObjectURL(file)` — a session-only blob of the picked file. Only the
+   *overlay* had an endpoint, so a recovered video whose run produced no overlay had
+   no playable source at all.
+
+Added: `VideoStore.videos()`, `JobStore.for_video()`,
+`ReviewStore.reviewed_event_ids()`, a `VideoLibraryService`, and
+`GET /api/videos`, `GET /api/videos/{id}`, `GET /api/videos/{id}/media`. Frontend:
+a `VideoLibrary` card under the dropzone, `openVideo` on the processing controller,
+and `lib/video-source.ts` resolving overlay → local object URL → stored upload.
+
+Decisions worth keeping:
+
+- **A listing deserialises nothing.** Event counts come from the in-memory index
+  (filenames, per H10), overlay availability from a path already on the job record,
+  and review progress from **one directory listing** of `runs/reviews/` — journal
+  *names* answer "has anybody touched this event" without opening a file. So the
+  library reports review progress as events *acted on*, deliberately not *decided*;
+  only a per-event fold can tell those apart, and that is what the event list does.
+- **Recovered and live videos are the same shape by construction**, because both
+  are read through the registries H10 rebuilds. A regression test asserts the two
+  responses are byte-equal across a restart, so "recovered" can never become a
+  state the UI has to explain.
+- **`uploaded_at` is the one genuinely new fact** (nothing recorded an upload
+  instant). It is optional, and a pre-H11 snapshot recovers it from the stored
+  file's mtime — which *is* when the upload was accepted, since the file is written
+  once. A video with neither reports `null` and sorts last in **both** directions
+  rather than being given a substitute date.
+- **A deleted file does not delete the row.** `video_media_not_found` is distinct
+  from `video_not_found`: the events and review history are still valid, so the
+  library keeps the video and reports that playback is unavailable.
+
 ---
 
 ## 4. Architectural decisions not captured in ADRs
@@ -813,19 +882,22 @@ sibling journal.
 Four of six violations reason end to end: **wrong-way, illegal-stopping, no-helmet,
 triple-riding**. RT-DETR detector + IoU tracker + zero-shot CLIP helmet classifier,
 all behind protocols, all optional extras. Deterministic JSON event store with
-write-once replay. FastAPI app with upload / processing / events / evidence /
-metrics / overlay / **review** endpoints. Generic overlay framework producing
-annotated H.264 MP4s. Append-only analyst review journal with a validated state
-machine.
+write-once replay. FastAPI app with upload / **video library** / processing /
+events / evidence / metrics / overlay / **review** endpoints. Generic overlay
+framework producing annotated H.264 MP4s. Append-only analyst review journal with a
+validated state machine. Startup recovery rebuilding the runtime indices from disk
+(H10), so a restarted process serves — and lists — its whole repository (H11).
 
 **Frontend** — Vite + React + TypeScript SPA. Video workspace (upload → live
-processing → frame-accurate review), analyst review workspace (cards, narrative
-timeline, statistics, processing summary, workflow stepper, thumbnails, review
-playback windows, search, filters, export), and the H9 decision surface (status
-badge, decision panel, notes editor, metadata, audit history).
+processing → frame-accurate review), the historical video library (H11), analyst
+review workspace (cards, narrative timeline, statistics, processing summary,
+workflow stepper, thumbnails, review playback windows, search, filters, export),
+and the H9 decision surface (status badge, decision panel, notes editor, metadata,
+audit history).
 
-**Verification** — ruff clean, mypy strict clean (129 files), 2016 backend tests
-passing (9 opt-in skipped), 354 frontend tests passing, 0 lint errors.
+**Verification** (as of H11, 2026-08-02) — ruff clean, mypy strict clean (131
+files), 2061 backend tests passing (9 opt-in skipped), 381 frontend tests passing,
+0 lint errors.
 
 ### 9.2 The largest gap against the original specification
 
@@ -875,12 +947,23 @@ was executed. Neither has been reconciled.
 
 ### 9.5 A structural limitation worth knowing before you touch the API
 
+**Resolved by H10/H11 (2026-08-01/02); kept because the shape still governs.**
+
 `EventService` resolves events through the **in-memory `JobStore`**
-(`succeeded_for_video`, `job_for_event`). After a backend process restart, events are
-**unreachable via the API** even though their JSON is on disk, because nothing
-rehydrates the index from `runs/`. Browser reload is unaffected. H9's review
-journals were deliberately keyed by `event_id` alone so they do not inherit this,
-but they are only *reachable* once the job is re-run.
+(`succeeded_for_video`, `job_for_event`), and `VideoLibraryService` reads the same
+registries. Those indices are no longer built only by live traffic — `app/recovery.py`
+rebuilds them from per-entity sidecars at startup — but they are still **in-memory
+indices over an on-disk truth**, and everything the API can address is exactly what
+recovery managed to rebuild.
+
+Two consequences remain live:
+
+- A run persisted **before H10** has events on disk and no `run.json`, so nothing
+  records which upload they belong to. Recovery reports it as skipped rather than
+  inventing the linkage; those events stay unaddressable, by design.
+- Recovery never raises. An unreadable sidecar costs that one video or run, and the
+  repository degrades to a smaller one. The library therefore shows what survived,
+  not necessarily everything that was ever written.
 
 ---
 

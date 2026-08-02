@@ -1,8 +1,11 @@
 import { apiClient } from '@/api/client';
 import { endpoints } from '@/api/endpoints';
+import { type VideoListParams } from '@/api/query-keys';
 import {
   type JobStatusResponse,
   type ProcessResponse,
+  type VideoListResponse,
+  type VideoSummary,
   type VideoUploadResponse,
 } from '@/api/types';
 
@@ -21,12 +24,23 @@ export interface StartProcessingInput {
 }
 
 /**
- * Videos service (H7B): upload, start processing, poll job status.
+ * Videos service (H7B; library H11): upload, start processing, poll job status, and
+ * browse the stored repository.
  *
  * Feature UIs will call these through hooks; the service itself carries no React
  * or view logic.
  */
 export const videosService = {
+  /** Browse stored videos — metadata only; no events or evidence are loaded. */
+  list(params: VideoListParams = {}, signal?: AbortSignal): Promise<VideoListResponse> {
+    return apiClient.get<VideoListResponse>(endpoints.videos, {
+      query: { limit: params.limit, offset: params.offset, sort: params.sort },
+      signal,
+    });
+  },
+  getVideo(videoId: string, signal?: AbortSignal): Promise<VideoSummary> {
+    return apiClient.get<VideoSummary>(endpoints.video(videoId), { signal });
+  },
   upload({ file, signal, onProgress }: UploadVideoInput): Promise<VideoUploadResponse> {
     const form = new FormData();
     form.append('file', file);

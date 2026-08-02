@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
@@ -85,6 +86,22 @@ _M = TypeVar("_M", bound=BaseModel)
 RUN_SNAPSHOT_NAME = "run.json"
 
 
+def _media_mtime(path: Path) -> datetime | None:
+    """The stored file's modification time, for a snapshot with no upload instant.
+
+    A video stored before H11 recorded no timestamp. The file's mtime is when its
+    bytes were written -- which *is* when the upload was accepted, since the
+    service writes the file once and never rewrites it. Reported as ``None`` when
+    the filesystem cannot answer, rather than substituting "now", which would make
+    every pre-H11 upload look like it arrived at boot.
+    """
+
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, UTC)
+    except OSError:  # pragma: no cover - the caller already proved the file exists
+        return None
+
+
 class VideoSnapshot(BaseModel):
     """The recoverable state of one uploaded video.
 
@@ -104,6 +121,10 @@ class VideoSnapshot(BaseModel):
     frame_count: int | None = None
     duration_seconds: float | None = None
     codec: str
+    uploaded_at: datetime | None = None
+    """When the upload was accepted (H11). Optional so a snapshot written before
+    this field existed still validates; :meth:`to_record` then supplies the media
+    file's modification time, which is the closest fact the filesystem retains."""
 
     @classmethod
     def of(cls, record: VideoRecord) -> VideoSnapshot:
@@ -117,6 +138,7 @@ class VideoSnapshot(BaseModel):
             frame_count=record.frame_count,
             duration_seconds=record.duration_seconds,
             codec=record.codec,
+            uploaded_at=record.uploaded_at,
         )
 
     def to_record(self, path: Path) -> VideoRecord:
@@ -131,6 +153,7 @@ class VideoSnapshot(BaseModel):
             frame_count=self.frame_count,
             duration_seconds=self.duration_seconds,
             codec=self.codec,
+            uploaded_at=self.uploaded_at or _media_mtime(path),
         )
 
 

@@ -53,6 +53,29 @@ describe('videosService', () => {
     await videosService.getJob('job-1');
     expect(mockedClient.get).toHaveBeenCalledWith(endpoints.job('job-1'), { signal: undefined });
   });
+
+  it('lists the video library, letting the server apply its defaults', async () => {
+    await videosService.list();
+    expect(mockedClient.get).toHaveBeenCalledWith(endpoints.videos, {
+      query: { limit: undefined, offset: undefined, sort: undefined },
+      signal: undefined,
+    });
+  });
+
+  it('lists the video library with explicit paging and ordering', async () => {
+    await videosService.list({ limit: 10, offset: 20, sort: 'filename' });
+    expect(mockedClient.get).toHaveBeenCalledWith(endpoints.videos, {
+      query: { limit: 10, offset: 20, sort: 'filename' },
+      signal: undefined,
+    });
+  });
+
+  it('fetches one library row by id', async () => {
+    await videosService.getVideo('vid-1');
+    expect(mockedClient.get).toHaveBeenCalledWith(endpoints.video('vid-1'), {
+      signal: undefined,
+    });
+  });
 });
 
 describe('eventsService', () => {

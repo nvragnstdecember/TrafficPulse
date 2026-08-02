@@ -105,6 +105,35 @@ describe('processing store', () => {
     expect(useProcessingStore.getState().phase).toBe('running');
   });
 
+  it('adopts a historical job without claiming to have started it', () => {
+    // Opening a library video is not starting one: `attachJob` would report a
+    // finished run as freshly queued and count elapsed time from the click.
+    act(() => useProcessingStore.getState().adoptJob('vid-old', 'job-old'));
+
+    expect(useProcessingStore.getState()).toMatchObject({
+      videoId: 'vid-old',
+      jobId: 'job-old',
+      phase: 'idle',
+      startedAt: null,
+      selectedEventId: null,
+      playbackSeconds: 0,
+    });
+    expect(useProcessingStore.getState().logs).toHaveLength(1);
+  });
+
+  it("clears a previous video's selection when another is adopted", () => {
+    act(() => {
+      useProcessingStore.getState().attachJob('vid-1', 'job-1');
+      useProcessingStore.getState().rememberSelection('evt-1');
+      useProcessingStore.getState().rememberPlayback(20);
+      useProcessingStore.getState().adoptJob('vid-2', 'job-2');
+    });
+
+    // Restoring evt-1 into vid-2's workspace would select an event it does not have.
+    expect(useProcessingStore.getState().selectedEventId).toBeNull();
+    expect(useProcessingStore.getState().playbackSeconds).toBe(0);
+  });
+
   it('caps the activity log', () => {
     act(() => {
       for (let index = 0; index < 60; index += 1) {

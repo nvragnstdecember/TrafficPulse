@@ -252,6 +252,28 @@ def test_blank_lines_are_tolerated(tmp_path: Path) -> None:
     assert len(store.history("evt-1")) == 1
 
 
+def test_reviewed_event_ids_come_from_the_directory_listing(tmp_path: Path) -> None:
+    # The cheap half of review reporting (H11): which events have been touched is
+    # answerable from journal *names*, so summarising a whole repository costs one
+    # listing rather than one read per event.
+    store = ReviewStore(tmp_path)
+    assert store.reviewed_event_ids() == frozenset()
+
+    store.append(_entry(event_id="evt-1"))
+    store.append(_entry(event_id="evt-2", seconds=1))
+
+    assert store.reviewed_event_ids() == frozenset({"evt-1", "evt-2"})
+
+
+def test_reviewed_event_ids_does_not_read_the_journals(tmp_path: Path) -> None:
+    # An unreadable journal must not break a listing that never needed its contents.
+    store = ReviewStore(tmp_path)
+    store.append(_entry())
+    store.journal_path("evt-1").write_text("not a review entry\n", encoding="utf-8")
+
+    assert store.reviewed_event_ids() == frozenset({"evt-1"})
+
+
 def test_the_review_journal_never_touches_the_run_tree(tmp_path: Path) -> None:
     # The whole reason this store exists: review state must not be able to collide
     # with the write-once event records.

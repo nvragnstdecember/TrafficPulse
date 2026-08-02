@@ -8,6 +8,10 @@ export const endpoints = {
   health: '/api/health',
   metrics: '/api/metrics',
   videoUpload: '/api/video/upload',
+  videos: '/api/videos',
+  video: (videoId: string) => `/api/videos/${encodeURIComponent(videoId)}`,
+  /** The stored source video — playable for a video this session did not upload. */
+  videoMedia: (videoId: string) => `/api/videos/${encodeURIComponent(videoId)}/media`,
   process: '/api/process',
   job: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}`,
   cancelJob: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/cancel`,

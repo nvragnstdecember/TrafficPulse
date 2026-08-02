@@ -28,6 +28,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
@@ -50,6 +51,12 @@ class VideoRecord:
     frame_count: int | None
     duration_seconds: float | None
     codec: str
+    uploaded_at: datetime | None = None
+    """When the upload was accepted (H11), so a library can order by recency.
+
+    Optional because it is genuinely unknown for a video stored before this field
+    existed: recovery falls back to the media file's modification time, and a
+    record with neither reports ``None`` rather than inventing an instant."""
 
 
 class VideoStore:
@@ -88,6 +95,19 @@ class VideoStore:
     def contains(self, video_id: str) -> bool:
         with self._lock:
             return video_id in self._videos
+
+    def videos(self) -> tuple[VideoRecord, ...]:
+        """Every stored video, in insertion order (H11).
+
+        The accessor that makes the store enumerable rather than merely
+        addressable -- the historical library needs to *browse* uploads, and
+        ``get``/``contains`` can only answer questions about an id you already
+        hold. Recovery restores in sorted id order, so a restarted process yields
+        a deterministic sequence; ordering for presentation is the caller's.
+        """
+
+        with self._lock:
+            return tuple(self._videos.values())
 
 
 # --- jobs ----------------------------------------------------------------------
@@ -329,6 +349,19 @@ class JobStore:
 
         with self._lock:
             return tuple(self._jobs.values())
+
+    def for_video(self, video_id: str) -> tuple[JobRecord, ...]:
+        """Every job for one video, whatever its status, in insertion order (H11).
+
+        Distinct from :meth:`succeeded_for_video`, which answers "where are this
+        video's events". The library has to describe a video that was uploaded and
+        then failed, or is still running, so it needs the unfiltered history.
+        """
+
+        with self._lock:
+            return tuple(
+                record for record in self._jobs.values() if record.video_id == video_id
+            )
 
     def succeeded_for_video(self, video_id: str | None) -> tuple[JobRecord, ...]:
         """Succeeded jobs, optionally filtered to one video, in insertion order."""

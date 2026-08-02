@@ -49,6 +49,49 @@ export interface VideoUploadResponse {
   codec: string;
 }
 
+export type VideoSort = 'uploaded_at' | '-uploaded_at' | 'filename' | '-filename';
+
+/**
+ * One row of the historical video library (H11).
+ *
+ * Browsing metadata only — deliberately *not* a video's analysis. It carries what a
+ * list needs to render and what a client needs to decide what to open; events,
+ * evidence, review history, and the annotated overlay keep their own endpoints and
+ * are fetched after a selection. A recovered video and a freshly uploaded one
+ * produce an identical shape, so nothing here distinguishes them.
+ */
+export interface VideoSummary {
+  video_id: string;
+  filename: string;
+  /** When the upload was accepted, or null when unknown. Never fabricated. */
+  uploaded_at: string | null;
+  size_bytes: number;
+  width: number;
+  height: number;
+  fps: number | null;
+  duration_seconds: number | null;
+  codec: string;
+  /** The job to open: the latest succeeded run, else the latest run, else null. */
+  job_id: string | null;
+  /** That job's status, or null when the video has never been processed. */
+  status: JobStatus | null;
+  job_count: number;
+  /** Confirmed events across succeeded runs, deduplicated by event id. */
+  event_count: number;
+  /** How many of those an analyst has acted on (opened counts, not only decided). */
+  events_reviewed: number;
+  overlay_available: boolean;
+  /** Whether the stored source file is still streamable (and thumbnail-able). */
+  media_available: boolean;
+}
+
+export interface VideoListResponse {
+  items: VideoSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface ProcessResponse {
   job_id: string;
   video_id: string;

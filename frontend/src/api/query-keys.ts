@@ -1,10 +1,16 @@
-import { type EventSort } from './types';
+import { type EventSort, type VideoSort } from './types';
 
 export interface EventListParams {
   videoId?: string;
   limit?: number;
   offset?: number;
   sort?: EventSort;
+}
+
+export interface VideoListParams {
+  limit?: number;
+  offset?: number;
+  sort?: VideoSort;
 }
 
 /**
@@ -20,6 +26,10 @@ export const queryKeys = {
   jobs: {
     all: ['jobs'] as const,
     detail: (jobId: string) => ['jobs', jobId] as const,
+  },
+  videos: {
+    all: ['videos'] as const,
+    list: (params: VideoListParams) => ['videos', 'list', params] as const,
   },
   events: {
     all: ['events'] as const,

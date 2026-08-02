@@ -34,6 +34,7 @@ from .errors import (
     JobNotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaError,
+    VideoMediaNotFoundError,
     VideoNotFoundError,
 )
 from .registry import (
@@ -63,6 +64,7 @@ __all__ = [
     "UnsupportedMediaError",
     "InvalidConfigurationError",
     "VideoNotFoundError",
+    "VideoMediaNotFoundError",
     "JobNotFoundError",
     "EventNotFoundError",
     "DuplicateVideoError",

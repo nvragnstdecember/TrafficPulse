@@ -61,6 +61,20 @@ class VideoNotFoundError(AppError):
     error_type = "video_not_found"
 
 
+class VideoMediaNotFoundError(AppError):
+    """The video is known but its stored file is gone (404).
+
+    Deliberately distinct from :class:`VideoNotFoundError`: the repository still
+    holds the upload's metadata, its runs, and its events -- only the playable
+    bytes have been removed from disk. A client can keep showing the video's
+    analysis and simply omit playback, which it could not do if a deleted file
+    were reported as an unknown video.
+    """
+
+    status_code = 404
+    error_type = "video_media_not_found"
+
+
 class JobNotFoundError(AppError):
     """No processing job matches the requested id (404)."""
 

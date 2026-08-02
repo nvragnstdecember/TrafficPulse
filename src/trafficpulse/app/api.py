@@ -36,13 +36,14 @@ from .errors import AppError
 from .models import ErrorDetail, ErrorResponse
 from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
-from .routers import events, evidence, health, metrics, process, upload
+from .routers import events, evidence, health, metrics, process, upload, videos
 from .services import (
     EventService,
     EvidenceService,
     MetricsService,
     ProcessingService,
     ReviewService,
+    VideoLibraryService,
     VideoService,
 )
 
@@ -137,7 +138,9 @@ def _build_context(
     job_store = JobStore(on_change=recovery.snapshot_job)
     recovery.recover(videos=video_store, jobs=job_store)
 
-    videos = VideoService(config, video_store)
+    # Named `video_service`, not `videos`: the videos *router* is imported under
+    # that name at module scope, and shadowing it here is one edit away from a bug.
+    video_service = VideoService(config, video_store)
     event_store = EventStore(config.runs_dir)
     # The review journal shares the runtime root with the event store but writes to
     # its own `reviews/` subtree -- it can never touch a write-once event record.
@@ -149,13 +152,16 @@ def _build_context(
         store=event_store,
         job_store=job_store,
         executor=executor,
-        videos=videos,
+        videos=video_service,
     )
     event_service = EventService(event_store, job_store, review_store)
     return AppContext(
         config=config,
         provider=provider,
-        videos=videos,
+        videos=video_service,
+        # The library reads the same registries recovery just rebuilt, which is what
+        # makes a recovered video indistinguishable from a freshly uploaded one.
+        library=VideoLibraryService(video_store, job_store, review_store),
         processing=processing,
         events=event_service,
         evidence=EvidenceService(event_service),
@@ -201,7 +207,7 @@ def create_app(
             allow_headers=["*"],
         )
 
-    for router in (health, upload, process, events, evidence, metrics):
+    for router in (health, upload, videos, process, events, evidence, metrics):
         app.include_router(router.router)
 
     # The SPA mount is registered last so every /api route matches first; it is

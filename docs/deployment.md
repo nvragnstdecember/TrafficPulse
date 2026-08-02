@@ -15,7 +15,7 @@ app (SPA) that reviews confirmed violations against the uploaded video.
 ```
 Browser (React SPA)
   → TanStack Query → typed API client (JSON only, no direct fetch)
-      → FastAPI (trafficpulse.app)  ── /api/health /api/video/upload /api/process /api/events /api/evidence /api/metrics
+      → FastAPI (trafficpulse.app)  ── /api/health /api/video/upload /api/videos /api/process /api/events /api/evidence /api/metrics
           → Application services (validate, drive jobs, read events/evidence/metrics)
               → Inference engine (H6): decode → detect → track → reason → confirm → evidence
                   → Persistence (write-once JSON event + manifest store)

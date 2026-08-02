@@ -1,11 +1,13 @@
 """Application services -- the business logic between routers and H6 (H7A).
 
-Five services hold everything the thin routers delegate to. They **compose** the
-existing layers and add no reasoning, detection, tracking, or persistence logic of
-their own:
+A small set of services holds everything the thin routers delegate to. They
+**compose** the existing layers and add no reasoning, detection, tracking, or
+persistence logic of their own:
 
 * :class:`VideoService` -- validates and stores uploads (readability via P1-U5
-  ingestion, addressed by content hash).
+  ingestion, addressed by content hash), and serves the stored file back.
+* :class:`VideoLibraryService` -- joins the video, job, and review indices into
+  browsable per-video metadata (H11), loading no event, evidence, or overlay.
 * :class:`ProcessingService` -- creates jobs and drives the H6 engine
   (``engine.run`` + ``engine.persist``) through the injected executor + provider.
 * :class:`EventService` / :class:`EvidenceService` -- read persisted events and
@@ -22,7 +24,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -58,6 +60,7 @@ from .errors import (
     OverlayNotFoundError,
     PayloadTooLargeError,
     UnsupportedMediaError,
+    VideoMediaNotFoundError,
     VideoNotFoundError,
 )
 from .models import (
@@ -68,6 +71,9 @@ from .models import (
     MetricsResponse,
     ReviewDecisionRequest,
     ReviewResponse,
+    VideoListResponse,
+    VideoSort,
+    VideoSummary,
 )
 from .overlay_video import render_job_overlay
 from .registry import (
@@ -155,6 +161,7 @@ class VideoService:
             frame_count=metadata.frame_count,
             duration_seconds=metadata.duration_seconds,
             codec=metadata.codec,
+            uploaded_at=datetime.now(UTC),
         )
         self._store.add(record)
         return record
@@ -166,6 +173,117 @@ class VideoService:
         if record is None:
             raise VideoNotFoundError(f"no uploaded video with id {video_id!r}")
         return record
+
+    def media_path(self, video_id: str) -> Path:
+        """The stored source file for a video, for playback (H11).
+
+        The read side of ``store_upload``. Uploads are addressed by content id and
+        stored under it, so nothing but this service can turn an id back into a
+        path -- which is why a video that was not uploaded in the current browser
+        session had no playable source before H11.
+        """
+
+        record = self.require(video_id)
+        if not record.path.is_file():
+            raise VideoMediaNotFoundError(
+                f"the stored file for video {video_id!r} is no longer on disk"
+            )
+        return record.path
+
+
+class VideoLibraryService:
+    """Browsable metadata for every stored video -- the historical library (H11).
+
+    A **join over the existing registries**, holding no state and adding no
+    persistence of its own: :class:`~trafficpulse.app.registry.VideoStore` supplies
+    the uploads (rebuilt from disk by H10 recovery), ``JobStore`` supplies each
+    video's runs and its event index, and ``ReviewStore`` supplies review progress.
+    A recovered repository therefore lists exactly as a live one does, because both
+    are read through the same indices.
+
+    What it deliberately does not do
+    --------------------------------
+    It never opens a ``ConfirmedEvent``, an ``EvidenceManifest``, an overlay, or a
+    review journal. Event counts come from the in-memory event index (filenames,
+    per H10), overlay availability from a path already held on the job record, and
+    review progress from a single directory listing. Listing a repository of any
+    size therefore costs no deserialisation -- the detail endpoints, which already
+    exist, are what load a video's actual analysis once one is selected.
+    """
+
+    def __init__(
+        self,
+        videos: VideoStore,
+        jobs: JobStore,
+        reviews: ReviewStore | None = None,
+    ) -> None:
+        self._videos = videos
+        self._jobs = jobs
+        # Optional for the same reason EventService's is: a library can be built
+        # without the review layer, and then every video honestly reports that no
+        # event has been reviewed.
+        self._reviews = reviews
+
+    def list(self, *, limit: int, offset: int, sort: VideoSort) -> VideoListResponse:
+        """Return a deterministic page of video summaries."""
+
+        reviewed = self._reviewed_ids()
+        summaries = [
+            self._summarise(record, reviewed) for record in self._videos.videos()
+        ]
+        ordered = _sorted_videos(summaries, sort)
+        return VideoListResponse(
+            items=tuple(ordered[offset : offset + limit]),
+            total=len(ordered),
+            limit=limit,
+            offset=offset,
+        )
+
+    def get(self, video_id: str) -> VideoSummary:
+        """One video's library summary, or raise :class:`VideoNotFoundError`."""
+
+        record = self._videos.get(video_id)
+        if record is None:
+            raise VideoNotFoundError(f"no uploaded video with id {video_id!r}")
+        return self._summarise(record, self._reviewed_ids())
+
+    def _reviewed_ids(self) -> frozenset[str]:
+        return self._reviews.reviewed_event_ids() if self._reviews is not None else frozenset()
+
+    def _summarise(self, record: VideoRecord, reviewed: frozenset[str]) -> VideoSummary:
+        jobs = self._jobs.for_video(record.video_id)
+        opening = _opening_job(jobs)
+        # Deduplicated across runs, matching what GET /api/events?video_id= returns:
+        # reprocessing a video produces the same content-derived event ids, so
+        # summing per-run counts would report the same violation several times.
+        event_ids = {
+            event_id
+            for job in jobs
+            if job.status is JobStatus.SUCCEEDED
+            for event_id in job.event_ids
+        }
+        return VideoSummary(
+            video_id=record.video_id,
+            filename=record.filename,
+            uploaded_at=record.uploaded_at,
+            size_bytes=record.size_bytes,
+            width=record.width,
+            height=record.height,
+            fps=record.fps,
+            duration_seconds=record.duration_seconds,
+            codec=record.codec,
+            job_id=opening.job_id if opening is not None else None,
+            status=opening.status if opening is not None else None,
+            job_count=len(jobs),
+            event_count=len(event_ids),
+            events_reviewed=len(event_ids & reviewed),
+            overlay_available=(
+                opening is not None
+                and opening.overlay_video is not None
+                and opening.overlay_video.exists()
+            ),
+            media_available=record.path.is_file(),
+        )
 
 
 # --- processing ----------------------------------------------------------------
@@ -616,6 +734,61 @@ class MetricsService:
         )
 
 
+def _opening_job(jobs: Sequence[JobRecord]) -> JobRecord | None:
+    """The run a client should open for a video: its analysis, not its last attempt.
+
+    The most recent **succeeded** run wins, because that is the one that has events,
+    evidence, and possibly an overlay -- the thing "reopen this video" means. Only
+    when no run ever succeeded does the most recent run of any status stand in, so a
+    video whose processing failed still reports why instead of looking unprocessed.
+    Jobs arrive in insertion order, so "most recent" is the last match.
+    """
+
+    succeeded = [job for job in jobs if job.status is JobStatus.SUCCEEDED]
+    if succeeded:
+        return succeeded[-1]
+    return jobs[-1] if jobs else None
+
+
+def _sorted_videos(summaries: list[VideoSummary], sort: VideoSort) -> list[VideoSummary]:
+    """Deterministically order video summaries (video_id is the final tie-break).
+
+    A video with no recorded upload instant cannot be placed on the time axis, so
+    it is sorted to the end of *either* direction rather than being given a
+    substitute date -- the ordering says "unknown", which is what is true.
+    """
+
+    if sort in (VideoSort.FILENAME_ASC, VideoSort.FILENAME_DESC):
+        return sorted(
+            summaries,
+            key=lambda s: (s.filename.lower(), s.video_id),
+            reverse=sort is VideoSort.FILENAME_DESC,
+        )
+    descending = sort is VideoSort.UPLOADED_AT_DESC
+    return sorted(
+        summaries,
+        key=lambda s: (
+            s.uploaded_at is None,
+            _sort_instant(s.uploaded_at, descending=descending),
+            s.video_id,
+        ),
+    )
+
+
+def _sort_instant(value: datetime | None, *, descending: bool) -> float:
+    """A comparable key for an optional instant, negated for descending order.
+
+    Negating the timestamp (rather than reversing the whole sort) keeps the
+    "unknown last" flag and the ``video_id`` tie-break ascending in both
+    directions, so the ordering stays stable and unknowns never lead the page.
+    """
+
+    if value is None:
+        return 0.0
+    seconds = value.timestamp()
+    return -seconds if descending else seconds
+
+
 def _sorted_summaries(
     summaries: list[EventSummary], sort: EventSort
 ) -> list[EventSummary]:
@@ -638,6 +811,7 @@ def _sorted_summaries(
 # service module the single import surface for the application error taxonomy.
 __all__ = [
     "VideoService",
+    "VideoLibraryService",
     "ProcessingService",
     "EventService",
     "EvidenceService",

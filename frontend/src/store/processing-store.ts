@@ -27,6 +27,8 @@ interface ProcessingState {
   beginUpload: () => void;
   /** A job was created for the video → move to the queued phase. */
   attachJob: (videoId: string, jobId: string) => void;
+  /** Adopt an already-finished job from the library, without claiming to run it. */
+  adoptJob: (videoId: string, jobId: string) => void;
   setPhase: (phase: ProcessingPhase) => void;
   addLog: (level: LogLevel, message: string) => void;
   /** Record the selected event for recovery (no-op if unchanged). */
@@ -78,6 +80,28 @@ export const useProcessingStore = create<ProcessingState>()(
           phase: 'queued',
           startedAt: state.startedAt ?? Date.now(),
         })),
+      // Opening a historical video is not starting one. `attachJob` would claim the
+      // queued phase and stamp `startedAt` with now, so the workspace would show a
+      // completed run as freshly queued and count elapsed time from the click. This
+      // stays at `idle` with no start instant and lets the first poll say what the
+      // job actually is — the run's true duration is not something we know.
+      adoptJob: (videoId, jobId) =>
+        set({
+          videoId,
+          jobId,
+          phase: 'idle',
+          startedAt: null,
+          selectedEventId: null,
+          playbackSeconds: 0,
+          logs: [
+            {
+              id: nextLogId(),
+              at: Date.now(),
+              level: 'info',
+              message: 'Opened a previously processed video.',
+            },
+          ],
+        }),
       setPhase: (phase) => set({ phase }),
       addLog: (level, message) =>
         set((state) => ({

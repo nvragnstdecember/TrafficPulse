@@ -2,7 +2,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { queryKeys } from '@/api/query-keys';
-import { type JobStatusResponse, type VideoUploadResponse } from '@/api/types';
+import {
+  type JobStatusResponse,
+  type VideoSummary,
+  type VideoUploadResponse,
+} from '@/api/types';
 import { ApiError, toErrorMessage } from '@/api/errors';
 import {
   type ProcessingPhase,
@@ -20,6 +24,8 @@ import { useCancelJob, useJob, useStartProcessing, useUploadVideo } from './use-
 
 export interface ProcessingActions {
   selectAndUpload: (file: File) => void;
+  /** Open a stored video from the library — its finished run, or start one (H11). */
+  openVideo: (video: VideoSummary) => void;
   startProcessing: () => void;
   /** Cancel the in-flight upload (client abort) or the running job (API), as apt. */
   cancel: () => void;
@@ -48,6 +54,28 @@ export interface ProcessingController {
   /** The job poll is currently failing (backend unavailable / transient outage). */
   connectionError: unknown;
   actions: ProcessingActions;
+}
+
+/**
+ * Present a library row as the upload record the workspace already understands.
+ *
+ * The two shapes overlap on everything the workspace reads; `status` is the
+ * upload-receipt vocabulary ("stored"), and `frame_count` is not carried by a
+ * library row, so it stays null rather than being guessed from fps × duration.
+ */
+function toUploadRecord(video: VideoSummary): VideoUploadResponse {
+  return {
+    video_id: video.video_id,
+    filename: video.filename,
+    status: 'stored',
+    size_bytes: video.size_bytes,
+    width: video.width,
+    height: video.height,
+    fps: video.fps,
+    frame_count: null,
+    duration_seconds: video.duration_seconds,
+    codec: video.codec,
+  };
 }
 
 /** A 1s ticker while `active`, so elapsed time updates without a component timer. */
@@ -229,6 +257,38 @@ export function useProcessing(): ProcessingController {
     }
   }, [jobQuery.data, queryClient]);
 
+  /**
+   * Open a stored video from the historical library (H11).
+   *
+   * The whole point of the milestone: a video that was processed in some earlier
+   * session becomes the workspace's current video without being re-uploaded. It
+   * seeds exactly the state a completed upload would have left behind — the server
+   * record and the job id — so every downstream surface (player, timeline, event
+   * list, review panel) works unchanged and cannot tell the two paths apart.
+   *
+   * A video with no run has nothing to reopen, so opening it starts one, which is
+   * what the upload path does after storing a file.
+   */
+  const openVideo = useCallback(
+    (summary: VideoSummary) => {
+      abortRef.current?.abort();
+      lastStatusRef.current = null;
+      lastOverlayRef.current = null;
+      // Drop any local file/object URL first: it belongs to a different video, and
+      // leaving it would play the wrong clip under the right metadata.
+      useUploadStore.getState().reset();
+      useUploadStore.getState().markUploaded(toUploadRecord(summary));
+      selectVideo(summary.video_id);
+      if (summary.job_id) {
+        useProcessingStore.getState().adoptJob(summary.video_id, summary.job_id);
+      } else {
+        useProcessingStore.getState().reset();
+        startProcessingFor(summary.video_id);
+      }
+    },
+    [selectVideo, startProcessingFor],
+  );
+
   const cancelUpload = useCallback(() => abortRef.current?.abort(), []);
 
   const cancelJob = useCallback(() => {
@@ -246,6 +306,7 @@ export function useProcessing(): ProcessingController {
 
   const actions: ProcessingActions = {
     selectAndUpload: runUpload,
+    openVideo,
     startProcessing: () => {
       const video = useUploadStore.getState().video;
       if (video) startProcessingFor(video.video_id);

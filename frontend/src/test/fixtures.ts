@@ -8,6 +8,7 @@ import {
   type ReviewCase,
   type ReviewEntry,
   type ReviewResponse,
+  type VideoSummary,
   type VideoUploadResponse,
   type ViolationType,
 } from '@/api/types';
@@ -152,6 +153,29 @@ export function makeVideo(overrides: Partial<VideoUploadResponse> = {}): VideoUp
   };
 }
 
+/** A historical-library row (H11); defaults to an analysed video with events. */
+export function makeVideoSummary(overrides: Partial<VideoSummary> = {}): VideoSummary {
+  return {
+    video_id: 'vid-1',
+    filename: 'junction.mp4',
+    uploaded_at: '2026-07-30T09:00:00Z',
+    size_bytes: 1024 * 1024,
+    width: 1920,
+    height: 1080,
+    fps: 25,
+    duration_seconds: 30,
+    codec: 'h264',
+    job_id: 'job-1',
+    status: 'succeeded',
+    job_count: 1,
+    event_count: 2,
+    events_reviewed: 0,
+    overlay_available: false,
+    media_available: true,
+    ...overrides,
+  };
+}
+
 export function makeJob(overrides: Partial<JobStatusResponse> = {}): JobStatusResponse {
   return {
     job_id: 'job-1',
@@ -181,6 +205,7 @@ export function makeProcessingController(
 ): ProcessingController {
   const actions: ProcessingActions = {
     selectAndUpload: vi.fn(),
+    openVideo: vi.fn(),
     startProcessing: vi.fn(),
     cancel: vi.fn(),
     cancelUpload: vi.fn(),

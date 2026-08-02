@@ -125,6 +125,7 @@ function makeController(overrides: Partial<ProcessingController> = {}): Processi
     connectionError: null,
     actions: {
       selectAndUpload: vi.fn(),
+      openVideo: vi.fn(),
       startProcessing: vi.fn(),
       cancel: vi.fn(),
       cancelUpload: vi.fn(),

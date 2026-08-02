@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { queryKeys } from '@/api/query-keys';
+import { type VideoListParams, queryKeys } from '@/api/query-keys';
 import { type JobStatusResponse } from '@/api/types';
 import { shouldPollJob } from '@/lib/job';
 import {
@@ -11,6 +11,20 @@ import {
 
 /** Poll cadence while a job is still active, in ms. */
 export const JOB_POLL_INTERVAL_MS = 1500;
+
+/**
+ * The historical video library (H11): every stored video, newest first.
+ *
+ * Metadata only — a page of this costs no event, evidence, or overlay fetch, so it
+ * stays cheap however large the repository grows. A video's analysis is loaded by
+ * the existing event/evidence queries once one is opened.
+ */
+export function useVideoLibrary(params: VideoListParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.videos.list(params),
+    queryFn: ({ signal }) => videosService.list(params, signal),
+  });
+}
 
 /**
  * One job's status. When `poll` is set, it auto-refetches until the job has fully
@@ -40,22 +54,26 @@ export function useCancelJob() {
       queryClient.setQueryData(queryKeys.jobs.detail(status.job_id), status);
       void queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.videos.all });
     },
   });
 }
 
-/** Upload a source video; refreshes metrics on success. */
+/** Upload a source video; refreshes metrics + the library on success. */
 export function useUploadVideo() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: UploadVideoInput) => videosService.upload(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics });
+      // A new upload is a new library row; without this the library would be stale
+      // for whoever returns to it from the workspace.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.videos.all });
     },
   });
 }
 
-/** Start a processing job; refreshes jobs + metrics on success. */
+/** Start a processing job; refreshes jobs + metrics + the library on success. */
 export function useStartProcessing() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -63,6 +81,7 @@ export function useStartProcessing() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.jobs.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.metrics });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.videos.all });
     },
   });
 }

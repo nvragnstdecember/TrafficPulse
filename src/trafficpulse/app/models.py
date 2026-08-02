@@ -80,6 +80,104 @@ class VideoUploadResponse(_ApiModel):
         )
 
 
+# --- video library (H11) ---------------------------------------------------------
+class VideoSort(StrEnum):
+    """Deterministic video orderings for the library endpoint.
+
+    ``-uploaded_at`` is the default because browsing a repository means "what did I
+    work on last". A video with no recorded upload instant sorts last rather than
+    being dropped or dated arbitrarily.
+    """
+
+    UPLOADED_AT_ASC = "uploaded_at"
+    UPLOADED_AT_DESC = "-uploaded_at"
+    FILENAME_ASC = "filename"
+    FILENAME_DESC = "-filename"
+
+
+class VideoSummary(_ApiModel):
+    """One row of the historical video library (H11): metadata for *browsing*.
+
+    Deliberately not a container for a video's analysis. It carries what a list
+    needs to render and to decide what to open -- identity, provenance, the state
+    of the work -- and nothing that would make listing cost what opening costs. No
+    event payload, no evidence manifest, no overlay metadata: those are fetched per
+    video, after a selection, by the endpoints that already serve them.
+
+    A recovered video and a freshly-uploaded one produce the same shape by
+    construction: every field is read from the registries, which H10 rebuilds from
+    disk, so there is no field a restart could leave un-fillable and therefore no
+    way for a client to tell the two apart.
+    """
+
+    video_id: str = Field(description="Content-derived id addressing the stored video.")
+    filename: str = Field(description="The client-supplied original filename.")
+    uploaded_at: datetime | None = Field(
+        default=None,
+        description="When the upload was accepted, or null when unknown (a video "
+        "stored before this was recorded, whose file modification time was also "
+        "unreadable). Never fabricated.",
+    )
+    size_bytes: int = Field(description="Stored file size in bytes.")
+    width: int = Field(description="Decoded frame width.")
+    height: int = Field(description="Decoded frame height.")
+    fps: float | None = Field(default=None, description="Reported average FPS, if known.")
+    duration_seconds: float | None = Field(
+        default=None, description="Reported duration in seconds, if known."
+    )
+    codec: str = Field(description="Decoded video codec name.")
+    job_id: str | None = Field(
+        default=None,
+        description="The job a client should open for this video: its most recent "
+        "succeeded run if there is one, else its most recent run of any status. "
+        "Null when the video has never been processed.",
+    )
+    status: JobStatus | None = Field(
+        default=None,
+        description="Status of the job named by job_id, or null when the video has "
+        "never been processed. This is the video's processing state.",
+    )
+    job_count: int = Field(
+        default=0, description="How many processing runs exist for this video."
+    )
+    event_count: int = Field(
+        default=0,
+        description="Confirmed events across the video's succeeded runs, deduplicated "
+        "by event id -- the same set GET /api/events?video_id=... returns.",
+    )
+    events_reviewed: int = Field(
+        default=0,
+        description="How many of those events an analyst has acted on (the event has "
+        "a review journal). Deliberately 'acted on', not 'decided': opening a case "
+        "counts. Fetch GET /api/events?video_id=... for per-event review status.",
+    )
+    overlay_available: bool = Field(
+        default=False,
+        description="True when a rendered overlay (annotated) video is ready for "
+        "job_id at GET /api/process/{job_id}/overlay.",
+    )
+    media_available: bool = Field(
+        default=False,
+        description="True when the stored source video is still on disk and "
+        "streamable at GET /api/videos/{video_id}/media. This is also the "
+        "thumbnail-availability signal: thumbnails are captured from the played "
+        "video, so a streamable source is exactly what makes one possible.",
+    )
+
+
+class VideoListResponse(_ApiModel):
+    """A page of video summaries plus paging metadata (H11).
+
+    The same envelope as :class:`EventListResponse` rather than a bare array, so
+    paging is already in the contract on the day a repository outgrows one page.
+    """
+
+    items: tuple[VideoSummary, ...] = Field(description="The page of summaries.")
+    total: int = Field(description="Total videos in the repository (before paging).")
+    limit: int = Field(description="Applied page size.")
+    offset: int = Field(description="Applied page offset.")
+
+
 # --- processing ----------------------------------------------------------------
 class ProcessRequest(_ApiModel):
     """Request to process one uploaded video.

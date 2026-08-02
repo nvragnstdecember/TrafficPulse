@@ -12,6 +12,7 @@ from . import (
     metrics,
     process,
     upload,
+    videos,
 )
 
-__all__ = ["evidence", "events", "health", "metrics", "process", "upload"]
+__all__ = ["evidence", "events", "health", "metrics", "process", "upload", "videos"]
