@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { useSettingsStore } from '@/store/settings-store';
 
-import AnalyticsPage from './analytics-page';
 import EvidencePage from './evidence-page';
 import SettingsPage from './settings-page';
 
@@ -15,10 +14,9 @@ beforeEach(() => {
 });
 
 describe('placeholder pages', () => {
+  // Analytics stopped being a placeholder in H15; it is covered, with its data
+  // source mocked, in dashboard-page.test.tsx.
   it('render their headers', () => {
-    const { unmount } = renderWithProviders(<AnalyticsPage />);
-    expect(screen.getByRole('heading', { name: 'Analytics' })).toBeInTheDocument();
-    unmount();
     renderWithProviders(<EvidencePage />);
     expect(screen.getByRole('heading', { name: 'Evidence' })).toBeInTheDocument();
   });

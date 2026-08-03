@@ -29,6 +29,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from .. import __version__
+from .analytics import AnalyticsService
 from .config import AppConfig, load_scene
 from .dependencies import AppContext
 from .engine_provider import EngineProvider, RealEngineProvider
@@ -36,7 +37,17 @@ from .errors import AppError
 from .models import ErrorDetail, ErrorResponse
 from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
-from .routers import events, evidence, health, metrics, process, scenes, upload, videos
+from .routers import (
+    analytics,
+    events,
+    evidence,
+    health,
+    metrics,
+    process,
+    scenes,
+    upload,
+    videos,
+)
 from .services import (
     EventService,
     EvidenceService,
@@ -192,6 +203,17 @@ def _build_context(
         evidence=EvidenceService(event_service, rendered_store, artifact_store),
         reviews=ReviewService(event_service, review_store),
         metrics=MetricsService(job_store),
+        # The single aggregation layer (H15). It composes the same registries every
+        # other service reads -- it owns no storage and duplicates no scan.
+        analytics=AnalyticsService(
+            videos=video_store,
+            jobs=job_store,
+            provider=provider,
+            reviews=review_store,
+            rendered=rendered_store,
+            artifacts_dir=config.artifacts_dir,
+            overlays_dir=config.overlays_dir,
+        ),
     )
 
 
@@ -232,7 +254,17 @@ def create_app(
             allow_headers=["*"],
         )
 
-    for router in (health, upload, videos, scenes, process, events, evidence, metrics):
+    for router in (
+        health,
+        upload,
+        videos,
+        scenes,
+        process,
+        events,
+        evidence,
+        metrics,
+        analytics,
+    ):
         app.include_router(router.router)
 
     # The SPA mount is registered last so every /api route matches first; it is

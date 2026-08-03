@@ -23,6 +23,7 @@ export interface VideoListParams {
 export const queryKeys = {
   health: ['health'] as const,
   metrics: ['metrics'] as const,
+  analytics: ['analytics'] as const,
   jobs: {
     all: ['jobs'] as const,
     detail: (jobId: string) => ['jobs', jobId] as const,

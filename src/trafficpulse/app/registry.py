@@ -28,12 +28,24 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Protocol
 
 from ..engine import EngineMetrics, EngineRunResult, InferenceEngine
+
+
+def _utc_now() -> datetime:
+    """The wall-clock instant a lifecycle transition happened.
+
+    Confined to job lifecycle timing. Nothing in the *decision* path may read a
+    clock -- media time is PTS-derived and epoch-anchored so replay stays
+    byte-deterministic -- and these timestamps are observational metadata about a
+    run, never an input to one.
+    """
+
+    return datetime.now(UTC)
 
 
 # --- videos --------------------------------------------------------------------
@@ -217,6 +229,47 @@ class JobRecord:
     # source left for its frame counts and FPS.
     restored_metrics: EngineMetrics | None = field(default=None, repr=False)
 
+    # --- H15 wall-clock lifecycle timing -------------------------------------
+    # The *only* wall-clock instants a run records. Everything else in this system
+    # is media time anchored at a fixed epoch (deliberately, so replay is
+    # byte-deterministic), which means a run's real duration and the calendar day
+    # it happened on were previously unrecoverable. These three fields exist so
+    # analytics can answer "when" without ever reinterpreting media time as a date.
+    #
+    # Each is optional and stays ``None`` when unknown: a job recovered from a
+    # snapshot written before H15 has no timing, and reports that honestly rather
+    # than substituting the recovery instant.
+    submitted_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    # Confirmed events per violation type, computed once when the run succeeds.
+    # The same trick H10 used for the event index: a value that would otherwise
+    # require re-reading every event file is written down at the moment it is
+    # already in hand, so repository-wide analytics costs O(jobs), not O(events).
+    # Empty for a job that confirmed nothing *and* for one recovered from a
+    # pre-H15 snapshot -- see ``JobRecord.has_violation_counts``.
+    violation_counts: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def has_violation_counts(self) -> bool:
+        """Whether this job's histogram is a measurement rather than an absence.
+
+        A pre-H15 snapshot and a run that confirmed nothing both present an empty
+        mapping, but they mean different things: "not recorded" versus "recorded,
+        and it was zero". Event ids are recovered independently (from the run's
+        ``events/`` listing), so their presence is what distinguishes the two.
+        """
+
+        return bool(self.violation_counts) or not self.event_ids
+
+    def duration_seconds(self) -> float | None:
+        """Wall-clock seconds from start to finish, or ``None`` if not both known."""
+
+        if self.started_at is None or self.finished_at is None:
+            return None
+        return max(0.0, (self.finished_at - self.started_at).total_seconds())
+
     def metrics(self) -> EngineMetrics | None:
         """The best available metrics snapshot: final if done, else live, else none.
 
@@ -256,6 +309,8 @@ class JobStore:
 
     def add(self, record: JobRecord) -> None:
         with self._lock:
+            if record.submitted_at is None:
+                record.submitted_at = _utc_now()
             self._jobs[record.job_id] = record
         self._notify(record.job_id)
 
@@ -287,6 +342,7 @@ class JobStore:
             record = self._jobs[job_id]
             record.status = JobStatus.RUNNING
             record.frames_total = frames_total
+            record.started_at = _utc_now()
         self._notify(job_id)
 
     def mark_succeeded(self, job_id: str, result: EngineRunResult) -> None:
@@ -295,8 +351,15 @@ class JobStore:
             record.status = JobStatus.SUCCEEDED
             record.result = result
             record.event_ids = tuple(event.event_id for event in result.events)
+            # The histogram is computed here because this is the one moment the
+            # events are already in memory; every later reader gets it for free.
+            counts: dict[str, int] = {}
             for event in result.events:
                 self._event_index[event.event_id] = job_id
+                key = event.violation_type.value
+                counts[key] = counts.get(key, 0) + 1
+            record.violation_counts = counts
+            record.finished_at = _utc_now()
         self._notify(job_id)
 
     def mark_overlay_pending(self, job_id: str) -> None:
@@ -337,12 +400,14 @@ class JobStore:
             record = self._jobs[job_id]
             record.status = JobStatus.FAILED
             record.error = message
+            record.finished_at = _utc_now()
         self._notify(job_id)
 
     def mark_cancelled(self, job_id: str) -> None:
         with self._lock:
             record = self._jobs[job_id]
             record.status = JobStatus.CANCELLED
+            record.finished_at = _utc_now()
         self._notify(job_id)
 
     def request_cancel(self, job_id: str) -> bool:

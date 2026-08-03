@@ -18,6 +18,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from .analytics import AnalyticsService
 from .config import AppConfig
 from .engine_provider import EngineProvider
 from .services import (
@@ -46,6 +47,7 @@ class AppContext:
     evidence: EvidenceService
     reviews: ReviewService
     metrics: MetricsService
+    analytics: AnalyticsService
 
 
 def get_context(request: Request) -> AppContext:
@@ -95,6 +97,10 @@ def get_metrics_service(request: Request) -> MetricsService:
     return get_context(request).metrics
 
 
+def get_analytics_service(request: Request) -> AnalyticsService:
+    return get_context(request).analytics
+
+
 ConfigDep = Annotated[AppConfig, Depends(get_config)]
 ProviderDep = Annotated[EngineProvider, Depends(get_provider)]
 VideoServiceDep = Annotated[VideoService, Depends(get_video_service)]
@@ -105,3 +111,4 @@ EventServiceDep = Annotated[EventService, Depends(get_event_service)]
 EvidenceServiceDep = Annotated[EvidenceService, Depends(get_evidence_service)]
 ReviewServiceDep = Annotated[ReviewService, Depends(get_review_service)]
 MetricsServiceDep = Annotated[MetricsService, Depends(get_metrics_service)]
+AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]

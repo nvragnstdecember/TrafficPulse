@@ -60,7 +60,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeVar
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from ..engine import EngineMetrics
 from .config import AppConfig
@@ -179,6 +179,17 @@ class RunSnapshot(BaseModel):
     ``event_ids`` is deliberately **absent**: it is recoverable from the run's
     ``events/`` directory listing, and duplicating it here would create two
     representations of the same fact that could disagree.
+
+    ``violation_counts`` is the one deliberate exception to that rule (H15). It is
+    *not* recoverable from a listing -- ``violation_type`` lives inside each event
+    file -- so the alternative is deserialising every event in the repository on
+    every analytics request. It is computed once, when the run succeeds and the
+    events are already in memory, and read from the index thereafter.
+
+    The three timestamps are the only wall-clock instants a run records; every
+    other time in this system is epoch-anchored media time. All four fields default
+    to empty so a snapshot written before H15 still validates and simply reports
+    nothing known -- see :meth:`RepositoryRecovery._recover_runs`.
     """
 
     job_id: str
@@ -188,6 +199,10 @@ class RunSnapshot(BaseModel):
     error: str | None = None
     overlay_status: OverlayStatus = OverlayStatus.NONE
     metrics: EngineMetrics | None = None
+    submitted_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    violation_counts: dict[str, int] = Field(default_factory=dict)
 
     @classmethod
     def of(cls, record: JobRecord) -> RunSnapshot:
@@ -199,6 +214,10 @@ class RunSnapshot(BaseModel):
             error=record.error,
             overlay_status=record.overlay_status,
             metrics=record.metrics(),
+            submitted_at=record.submitted_at,
+            started_at=record.started_at,
+            finished_at=record.finished_at,
+            violation_counts=dict(record.violation_counts),
         )
 
 
@@ -373,6 +392,13 @@ class RepositoryRecovery:
                     overlay_video=self._overlay_for(snapshot.job_id),
                     overlay_status=self._overlay_status(snapshot),
                     restored_metrics=snapshot.metrics,
+                    # H15: carried verbatim. A snapshot written before these fields
+                    # existed restores them as None/{} , so a recovered job reports
+                    # "timing not recorded" instead of the moment it was recovered.
+                    submitted_at=snapshot.submitted_at,
+                    started_at=snapshot.started_at,
+                    finished_at=snapshot.finished_at,
+                    violation_counts=dict(snapshot.violation_counts),
                 ),
                 event_ids,
             )

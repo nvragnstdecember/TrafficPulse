@@ -20,3 +20,18 @@ export function useMetrics() {
     queryFn: ({ signal }) => systemService.getMetrics(signal),
   });
 }
+
+/**
+ * The repository analytics summary (H15) — the dashboard's single data source.
+ *
+ * Polled gently: the figures describe a whole repository, so they change on the
+ * timescale of a processing run, not of a frame. One request serves every section.
+ */
+export function useAnalytics() {
+  return useQuery({
+    queryKey: queryKeys.analytics,
+    queryFn: ({ signal }) => systemService.getAnalytics(signal),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+  });
+}

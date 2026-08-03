@@ -452,6 +452,93 @@ export interface MetricsResponse {
   latest: EngineMetrics | null;
 }
 
+// --- analytics (H15) ---------------------------------------------------------
+/**
+ * The complete dashboard payload, aggregated server-side.
+ *
+ * The client renders these figures and derives none of its own: `AnalyticsService`
+ * is the single aggregation layer, so any number shown on the dashboard is one the
+ * backend computed from the repository.
+ */
+export interface ViolationCount {
+  violation_type: string;
+  count: number;
+}
+
+export interface RepositoryOverview {
+  videos_total: number;
+  videos_processed: number;
+  videos_unprocessed: number;
+  videos_calibrated: number;
+  /** Null when no stored video declares a duration — never treat as 0. */
+  footage_seconds: number | null;
+  storage_bytes: number;
+}
+
+export interface ProcessingStats {
+  jobs_total: number;
+  jobs_pending: number;
+  jobs_running: number;
+  jobs_succeeded: number;
+  jobs_failed: number;
+  jobs_cancelled: number;
+  /** Null when no run recorded both a start and a finish (pre-H15 repositories). */
+  average_duration_seconds: number | null;
+  timed_jobs: number;
+  frames_processed: number;
+}
+
+export interface ViolationStats {
+  events_total: number;
+  by_type: ViolationCount[];
+  counted_jobs: number;
+  /** Succeeded runs with events but no recorded histogram — the breakdown is partial. */
+  uncounted_jobs: number;
+}
+
+export interface EvidenceStats {
+  events_total: number;
+  events_with_artifacts: number;
+  artifacts_total: number;
+  artifact_bytes: number;
+  overlays_available: number;
+}
+
+export interface ReviewProgress {
+  events_total: number;
+  events_reviewed: number;
+  events_pending: number;
+}
+
+export interface ActivityEntry {
+  kind: string;
+  /** A wall-clock instant the backend recorded — never media time. */
+  at: string;
+  subject_id: string;
+  summary: string;
+  status: string | null;
+}
+
+export interface RepositoryHealth {
+  engine: string;
+  version: string;
+  failed_jobs: number;
+  videos_missing_media: number;
+  videos_uncalibrated: number;
+  runs_without_timing: number;
+}
+
+export interface AnalyticsSummary {
+  repository: RepositoryOverview;
+  processing: ProcessingStats;
+  violations: ViolationStats;
+  evidence: EvidenceStats;
+  review: ReviewProgress;
+  health: RepositoryHealth;
+  recent_activity: ActivityEntry[];
+  latest_run: EngineMetrics | null;
+}
+
 /** The uniform error envelope every non-2xx response carries. */
 export interface ApiErrorBody {
   error: {

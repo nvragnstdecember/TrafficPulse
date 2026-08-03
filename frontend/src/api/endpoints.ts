@@ -7,6 +7,8 @@
 export const endpoints = {
   health: '/api/health',
   metrics: '/api/metrics',
+  /** The whole dashboard in one aggregated response (H15). */
+  analyticsSummary: '/api/analytics/summary',
   videoUpload: '/api/video/upload',
   videos: '/api/videos',
   video: (videoId: string) => `/api/videos/${encodeURIComponent(videoId)}`,

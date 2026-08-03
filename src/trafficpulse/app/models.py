@@ -448,6 +448,149 @@ class MetricsResponse(_ApiModel):
     )
 
 
+# --- analytics -----------------------------------------------------------------
+class ViolationCount(_ApiModel):
+    """Confirmed events of one violation type across the repository."""
+
+    violation_type: str = Field(description="Violation type slug, e.g. 'no_helmet'.")
+    count: int = Field(description="Confirmed events of this type, deduplicated by event id.")
+
+
+class RepositoryOverview(_ApiModel):
+    """What this repository holds."""
+
+    videos_total: int = Field(description="Stored videos, including recovered ones.")
+    videos_processed: int = Field(description="Videos with at least one succeeded run.")
+    videos_unprocessed: int = Field(description="Videos no succeeded run covers yet.")
+    videos_calibrated: int = Field(description="Videos bound to a calibrated scene (H12).")
+    footage_seconds: float | None = Field(
+        default=None,
+        description="Total duration of stored footage, or null when no video reports "
+        "a duration. Videos with an unknown duration are excluded, never counted as 0.",
+    )
+    storage_bytes: int = Field(description="Bytes of stored source video.")
+
+
+class ProcessingStats(_ApiModel):
+    """Run outcomes and the wall-clock cost of producing them."""
+
+    jobs_total: int = Field(description="All runs ever submitted.")
+    jobs_pending: int = Field(description="Runs not yet started.")
+    jobs_running: int = Field(description="Runs currently processing.")
+    jobs_succeeded: int = Field(description="Runs that completed successfully.")
+    jobs_failed: int = Field(description="Runs that failed.")
+    jobs_cancelled: int = Field(description="Runs cancelled on request.")
+    average_duration_seconds: float | None = Field(
+        default=None,
+        description="Mean wall-clock duration of runs that recorded both a start and "
+        "a finish. Null when none did -- runs recovered from a pre-H15 snapshot have "
+        "no timing, and are excluded rather than assumed instantaneous.",
+    )
+    timed_jobs: int = Field(
+        default=0,
+        description="How many runs the average is computed from, so a client can tell "
+        "a repository-wide mean from a single sample.",
+    )
+    frames_processed: int = Field(
+        default=0, description="Frames processed across every run that recorded metrics."
+    )
+
+
+class ViolationStats(_ApiModel):
+    """Confirmed violations across the repository."""
+
+    events_total: int = Field(description="Confirmed events, deduplicated by event id.")
+    by_type: tuple[ViolationCount, ...] = Field(
+        default=(), description="Counts per violation type, most frequent first."
+    )
+    counted_jobs: int = Field(
+        default=0,
+        description="Succeeded runs whose per-type histogram was available. A run "
+        "recovered from a pre-H15 snapshot contributes to events_total but not to "
+        "by_type, so a client can tell a partial breakdown from a complete one.",
+    )
+    uncounted_jobs: int = Field(
+        default=0, description="Succeeded runs with events but no recorded histogram."
+    )
+
+
+class EvidenceStats(_ApiModel):
+    """How much confirmed evidence has actually been rendered (H14)."""
+
+    events_total: int = Field(description="Confirmed events in the repository.")
+    events_with_artifacts: int = Field(
+        description="Events with at least one rendered evidence artifact."
+    )
+    artifacts_total: int = Field(description="Stored rendered artifacts (content-addressed).")
+    artifact_bytes: int = Field(description="Bytes of stored rendered artifacts.")
+    overlays_available: int = Field(description="Runs with a rendered annotated video.")
+
+
+class ReviewStats(_ApiModel):
+    """Analyst progress over the confirmed events."""
+
+    events_total: int = Field(description="Confirmed events in the repository.")
+    events_reviewed: int = Field(
+        description="Events an analyst has acted on (the event has a review journal). "
+        "'Acted on', not 'decided' -- opening a case counts, matching VideoSummary."
+    )
+    events_pending: int = Field(description="Events with no review activity yet.")
+
+
+class ActivityEntry(_ApiModel):
+    """One dated thing that happened, for the recent-activity feed.
+
+    Deliberately a small, uniform shape: the feed mixes uploads, runs, and review
+    actions, and every entry is anchored to a **wall-clock** instant the system
+    actually recorded. Nothing derived from media time appears here.
+    """
+
+    kind: str = Field(description="'upload', 'run', or 'review'.")
+    at: datetime = Field(description="Wall-clock instant the activity happened (UTC).")
+    subject_id: str = Field(description="video_id, job_id, or event_id, per kind.")
+    summary: str = Field(description="Short human-readable description.")
+    status: str | None = Field(default=None, description="Outcome slug, when the kind has one.")
+
+
+class RepositoryHealth(_ApiModel):
+    """Operational signals an operator should see without digging."""
+
+    engine: str = Field(description="Engine readiness: 'ready' or 'unconfigured'.")
+    version: str = Field(description="TrafficPulse package version.")
+    failed_jobs: int = Field(description="Runs that failed.")
+    videos_missing_media: int = Field(
+        description="Videos whose stored file is no longer on disk."
+    )
+    videos_uncalibrated: int = Field(
+        description="Videos with no bound scene, which limits which rules can run."
+    )
+    runs_without_timing: int = Field(
+        description="Runs recovered from a snapshot predating lifecycle timing (H15)."
+    )
+
+
+class AnalyticsSummary(_ApiModel):
+    """The complete dashboard payload, composed server-side in one pass.
+
+    One response rather than a family of widget endpoints: every section is derived
+    from the same registry read, so splitting them would multiply round-trips and
+    let sections disagree with each other mid-refresh.
+    """
+
+    repository: RepositoryOverview
+    processing: ProcessingStats
+    violations: ViolationStats
+    evidence: EvidenceStats
+    review: ReviewStats
+    health: RepositoryHealth
+    recent_activity: tuple[ActivityEntry, ...] = Field(
+        default=(), description="Most recent activity first, newest-limited."
+    )
+    latest_run: EngineMetrics | None = Field(
+        default=None, description="The most recent run's H6 EngineMetrics, verbatim."
+    )
+
+
 # --- errors --------------------------------------------------------------------
 class ErrorDetail(_ApiModel):
     """The body of an error envelope.
