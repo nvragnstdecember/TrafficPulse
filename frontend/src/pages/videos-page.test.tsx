@@ -364,6 +364,45 @@ describe('VideosPage — historical video library (H11)', () => {
     expect(useProcessingStore.getState().jobId).toBe('job-1');
   });
 
+  it('opens for a browser holding pre-H9 workspace prefs (H13.1)', async () => {
+    // The acceptance regression: an analyst whose browser still held filters
+    // persisted before H9 added `reviewStatuses` crashed the filters bar — and
+    // with it the whole page — on render.
+    const user = userEvent.setup();
+    localStorage.setItem(
+      'trafficpulse-workspace-prefs',
+      JSON.stringify({
+        state: {
+          filters: { query: '', violationTypes: [], minConfidence: 0 },
+          sort: 'time-asc',
+          selectionMode: false,
+        },
+        version: 0,
+      }),
+    );
+    await act(async () => {
+      await useWorkspacePrefsStore.persist.rehydrate();
+    });
+    vi.mocked(videosService.list).mockResolvedValue({
+      items: [makeVideoSummary({ video_id: 'vid-old', filename: 'yesterday.mp4' })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    });
+    vi.mocked(videosService.getJob).mockResolvedValue(
+      makeJob({ job_id: 'job-1', video_id: 'vid-old', status: 'succeeded', event_count: 2 }),
+    );
+    renderWithProviders(<VideosPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'Open yesterday.mp4' }));
+
+    // The filters bar renders, and its review filter is usable rather than absent.
+    const list = await screen.findByRole('region', { name: 'Detected events' });
+    await user.click(within(list).getByRole('button', { name: 'Review' }));
+    await user.click(await screen.findByRole('menuitemcheckbox', { name: 'Approved' }));
+    expect(useWorkspacePrefsStore.getState().filters.reviewStatuses).toEqual(['approved']);
+  });
+
   it('plays a stored video from the server when this session has no local file', async () => {
     // The gap that made the library unusable on its own: playback was a browser
     // object URL for the picked file, which a reopened video never has.

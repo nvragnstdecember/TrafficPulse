@@ -36,6 +36,54 @@ describe('workspace-prefs store (H7E)', () => {
     });
   });
 
+  it('rehydrates a pre-H9 blob into the current filter shape (H13.1)', async () => {
+    // What a browser that last ran the H7C-era workspace left behind: filters
+    // without the confidence ceiling, the time range, or `reviewStatuses`.
+    // Zustand's default merge is shallow, so this object replaced the defaults
+    // outright and the filters bar crashed reading `reviewStatuses.length`.
+    localStorage.setItem(
+      'trafficpulse-workspace-prefs',
+      JSON.stringify({
+        state: {
+          filters: { query: 'helmet', violationTypes: ['no_helmet'], minConfidence: 0.4 },
+          sort: 'time-asc',
+          selectionMode: false,
+        },
+        version: 0,
+      }),
+    );
+
+    await act(async () => {
+      await useWorkspacePrefsStore.persist.rehydrate();
+    });
+
+    expect(useWorkspacePrefsStore.getState().filters).toEqual({
+      ...DEFAULT_EVENT_FILTERS,
+      query: 'helmet',
+      violationTypes: ['no_helmet'],
+      minConfidence: 0.4,
+    });
+  });
+
+  it('falls back to defaults for corrupt persisted prefs (H13.1)', async () => {
+    localStorage.setItem(
+      'trafficpulse-workspace-prefs',
+      JSON.stringify({ state: { filters: null, sort: 'by-vibes' }, version: 0 }),
+    );
+
+    await act(async () => {
+      await useWorkspacePrefsStore.persist.rehydrate();
+    });
+
+    const state = useWorkspacePrefsStore.getState();
+    expect(state.filters).toEqual(DEFAULT_EVENT_FILTERS);
+    expect(state.sort).toBe('time-asc');
+    expect(state.selectionMode).toBe(false);
+    // The actions survive the merge — a normalized rehydration must not clobber
+    // the store's own methods.
+    expect(typeof state.setFilters).toBe('function');
+  });
+
   it('resets filters without touching sort', () => {
     act(() => {
       useWorkspacePrefsStore.getState().setSort('severity-desc');

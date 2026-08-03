@@ -17,6 +17,8 @@ import {
   formatClock,
   hasActiveFilters,
   mergeWorkspaceEvents,
+  normalizeEventFilters,
+  normalizeWorkspaceSort,
   severityLabel,
   severityRank,
   severityTone,
@@ -211,6 +213,76 @@ describe('filtering', () => {
     expect(
       filterWorkspaceEvents([event], { ...DEFAULT_EVENT_FILTERS, query: '0:10' }),
     ).toHaveLength(0);
+  });
+});
+
+describe('filter normalization (H13.1)', () => {
+  it('fills in fields the stored shape predates', () => {
+    // Exactly what an H7C-era browser persisted: no confidence ceiling, no time
+    // range, and no `reviewStatuses` (H9). The missing arrays are what crashed
+    // the filters bar on render.
+    const legacy = { query: 'helmet', violationTypes: ['no_helmet'], minConfidence: 0.4 };
+    expect(normalizeEventFilters(legacy)).toEqual({
+      ...DEFAULT_EVENT_FILTERS,
+      query: 'helmet',
+      violationTypes: ['no_helmet'],
+      minConfidence: 0.4,
+    });
+  });
+
+  it('defaults every field for absent or non-object input', () => {
+    for (const value of [undefined, null, 'nonsense', 42, []]) {
+      expect(normalizeEventFilters(value)).toEqual(DEFAULT_EVENT_FILTERS);
+    }
+  });
+
+  it('preserves a fully-populated current-shape blob', () => {
+    const current = {
+      ...DEFAULT_EVENT_FILTERS,
+      query: 'cam',
+      violationTypes: ['triple_riding'],
+      minConfidence: 0.2,
+      maxConfidence: 0.9,
+      fromSeconds: 10,
+      toSeconds: 90,
+      reviewStatuses: ['approved', 'pending'],
+    };
+    expect(normalizeEventFilters(current)).toEqual(current);
+  });
+
+  it('drops members that are no longer recognised', () => {
+    const filters = normalizeEventFilters({
+      violationTypes: ['no_helmet', 'jaywalking', 7],
+      reviewStatuses: ['approved', 'escalated'],
+    });
+    expect(filters.violationTypes).toEqual(['no_helmet']);
+    expect(filters.reviewStatuses).toEqual(['approved']);
+  });
+
+  it('rejects wrong-typed and out-of-range scalars', () => {
+    const filters = normalizeEventFilters({
+      query: 12,
+      minConfidence: 'high',
+      maxConfidence: 4,
+      fromSeconds: -30,
+      toSeconds: Number.NaN,
+    });
+    expect(filters.query).toBe('');
+    expect(filters.minConfidence).toBe(0);
+    expect(filters.maxConfidence).toBe(1);
+    expect(filters.fromSeconds).toBe(0);
+    expect(filters.toSeconds).toBeNull();
+  });
+
+  it('normalizes an unknown sort back to the default', () => {
+    expect(normalizeWorkspaceSort('severity-desc')).toBe('severity-desc');
+    expect(normalizeWorkspaceSort('by-vibes')).toBe('time-asc');
+    expect(normalizeWorkspaceSort(undefined)).toBe('time-asc');
+  });
+
+  it('produces filters the bar can interrogate without crashing', () => {
+    expect(hasActiveFilters(normalizeEventFilters({}))).toBe(false);
+    expect(hasActiveFilters(normalizeEventFilters({ reviewStatuses: ['pending'] }))).toBe(true);
   });
 });
 

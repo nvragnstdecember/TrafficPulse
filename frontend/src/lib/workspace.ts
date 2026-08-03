@@ -6,6 +6,10 @@ import {
   type ViolationType,
 } from '@/api/types';
 
+// Value-only import; `review` imports nothing but types from here, so there is
+// no runtime cycle.
+import { ALL_REVIEW_STATUSES } from './review';
+
 /**
  * Workspace domain models + pure logic (H7C).
  *
@@ -432,6 +436,55 @@ export function hasActiveFilters(filters: EventFilters): boolean {
   );
 }
 
+function normalizeMembers<T extends string>(value: unknown, allowed: readonly T[]): T[] {
+  if (!Array.isArray(value)) return [];
+  const permitted = new Set<string>(allowed);
+  return value.filter((item): item is T => typeof item === 'string' && permitted.has(item));
+}
+
+function normalizeNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Coerce an arbitrary value into filters that are safe to render.
+ *
+ * `EventFilters` has gained fields over time (H7C shipped `query` /
+ * `violationTypes` / `minConfidence`; the review workspace added the confidence
+ * ceiling and the time range; H9 added `reviewStatuses`), and these filters are
+ * persisted to browser storage. A rehydrated blob is therefore whatever *some
+ * past version* of the app wrote, so it cannot be assumed to have today's
+ * shape — a field added after the blob was written is simply absent.
+ *
+ * Every field is taken only when it is present and well-typed, and falls back
+ * to its default otherwise. Enum members that are no longer recognised are
+ * dropped rather than kept: a stale violation type or review state is not inert
+ * — a non-empty filter set narrows the list, so keeping one would silently hide
+ * every event with no way for an analyst to see why.
+ */
+export function normalizeEventFilters(value: unknown): EventFilters {
+  const raw = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+  const toSeconds =
+    typeof raw.toSeconds === 'number' && Number.isFinite(raw.toSeconds)
+      ? Math.max(0, raw.toSeconds)
+      : DEFAULT_EVENT_FILTERS.toSeconds;
+  return {
+    query: typeof raw.query === 'string' ? raw.query : DEFAULT_EVENT_FILTERS.query,
+    violationTypes: normalizeMembers(raw.violationTypes, ALL_VIOLATION_TYPES),
+    minConfidence: normalizeNumber(raw.minConfidence, DEFAULT_EVENT_FILTERS.minConfidence, 0, 1),
+    maxConfidence: normalizeNumber(raw.maxConfidence, DEFAULT_EVENT_FILTERS.maxConfidence, 0, 1),
+    fromSeconds: normalizeNumber(
+      raw.fromSeconds,
+      DEFAULT_EVENT_FILTERS.fromSeconds,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    toSeconds,
+    reviewStatuses: normalizeMembers(raw.reviewStatuses, ALL_REVIEW_STATUSES),
+  };
+}
+
 /**
  * Parse a clock-ish search term into seconds, or null if it is not one.
  *
@@ -513,6 +566,15 @@ export const WORKSPACE_SORTS: Array<{ value: WorkspaceSort; label: string }> = [
   { value: 'confidence-desc', label: 'Confidence' },
   { value: 'violation', label: 'Violation type' },
 ];
+
+export const DEFAULT_WORKSPACE_SORT: WorkspaceSort = 'time-asc';
+
+/** Coerce an arbitrary value into a sort the list (and its label) understands. */
+export function normalizeWorkspaceSort(value: unknown): WorkspaceSort {
+  return WORKSPACE_SORTS.some((option) => option.value === value)
+    ? (value as WorkspaceSort)
+    : DEFAULT_WORKSPACE_SORT;
+}
 
 export function sortWorkspaceEvents(
   events: WorkspaceEvent[],

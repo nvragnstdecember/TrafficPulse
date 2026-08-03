@@ -1,7 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { type EventFilters, type WorkspaceSort, DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
+import {
+  type EventFilters,
+  type WorkspaceSort,
+  DEFAULT_EVENT_FILTERS,
+  DEFAULT_WORKSPACE_SORT,
+  normalizeEventFilters,
+  normalizeWorkspaceSort,
+} from '@/lib/workspace';
 
 interface WorkspacePrefsState {
   /** The event-list filters (the single source of truth; persisted). */
@@ -29,7 +36,7 @@ export const useWorkspacePrefsStore = create<WorkspacePrefsState>()(
   persist(
     (set) => ({
       filters: DEFAULT_EVENT_FILTERS,
-      sort: 'time-asc',
+      sort: DEFAULT_WORKSPACE_SORT,
       selectionMode: false,
 
       setFilters: (filters) => set({ filters }),
@@ -44,6 +51,27 @@ export const useWorkspacePrefsStore = create<WorkspacePrefsState>()(
         sort: state.sort,
         selectionMode: state.selectionMode,
       }),
+      // Rehydration is a trust boundary. The stored blob was written by
+      // whichever version of the app the analyst last used, and `EventFilters`
+      // has gained fields since this store shipped (H7E) — notably H9's
+      // `reviewStatuses`. Zustand's default merge is shallow, so a stale
+      // `filters` object replaces the defaults *wholesale* rather than filling
+      // in around them, and the missing arrays then blow up on first render.
+      //
+      // Normalizing here (rather than versioning + migrating) makes that safe
+      // by construction: `merge` runs on every rehydration, so a field added
+      // later is defaulted automatically, with no version bump to forget.
+      merge: (persisted, current) => {
+        const raw = (
+          typeof persisted === 'object' && persisted !== null ? persisted : {}
+        ) as Partial<WorkspacePrefsState>;
+        return {
+          ...current,
+          filters: normalizeEventFilters(raw.filters),
+          sort: normalizeWorkspaceSort(raw.sort),
+          selectionMode: raw.selectionMode === true,
+        };
+      },
     },
   ),
 );
