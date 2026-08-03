@@ -1,26 +1,22 @@
-import {
-  ChevronLeft,
-  ChevronRight,
-  FileVideo,
-  Maximize,
-  Minimize,
-  RotateCcw,
-  ZoomIn,
-  ZoomOut,
-} from 'lucide-react';
+import { Download, ImageOff, Maximize, Minimize, RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type EvidenceManifest } from '@/api/types';
+import {
+  type EvidenceFrame,
+  evidenceFrames,
+  evidencePackageUrl,
+  manifestArtifacts,
+  shortDigest,
+} from '@/lib/evidence';
 import { formatDateTime, formatPercent } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { type WorkspaceEvent, formatClock, violationLabel } from '@/lib/workspace';
+import { type WorkspaceEvent, violationLabel } from '@/lib/workspace';
 
 import { CopyButton } from '../common/copy-button';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 
-/** How far before/after the trigger the evidence frames sit, in seconds. */
-export const EVIDENCE_WINDOW_SECONDS = 1.5;
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 5;
 const ZOOM_STEP = 0.5;
@@ -30,15 +26,6 @@ export interface EvidenceViewerProps {
   onOpenChange: (open: boolean) => void;
   event: WorkspaceEvent | null;
   evidence: EvidenceManifest | undefined;
-  /** Object URL of the local video (the only real pixels), or null. */
-  objectUrl: string | null;
-  fps?: number | null;
-}
-
-interface EvidenceFrame {
-  key: string;
-  label: string;
-  seconds: number;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -46,62 +33,50 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
- * A focused evidence viewer (H7E) — a modal over the local video showing the
- * violation frames with zoom, pan, fullscreen, and frame navigation, beside the
- * manifest's typed references and the event's technical metadata.
+ * A focused evidence viewer (H7E, rebuilt on backend artifacts in H14).
  *
- * The backend renders no media, so the pixels come from the uploaded video at the
- * evidence media-times (trigger, and a window before/after); the manifest
- * artifacts are shown as the references they are. When the local file is not in
- * this session the viewer still shows the metadata and explains playback is
- * unavailable. Focus is trapped and restored by the underlying Dialog.
+ * Shows the frames the **backend rendered** — the ones the engine actually picked,
+ * drawn with the same overlay renderer as the annotated video and served under a
+ * verified content hash — with zoom, pan, and fullscreen, beside the manifest's
+ * references and the event's technical metadata.
+ *
+ * It infers nothing. Before H14 this component seeked the playing video to
+ * `trigger ± 1.5s` and presented the result as evidence, which could differ from
+ * the frames the manifest recorded. Now a frame appears only if the manifest
+ * references a rendered artifact for it; when none exists (a repository written
+ * before H14, or a render that failed) the viewer says so and still shows every
+ * piece of metadata it has.
  */
-export function EvidenceViewer({
-  open,
-  onOpenChange,
-  event,
-  evidence,
-  objectUrl,
-  fps,
-}: EvidenceViewerProps) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+export function EvidenceViewer({ open, onOpenChange, event, evidence }: EvidenceViewerProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const [activeKey, setActiveKey] = useState('trigger');
+  const [activeKind, setActiveKind] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [failed, setFailed] = useState(false);
   const dragRef = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
-  const frameStep = fps && fps > 0 ? 1 / fps : 1 / 30;
 
-  const frames = useMemo<EvidenceFrame[]>(() => {
-    if (!event) return [];
-    const t = event.mediaSeconds;
-    return [
-      { key: 'before', label: 'Before', seconds: Math.max(0, t - EVIDENCE_WINDOW_SECONDS) },
-      { key: 'trigger', label: 'Trigger', seconds: t },
-      { key: 'after', label: 'After', seconds: t + EVIDENCE_WINDOW_SECONDS },
-    ];
-  }, [event]);
+  const frames = useMemo<EvidenceFrame[]>(
+    () => (event ? evidenceFrames(event.id, evidence) : []),
+    [event, evidence],
+  );
 
-  const activeFrame = frames.find((frame) => frame.key === activeKey) ?? frames[1] ?? frames[0];
+  const activeFrame =
+    frames.find((frame) => frame.kind === activeKind) ??
+    frames.find((frame) => frame.kind === 'trigger_frame') ??
+    frames[0];
 
-  const seek = useCallback((seconds: number) => {
-    const el = videoRef.current;
-    if (el) el.currentTime = Math.max(0, seconds);
-  }, []);
-
-  // Reset transform + seek to the trigger whenever the viewer (re)opens.
+  // Reset the transform and fall back to the trigger frame whenever the viewer
+  // (re)opens or the event changes.
   useEffect(() => {
     if (!open) return;
-    setActiveKey('trigger');
+    setActiveKind(null);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
+    setFailed(false);
   }, [open, event?.id]);
 
-  // Seek to the active frame's media time.
-  useEffect(() => {
-    if (open && activeFrame) seek(activeFrame.seconds);
-  }, [open, activeFrame, seek]);
+  useEffect(() => setFailed(false), [activeFrame?.url]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -133,15 +108,9 @@ export function EvidenceViewer({
     }
   }, []);
 
-  const stepFrame = useCallback(
-    (direction: 1 | -1) => {
-      const el = videoRef.current;
-      if (el) seek(el.currentTime + direction * frameStep);
-    },
-    [seek, frameStep],
-  );
-
   if (!event) return null;
+
+  const hasFrames = frames.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -159,7 +128,7 @@ export function EvidenceViewer({
               ref={stageRef}
               className="relative flex aspect-video w-full items-center justify-center overflow-hidden rounded-lg border bg-black"
               onWheel={(e) => {
-                if (!objectUrl) return;
+                if (!activeFrame) return;
                 e.preventDefault();
                 zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
               }}
@@ -175,30 +144,34 @@ export function EvidenceViewer({
               }}
               onPointerUp={() => (dragRef.current = null)}
             >
-              {objectUrl ? (
-                <video
-                  ref={videoRef}
-                  src={objectUrl}
-                  muted
-                  playsInline
-                  aria-label={`Evidence frame: ${activeFrame?.label} at ${formatClock(
-                    activeFrame?.seconds,
-                  )}`}
-                  className={cn('h-full w-full origin-center', zoom > 1 && 'cursor-grab')}
-                  style={{
-                    transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-                  }}
+              {activeFrame && !failed ? (
+                <img
+                  key={activeFrame.url}
+                  src={activeFrame.url}
+                  alt={`Evidence frame: ${activeFrame.label}`}
+                  onError={() => setFailed(true)}
+                  className={cn(
+                    'h-full w-full origin-center object-contain',
+                    zoom > 1 && 'cursor-grab',
+                  )}
+                  style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})` }}
                 />
               ) : (
                 <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
-                  <FileVideo className="size-8" aria-hidden="true" />
-                  <p>Re-select the local video file to preview evidence frames.</p>
+                  <ImageOff className="size-8" aria-hidden="true" />
+                  <p>
+                    {failed
+                      ? 'The rendered evidence frame could not be loaded.'
+                      : 'No rendered evidence frames exist for this event.'}
+                  </p>
                 </div>
               )}
 
-              <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 font-mono text-xs text-white">
-                {activeFrame?.label} · {formatClock(activeFrame?.seconds)}
-              </span>
+              {activeFrame ? (
+                <span className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-1.5 py-0.5 font-mono text-xs text-white">
+                  {activeFrame.label} · {shortDigest(activeFrame.artifact)}
+                </span>
+              ) : null}
             </div>
 
             {/* Controls */}
@@ -206,41 +179,22 @@ export function EvidenceViewer({
               <div className="flex items-center gap-1" role="group" aria-label="Evidence frames">
                 {frames.map((frame) => (
                   <Button
-                    key={frame.key}
-                    variant={frame.key === activeKey ? 'secondary' : 'ghost'}
+                    key={frame.kind}
+                    variant={frame.kind === activeFrame?.kind ? 'secondary' : 'ghost'}
                     size="sm"
-                    aria-pressed={frame.key === activeKey}
-                    onClick={() => setActiveKey(frame.key)}
+                    aria-pressed={frame.kind === activeFrame?.kind}
+                    onClick={() => setActiveKind(frame.kind)}
                   >
                     {frame.label}
                   </Button>
                 ))}
               </div>
-              <div className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Previous frame"
-                disabled={!objectUrl}
-                onClick={() => stepFrame(-1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Next frame"
-                disabled={!objectUrl}
-                onClick={() => stepFrame(1)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
               <div className="ml-auto flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="icon"
                   aria-label="Zoom out"
-                  disabled={!objectUrl || zoom <= ZOOM_MIN}
+                  disabled={!activeFrame || zoom <= ZOOM_MIN}
                   onClick={() => zoomBy(-ZOOM_STEP)}
                 >
                   <ZoomOut className="size-4" />
@@ -252,7 +206,7 @@ export function EvidenceViewer({
                   variant="ghost"
                   size="icon"
                   aria-label="Zoom in"
-                  disabled={!objectUrl || zoom >= ZOOM_MAX}
+                  disabled={!activeFrame || zoom >= ZOOM_MAX}
                   onClick={() => zoomBy(ZOOM_STEP)}
                 >
                   <ZoomIn className="size-4" />
@@ -261,7 +215,7 @@ export function EvidenceViewer({
                   variant="ghost"
                   size="icon"
                   aria-label="Reset view"
-                  disabled={!objectUrl}
+                  disabled={!activeFrame}
                   onClick={resetView}
                 >
                   <RotateCcw className="size-4" />
@@ -270,7 +224,7 @@ export function EvidenceViewer({
                   variant="ghost"
                   size="icon"
                   aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-                  disabled={!objectUrl}
+                  disabled={!activeFrame}
                   onClick={toggleFullscreen}
                 >
                   {isFullscreen ? <Minimize className="size-4" /> : <Maximize className="size-4" />}
@@ -281,6 +235,13 @@ export function EvidenceViewer({
 
           {/* Metadata */}
           <aside className="space-y-3 overflow-y-auto text-sm" aria-label="Evidence metadata">
+            <Button asChild variant="outline" size="sm" className="w-full">
+              <a href={evidencePackageUrl(event.id)} download>
+                <Download className="size-4" />
+                Download evidence package
+              </a>
+            </Button>
+
             <dl className="space-y-1.5">
               <MetaRow label="Event" value={event.id} copyable copyLabel="Copy event ID" />
               {evidence ? (
@@ -301,20 +262,14 @@ export function EvidenceViewer({
               <h4 className="text-2xs uppercase tracking-wide text-muted-foreground">Artifacts</h4>
               {evidence ? (
                 <ul className="divide-y rounded-md border">
-                  {(
-                    [
-                      ['Before frame', evidence.before_frame],
-                      ['Trigger frame', evidence.trigger_frame],
-                      ['After frame', evidence.after_frame],
-                      ['Clip', evidence.clip],
-                      ['Trajectory', evidence.trajectory],
-                      ['Plate crop', evidence.plate_crop],
-                    ] as const
-                  ).map(([label, artifact]) => (
+                  {manifestArtifacts(evidence).map(({ label, artifact }) => (
                     <li key={label} className="flex items-center justify-between gap-2 px-2.5 py-1">
                       <span className="shrink-0 text-xs">{label}</span>
-                      <span className="truncate font-mono text-2xs text-muted-foreground">
-                        {artifact ? artifact.locator : '—'}
+                      <span
+                        className="truncate font-mono text-2xs text-muted-foreground"
+                        title={artifact?.sha256 ?? artifact?.locator ?? undefined}
+                      >
+                        {artifact ? shortDigest(artifact) : '—'}
                       </span>
                     </li>
                   ))}
@@ -324,6 +279,12 @@ export function EvidenceViewer({
                   The evidence manifest is not available for this event.
                 </p>
               )}
+              {evidence && !hasFrames ? (
+                <p className="text-2xs text-muted-foreground">
+                  This event has no rendered frames — its manifest references frames that were
+                  never rendered.
+                </p>
+              ) : null}
             </div>
           </aside>
         </div>

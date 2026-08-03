@@ -38,7 +38,7 @@ from ..contracts import (
     can_transition,
     next_status,
 )
-from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
+from ..contracts.enums import ArtifactKind, ReviewAction, ReviewStatus, ViolationType
 from ..contracts.scene import ZoneType, scene_config_hash
 from ..detector.errors import DetectorError
 from ..engine import EngineRunResult, FileFrameSource, InferenceEngine, RuleConfig
@@ -47,8 +47,24 @@ from ..engine.errors import (
     RunCancelledError,
     UnsupportedRuleError,
 )
+from ..evidence import (
+    ArtifactStore,
+    build_evidence_package,
+    evidence_package_filename,
+    merge_rendered_artifacts,
+    render_run_evidence,
+    rendered_artifact_for,
+)
 from ..ingestion.video import VideoIngestionError
-from ..persistence import CorruptRecordError, EventStore, ReviewStore, RunNotFoundError, SceneStore
+from ..persistence import (
+    CorruptRecordError,
+    EventStore,
+    RenderedArtifactStore,
+    ReviewStore,
+    RunNotFoundError,
+    SceneStore,
+    StoredEvent,
+)
 from ..pipeline.errors import SceneConfigurationError
 from ..scenes import SceneDraft, build_scene
 from .capabilities import supported_violations
@@ -56,6 +72,7 @@ from .config import AppConfig
 from .engine_provider import EngineProvider
 from .errors import (
     AppError,
+    ArtifactNotFoundError,
     DuplicateVideoError,
     EngineUnavailableError,
     EventNotFoundError,
@@ -83,7 +100,7 @@ from .models import (
     VideoSort,
     VideoSummary,
 )
-from .overlay_video import render_job_overlay
+from .overlay_video import build_job_compositor, render_job_overlay
 from .registry import (
     JobExecutor,
     JobRecord,
@@ -514,8 +531,15 @@ class ProcessingService:
         executor: JobExecutor,
         videos: VideoService,
         job_id_factory: JobIdFactory = _default_job_id,
+        artifacts: ArtifactStore | None = None,
+        rendered: RenderedArtifactStore | None = None,
     ) -> None:
         self._config = config
+        # The H14 rendering stores. Optional so a service can be built without the
+        # rendering layer at all (older tests, a deployment with no drawing backend);
+        # absent them a run persists exactly what it always did and renders nothing.
+        self._artifacts = artifacts
+        self._rendered = rendered
         # H12: the scene is resolved *per video* at submit time, not held here.
         # A service that owns one scene is exactly the singleton this milestone
         # removed -- it made every upload reason against one camera's geometry.
@@ -594,7 +618,7 @@ class ProcessingService:
             result = job.engine.run(
                 source, should_cancel=lambda: self._jobs.is_cancel_requested(job.job_id)
             )
-            job.engine.persist(result, store=self._store, run_id=job.job_id)
+            stored = job.engine.persist(result, store=self._store, run_id=job.job_id)
             # Declare the overlay pending BEFORE the job goes terminal. A client
             # stops polling once it sees a terminal job status, so the very first
             # succeeded status it reads must already announce that an annotated
@@ -603,6 +627,10 @@ class ProcessingService:
             # listening and the workspace plays the raw upload forever.
             self._jobs.mark_overlay_pending(job.job_id)
             self._jobs.mark_succeeded(job.job_id, result)
+            # Evidence stills first: they are what the review surface shows, they
+            # decode only up to the last evidence frame, and they must not wait
+            # behind a full-clip re-encode.
+            self._render_evidence_artifacts(job, video, scene, stored)
             self._render_overlay_video(job, video, scene, result)
         except RunCancelledError:
             _logger.info("processing job %s cancelled", job.job_id)
@@ -610,6 +638,49 @@ class ProcessingService:
         except Exception as exc:  # noqa: BLE001 - a job thread must never crash silently
             _logger.exception("processing job %s failed", job.job_id)
             self._jobs.mark_failed(job.job_id, str(exc))
+
+    def _render_evidence_artifacts(
+        self,
+        job: JobRecord,
+        video: VideoRecord,
+        scene: SceneConfig,
+        stored: Sequence[StoredEvent],
+    ) -> None:
+        """Render + store this run's evidence frames (best-effort, never fatal).
+
+        Runs *after* the events and their manifests are durably persisted, and writes
+        only to the content-addressed artifact store and the append-only sidecar --
+        so a failure here costs pictures, never records. The manifests it reads are
+        the ones just written, which is what makes the rendered frames provably the
+        frames the engine picked.
+        """
+
+        if self._artifacts is None or self._rendered is None or not stored:
+            return
+        assert job.engine is not None
+        try:
+            report = render_run_evidence(
+                pairs=[(pair.event, pair.manifest) for pair in stored],
+                source_path=video.path,
+                camera_id=scene.scene.camera_id,
+                artifacts=self._artifacts,
+                rendered=self._rendered,
+                # The same metadata the annotated video is drawn from, so a still and
+                # the video can never disagree about what was concluded.
+                compositor=build_job_compositor(job.engine, [pair.event for pair in stored]),
+            )
+            _logger.info(
+                "job %s rendered evidence for %d event(s): %d artifact(s) from %d frame(s)",
+                job.job_id,
+                report.events_rendered,
+                report.artifacts_written,
+                report.frames_decoded,
+            )
+        except Exception:  # noqa: BLE001 - evidence rendering is never fatal to a run
+            _logger.exception(
+                "evidence render failed for job %s; events and manifests are persisted",
+                job.job_id,
+            )
 
     def _render_overlay_video(
         self, job: JobRecord, video: VideoRecord, scene: SceneConfig, result: EngineRunResult
@@ -911,15 +982,80 @@ class ReviewService:
 
 
 class EvidenceService:
-    """Returns the evidence manifest (references only) for a confirmed event."""
+    """Serves an event's evidence: the manifest, its artifacts, and its package.
 
-    def __init__(self, event_service: EventService) -> None:
+    The read side of the H14 rendering engine, and the place the two halves of the
+    evidence record are joined. The manifest comes from the **write-once**
+    ``EventStore`` exactly as the run persisted it; rendered artifacts come from the
+    **append-only** :class:`~trafficpulse.persistence.RenderedArtifactStore`; the
+    served manifest is composed from both at read time. Nothing here writes to, or
+    could write to, a persisted event or manifest.
+
+    Both rendering stores are optional. Without them the service behaves exactly as
+    it did before H14 -- manifests are served verbatim and artifact requests report a
+    clean absence -- which is what keeps every pre-H14 repository working.
+    """
+
+    def __init__(
+        self,
+        event_service: EventService,
+        rendered: RenderedArtifactStore | None = None,
+        artifacts: ArtifactStore | None = None,
+    ) -> None:
         self._events = event_service
+        self._rendered = rendered
+        self._artifacts = artifacts
 
     def get(self, event_id: str) -> EvidenceManifest:
-        """Return the manifest for ``event_id`` (frame references, no media)."""
+        """The served manifest: as persisted, with any rendered artifacts merged in.
 
-        return self._events.locate(event_id)[1]
+        An event with nothing rendered returns the persisted manifest unchanged.
+        """
+
+        manifest = self._events.locate(event_id)[1]
+        if self._rendered is None:
+            return manifest
+        return merge_rendered_artifacts(manifest, self._rendered.artifacts(event_id))
+
+    def artifact(self, event_id: str, kind: ArtifactKind) -> tuple[bytes, str]:
+        """One rendered artifact's bytes + media type, or raise a clean 404.
+
+        The integrity check is not decoration: an artifact whose stored bytes no
+        longer hash to the reference the manifest serves is *not* the evidence the
+        manifest describes, so it is reported missing rather than served under a
+        claim the system can no longer make.
+        """
+
+        manifest = self.get(event_id)
+        reference = rendered_artifact_for(manifest, kind)
+        if reference is None or self._artifacts is None:
+            raise ArtifactNotFoundError(
+                f"no rendered {kind.value!r} artifact for event {event_id!r}"
+            )
+        data = self._artifacts.read(reference.locator)
+        if data is None or not self._artifacts.verify(reference):
+            raise ArtifactNotFoundError(
+                f"the stored {kind.value!r} artifact for event {event_id!r} is "
+                "missing or does not match its recorded hash"
+            )
+        return data, reference.media_type or "application/octet-stream"
+
+    def package(self, event_id: str) -> tuple[bytes, str]:
+        """One event's downloadable evidence package: ZIP bytes + filename.
+
+        Built on demand and never stored: it is a deterministic function of the
+        event, the served manifest, and artifacts that are already content-addressed,
+        so caching the archive would duplicate bytes the store already holds. A
+        package is always produced -- an event with nothing rendered yields the
+        metadata-only archive, which is still the complete record of what the system
+        concluded.
+        """
+
+        event, _ = self._events.locate(event_id)
+        manifest = self.get(event_id)
+        artifacts = self._artifacts if self._artifacts is not None else ArtifactStore(Path())
+        data = build_evidence_package(event=event, manifest=manifest, artifacts=artifacts)
+        return data, evidence_package_filename(event_id)
 
 
 # --- metrics -------------------------------------------------------------------

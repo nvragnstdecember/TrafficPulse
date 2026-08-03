@@ -408,6 +408,11 @@ export interface EvidenceManifest {
   clip: ArtifactReference | null;
   trajectory: ArtifactReference | null;
   plate_crop: ArtifactReference | null;
+  /**
+   * Every rendered artifact for the event (H14), including ones with no typed slot.
+   * Present on manifests the backend has merged rendered references into.
+   */
+  additional_artifacts?: ArtifactReference[];
   rule_trace: RuleTraceStep[];
   models: ModelRef[];
   code_version: string | null;

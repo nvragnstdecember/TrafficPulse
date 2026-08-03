@@ -113,6 +113,19 @@ class OverlayNotFoundError(AppError):
     error_type = "overlay_not_found"
 
 
+class ArtifactNotFoundError(AppError):
+    """No rendered evidence artifact of the requested kind exists (H14).
+
+    Distinct from an unknown event: the event and its manifest are readable, but
+    nothing was rendered for that slot -- either the repository predates H14, the
+    render failed, or the stream genuinely had no frame there. A client treats this
+    as "no picture available", not as a broken event.
+    """
+
+    status_code = 404
+    error_type = "artifact_not_found"
+
+
 class DuplicateVideoError(AppError):
     """An identical video (same content) has already been uploaded (409)."""
 

@@ -6,6 +6,7 @@ import { DEFAULT_EVENT_FILTERS } from '@/lib/workspace';
 import {
   makeConfirmedEvent,
   makeEvidence,
+  makeRenderedEvidence,
   makeWorkspaceEvent,
   mediaSeconds,
 } from '@/test/fixtures';
@@ -150,38 +151,53 @@ describe('EventList (H7E review tools)', () => {
   });
 });
 
-describe('EvidenceViewer (H7E)', () => {
+describe('EvidenceViewer (H7E, backend artifacts in H14)', () => {
   const event = makeWorkspaceEvent({ trigger_at: mediaSeconds(20) });
 
-  it('renders the frames and metadata over the local media', () => {
+  it('displays the backend-rendered frames, never a locally inferred one', () => {
+    renderWithProviders(
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeRenderedEvidence()} />,
+    );
+    expect(screen.getByRole('group', { name: 'Evidence frames' })).toBeInTheDocument();
+    // The trigger frame is shown by default, sourced from the artifact endpoint.
+    const image = screen.getByRole('img', { name: /Evidence frame: Trigger/ });
+    expect(image).toHaveAttribute('src', `/api/evidence/${event.id}/artifacts/trigger_frame`);
+    // No <video> is involved any more — evidence pixels come from the backend only.
+    expect(document.querySelector('video')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy evidence ID' })).toBeInTheDocument();
+  });
+
+  it('offers only the frames the manifest actually has rendered', () => {
     renderWithProviders(
       <EvidenceViewer
         open
         onOpenChange={vi.fn()}
         event={event}
-        evidence={makeEvidence()}
-        objectUrl="blob:clip"
-        fps={25}
+        evidence={makeRenderedEvidence({ after_frame: null })}
       />,
     );
-    expect(screen.getByRole('group', { name: 'Evidence frames' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Before' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Trigger' })).toBeInTheDocument();
-    expect(screen.getByLabelText(/Evidence frame: Trigger/)).toBeInTheDocument();
-    // Manifest metadata is shown, with copy affordances.
-    expect(screen.getByText('frames/evt-1-before.jpg')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Copy evidence ID' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'After' })).not.toBeInTheDocument();
+  });
+
+  it('switches frames', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeRenderedEvidence()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Before' }));
+    expect(screen.getByRole('button', { name: 'Before' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('img', { name: /Evidence frame: Before/ })).toHaveAttribute(
+      'src',
+      `/api/evidence/${event.id}/artifacts/before_frame`,
+    );
   });
 
   it('zooms in and resets', async () => {
     const user = userEvent.setup();
     renderWithProviders(
-      <EvidenceViewer
-        open
-        onOpenChange={vi.fn()}
-        event={event}
-        evidence={makeEvidence()}
-        objectUrl="blob:clip"
-      />,
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeRenderedEvidence()} />,
     );
     expect(screen.getByText('1.0×')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Zoom in' }));
@@ -190,34 +206,41 @@ describe('EvidenceViewer (H7E)', () => {
     expect(screen.getByText('1.0×')).toBeInTheDocument();
   });
 
-  it('switches frames', async () => {
-    const user = userEvent.setup();
+  it('links the downloadable evidence package', () => {
     renderWithProviders(
-      <EvidenceViewer
-        open
-        onOpenChange={vi.fn()}
-        event={event}
-        evidence={makeEvidence()}
-        objectUrl="blob:clip"
-      />,
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeRenderedEvidence()} />,
     );
-    await user.click(screen.getByRole('button', { name: 'Before' }));
-    expect(screen.getByRole('button', { name: 'Before' })).toHaveAttribute('aria-pressed', 'true');
+    const link = screen.getByRole('link', { name: /Download evidence package/ });
+    expect(link).toHaveAttribute('href', `/api/evidence/${event.id}/package`);
+    expect(link).toHaveAttribute('download');
   });
 
-  it('explains when the local media is unavailable but still shows metadata', () => {
+  it('says so when a pre-H14 manifest has no rendered frames', () => {
+    // makeEvidence is the pre-render shape: references without content hashes.
     renderWithProviders(
-      <EvidenceViewer
-        open
-        onOpenChange={vi.fn()}
-        event={event}
-        evidence={undefined}
-        objectUrl={null}
-      />,
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeEvidence()} />,
     );
-    expect(screen.getByText(/Re-select the local video file/)).toBeInTheDocument();
-    expect(screen.getByText(/manifest is not available/)).toBeInTheDocument();
+    expect(screen.getByText(/No rendered evidence frames exist/)).toBeInTheDocument();
+    expect(screen.getByText(/never rendered/)).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /Evidence frame/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled();
+    // The package is still downloadable — metadata is evidence too.
+    expect(screen.getByRole('link', { name: /Download evidence package/ })).toBeInTheDocument();
+  });
+
+  it('reports a frame that fails to load instead of showing a broken image', () => {
+    renderWithProviders(
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={makeRenderedEvidence()} />,
+    );
+    fireEvent.error(screen.getByRole('img', { name: /Evidence frame: Trigger/ }));
+    expect(screen.getByText(/could not be loaded/)).toBeInTheDocument();
+  });
+
+  it('still shows metadata when the manifest is unavailable', () => {
+    renderWithProviders(
+      <EvidenceViewer open onOpenChange={vi.fn()} event={event} evidence={undefined} />,
+    );
+    expect(screen.getByText(/manifest is not available/)).toBeInTheDocument();
   });
 });
 

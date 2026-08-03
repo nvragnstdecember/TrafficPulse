@@ -124,7 +124,8 @@ def _build_context(
     executor: JobExecutor,
 ) -> AppContext:
     from ..contracts import SceneConfig
-    from ..persistence import EventStore, ReviewStore, SceneStore
+    from ..evidence import ArtifactStore
+    from ..persistence import EventStore, RenderedArtifactStore, ReviewStore, SceneStore
 
     # The file-configured scene is no longer *the* scene (H12): it is the fallback
     # for videos nobody has calibrated, so a single-camera deployment keeps working
@@ -149,6 +150,13 @@ def _build_context(
     # The review journal shares the runtime root with the event store but writes to
     # its own `reviews/` subtree -- it can never touch a write-once event record.
     review_store = ReviewStore(config.runs_dir)
+    # H14 rendering stores. The sidecar shares the runtime root with the event store
+    # but writes to its own `rendered/` subtree, so like the review journal it can
+    # never touch a write-once record. Artifact bytes are content-addressed and live
+    # outside the per-run tree entirely, because two runs that render the same frame
+    # share one file.
+    rendered_store = RenderedArtifactStore(config.runs_dir)
+    artifact_store = ArtifactStore(config.artifacts_dir)
     scene_service = SceneService(
         SceneStore(config.storage_dir),
         video_service,
@@ -167,6 +175,8 @@ def _build_context(
         job_store=job_store,
         executor=executor,
         videos=video_service,
+        artifacts=artifact_store,
+        rendered=rendered_store,
     )
     event_service = EventService(event_store, job_store, review_store)
     return AppContext(
@@ -179,7 +189,7 @@ def _build_context(
         library=VideoLibraryService(video_store, job_store, review_store, scene_service),
         processing=processing,
         events=event_service,
-        evidence=EvidenceService(event_service),
+        evidence=EvidenceService(event_service, rendered_store, artifact_store),
         reviews=ReviewService(event_service, review_store),
         metrics=MetricsService(job_store),
     )

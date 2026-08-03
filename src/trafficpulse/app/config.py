@@ -136,6 +136,17 @@ class AppConfig(BaseModel):
 
         return self.storage_dir / "overlays"
 
+    @property
+    def artifacts_dir(self) -> Path:
+        """Where rendered evidence artifacts are stored, content-addressed (H14).
+
+        A sibling of ``overlays_dir`` rather than a subdirectory of ``runs_dir``:
+        artifacts are addressed by the hash of their own bytes, so two runs that
+        render the same frame share one file and neither owns it. Nesting them under
+        a run would misstate that lifetime and duplicate the bytes."""
+
+        return self.storage_dir / "artifacts"
+
     def is_supported_extension(self, suffix: str) -> bool:
         """Whether ``suffix`` (e.g. ``".mp4"``) is an accepted container."""
 

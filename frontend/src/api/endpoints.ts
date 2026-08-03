@@ -25,5 +25,11 @@ export const endpoints = {
   events: '/api/events',
   event: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}`,
   evidence: (eventId: string) => `/api/evidence/${encodeURIComponent(eventId)}`,
+  /** One backend-rendered evidence frame (H14) — the only source of evidence pixels. */
+  evidenceArtifact: (eventId: string, kind: string) =>
+    `/api/evidence/${encodeURIComponent(eventId)}/artifacts/${encodeURIComponent(kind)}`,
+  /** The downloadable ZIP evidence package for an event (H14). */
+  evidencePackage: (eventId: string) =>
+    `/api/evidence/${encodeURIComponent(eventId)}/package`,
   review: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}/review`,
 } as const;

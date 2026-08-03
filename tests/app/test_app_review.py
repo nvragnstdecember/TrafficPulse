@@ -191,7 +191,11 @@ def test_the_journal_is_written_beside_the_events_never_into_them(tmp_path: Path
 
     runs = make_config(tmp_path).runs_dir
     assert (runs / "reviews" / f"{event_id}.jsonl").is_file()
+    # Every append-only sidecar is a *sibling* of the per-run tree, never inside it:
+    # the review journal (H9) and the rendered-artifact journal (H14) both live at
+    # the root, so neither can collide with a write-once run directory.
+    sidecars = {"reviews", "rendered"}
     for run_dir in runs.iterdir():
-        if run_dir.name == "reviews":
+        if run_dir.name in sidecars:
             continue
         assert not any(path.suffix == ".jsonl" for path in run_dir.rglob("*"))

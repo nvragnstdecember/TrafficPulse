@@ -180,6 +180,15 @@ def test_only_sanctioned_runtime_packages() -> None:
         "scenes",
         "app",
         "overlay",
+        # H14 evidence rendering engine: turns the reference-only manifests the
+        # reasoning layers persist into stored, hashed, downloadable artifacts. It
+        # owns frame addressing (by the media times a manifest already records),
+        # content-addressed artifact storage, and package assembly. It draws nothing
+        # of its own -- stills go through the existing ``overlay`` renderer -- runs no
+        # detector, tracker, or classifier, and cannot write to a persisted event or
+        # manifest. Kept out of ``persistence`` because it stores *bytes* keyed by
+        # content, not contract records keyed by identity.
+        "evidence",
     }
     package = REPO_ROOT / "src" / "trafficpulse"
     subdirs = {p.name for p in package.iterdir() if p.is_dir() and p.name != "__pycache__"}

@@ -138,6 +138,32 @@ export function makeEvidence(overrides: Partial<EvidenceManifest> = {}): Evidenc
   };
 }
 
+/**
+ * An H14 manifest: rendered frames, each carrying the content hash that makes it
+ * fetchable. `makeEvidence` remains the pre-H14 shape (references without hashes),
+ * so both eras stay covered.
+ */
+export function makeRenderedEvidence(
+  overrides: Partial<EvidenceManifest> = {},
+): EvidenceManifest {
+  const frame = (kind: string, digest: string) => ({
+    kind,
+    locator: `artifacts/${digest.slice(0, 2)}/${digest}.png`,
+    sha256: digest,
+    media_type: 'image/png',
+  });
+  const before = frame('before_frame', 'a'.repeat(64));
+  const trigger = frame('trigger_frame', 'b'.repeat(64));
+  const after = frame('after_frame', 'c'.repeat(64));
+  return makeEvidence({
+    before_frame: before,
+    trigger_frame: trigger,
+    after_frame: after,
+    additional_artifacts: [before, trigger, after],
+    ...overrides,
+  });
+}
+
 export function makeVideo(overrides: Partial<VideoUploadResponse> = {}): VideoUploadResponse {
   return {
     video_id: 'vid-1',

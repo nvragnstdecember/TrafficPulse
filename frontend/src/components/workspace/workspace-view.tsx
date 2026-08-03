@@ -384,8 +384,6 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           onOpenChange={setViewerOpen}
           event={selectedEvent}
           evidence={workspace.evidence}
-          objectUrl={objectUrl}
-          fps={processing.video?.fps}
         />
       </div>
     </div>
