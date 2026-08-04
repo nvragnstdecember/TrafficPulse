@@ -34,6 +34,7 @@ from .config import AppConfig, load_scene
 from .dependencies import AppContext
 from .engine_provider import EngineProvider, RealEngineProvider
 from .errors import AppError
+from .logging_config import RequestIdMiddleware, configure_logging
 from .models import ErrorDetail, ErrorResponse
 from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
@@ -211,7 +212,7 @@ def _build_context(
             provider=provider,
             reviews=review_store,
             rendered=rendered_store,
-            artifacts_dir=config.artifacts_dir,
+            artifacts=artifact_store,
             overlays_dir=config.overlays_dir,
         ),
     )
@@ -222,6 +223,7 @@ def create_app(
     *,
     engine_provider: EngineProvider | None = None,
     executor: JobExecutor | None = None,
+    configure_logs: bool = True,
 ) -> FastAPI:
     """Build a fully-wired FastAPI application for ``config``.
 
@@ -229,7 +231,16 @@ def create_app(
     (real RT-DETR, built lazily per job); ``executor`` defaults to the background
     :class:`ThreadJobExecutor`. Tests inject a stub provider and the synchronous
     executor to get a deterministic, GPU-free lifecycle.
+
+    ``configure_logs`` installs the package's logging configuration (H16). It is on
+    by default because this function is the application's composition root and an
+    unconfigured application drops every ``INFO`` -- including the startup recovery
+    report. An embedder that owns its own logging passes ``False``.
     """
+
+    if configure_logs:
+        level = configure_logging(config.log_level)
+        _logger.info("logging configured at %s", level)
 
     app = FastAPI(
         title="TrafficPulse API",
@@ -243,6 +254,11 @@ def create_app(
         executor=executor if executor is not None else ThreadJobExecutor(),
     )
     _register_error_handlers(app)
+
+    # Outermost middleware: every request (including ones that fail) gets a
+    # correlation id, and it is set before any handler or other middleware runs.
+    # Adds a response *header* only -- no response model changes.
+    app.add_middleware(RequestIdMiddleware)
 
     # CORS is opt-in: added only when explicit origins are configured, so the
     # default same-origin / dev-proxy deployment carries no CORS surface.

@@ -1,7 +1,7 @@
 {
   "name": "trafficpulse-frontend",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "TrafficPulse web client: the app shell, design system, and typed API infrastructure (H7B) plus the video workspace (H7C), live processing integration (H7D), and analyst review workflow (H7E) over the H7A HTTP API.",
   "scripts": {

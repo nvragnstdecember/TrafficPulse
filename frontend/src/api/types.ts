@@ -20,6 +20,16 @@ export type JobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancel
  */
 export type OverlayStatus = 'none' | 'pending' | 'ready' | 'failed';
 
+/**
+ * Lifecycle of a run's rendered evidence frames (H16) — the same axis as
+ * `OverlayStatus`, for the evidence stills rather than the annotated video.
+ *
+ * `failed` means the stored artifacts may be partial: a render interrupted by a
+ * restart settles here rather than passing for complete, and the repair endpoint
+ * re-renders what is missing.
+ */
+export type EvidenceStatus = 'none' | 'pending' | 'ready' | 'failed';
+
 export type ViolationType =
   | 'no_helmet'
   | 'triple_riding'
@@ -34,6 +44,13 @@ export interface HealthResponse {
   status: string;
   version: string;
   engine: string;
+  /**
+   * Readiness detail (H16), additive so pre-H16 backends still type. `status`
+   * answers "is the process alive"; these answer "can it do its job".
+   */
+  repository?: string;
+  inference_available?: boolean;
+  scene_configured?: boolean;
 }
 
 export interface VideoUploadResponse {
@@ -240,6 +257,12 @@ export interface JobStatusResponse {
   overlay_available: boolean;
   /** How far the annotated-video render has got; `pending` means keep polling. */
   overlay_status: OverlayStatus;
+  /**
+   * How far the evidence-frame render has got (H16). `failed` means the stored
+   * artifacts may be partial — a run interrupted by a restart settles here rather
+   * than passing for complete. Optional so a pre-H16 backend still types.
+   */
+  evidence_status?: EvidenceStatus;
 }
 
 /**

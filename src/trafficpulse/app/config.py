@@ -65,6 +65,14 @@ class AppConfig(BaseModel):
     max_upload_bytes: int = Field(default=DEFAULT_MAX_UPLOAD_BYTES, ge=1)
     allowed_extensions: frozenset[str] = DEFAULT_ALLOWED_EXTENSIONS
 
+    log_level: str = "INFO"
+    """Logging verbosity for the ``trafficpulse`` hierarchy (H16).
+
+    One of ``DEBUG`` / ``INFO`` / ``WARNING`` / ``ERROR`` / ``CRITICAL``; validated
+    case-insensitively, and an unrecognised value falls back to ``INFO`` rather
+    than refusing to start -- a typo in a deployment variable must not take the
+    service down. ``create_app`` applies it."""
+
     cors_allow_origins: tuple[str, ...] = ()
     """Browser origins permitted for cross-origin API calls (H8, deployment).
     Empty (default) adds no CORS middleware -- correct for same-origin and
@@ -93,6 +101,17 @@ class AppConfig(BaseModel):
     this config loads no ML framework -- the classifier's backend is built lazily,
     only when a ``no_helmet`` job runs. Code-configured, like ``inference``
     (checkpoint provenance is a per-artifact review, not an env string)."""
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalise_log_level(cls, value: object) -> object:
+        """Upper-case a level name, falling back to INFO for an unknown one."""
+
+        if not isinstance(value, str):
+            return value  # let pydantic raise the type error
+        from .logging_config import normalize_log_level
+
+        return normalize_log_level(value)
 
     @field_validator("allowed_extensions", mode="before")
     @classmethod
@@ -147,6 +166,17 @@ class AppConfig(BaseModel):
 
         return self.storage_dir / "artifacts"
 
+    @property
+    def engine_log_path(self) -> Path:
+        """Append-only JSONL file of structured engine events (H16).
+
+        A sibling of the run tree rather than a file inside it: the engine's log is
+        a *process*-level stream spanning every run, and nesting it under one run
+        directory would both misstate that and put a mutable file inside the
+        write-once tree."""
+
+        return self.storage_dir / "logs" / "engine.jsonl"
+
     def is_supported_extension(self, suffix: str) -> bool:
         """Whether ``suffix`` (e.g. ``".mp4"``) is an accepted container."""
 
@@ -159,10 +189,10 @@ class AppConfig(BaseModel):
         Recognised: ``TRAFFICPULSE_APP_STORAGE`` (default ``trafficpulse-data``),
         ``TRAFFICPULSE_APP_SCENE``, ``TRAFFICPULSE_APP_HOST``,
         ``TRAFFICPULSE_APP_PORT``, ``TRAFFICPULSE_APP_MAX_UPLOAD_BYTES``,
-        ``TRAFFICPULSE_APP_CORS_ORIGINS`` (comma-separated), and
-        ``TRAFFICPULSE_APP_STATIC_DIR``. Unknown variables are ignored; malformed
-        numeric values raise ``ValueError`` via pydantic. No absolute path is ever
-        assumed.
+        ``TRAFFICPULSE_APP_CORS_ORIGINS`` (comma-separated),
+        ``TRAFFICPULSE_APP_STATIC_DIR``, and ``TRAFFICPULSE_APP_LOG_LEVEL``.
+        Unknown variables are ignored; malformed numeric values raise
+        ``ValueError`` via pydantic. No absolute path is ever assumed.
         """
 
         env = os.environ if environ is None else environ
@@ -179,6 +209,8 @@ class AppConfig(BaseModel):
             fields["port"] = int(env["TRAFFICPULSE_APP_PORT"])
         if "TRAFFICPULSE_APP_MAX_UPLOAD_BYTES" in env:
             fields["max_upload_bytes"] = int(env["TRAFFICPULSE_APP_MAX_UPLOAD_BYTES"])
+        if "TRAFFICPULSE_APP_LOG_LEVEL" in env:
+            fields["log_level"] = env["TRAFFICPULSE_APP_LOG_LEVEL"]
         origins = env.get("TRAFFICPULSE_APP_CORS_ORIGINS")
         if origins:
             fields["cors_allow_origins"] = tuple(

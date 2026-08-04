@@ -12,6 +12,7 @@ from pathlib import Path
 
 from trafficpulse.app.analytics import AnalyticsService
 from trafficpulse.app.registry import JobRecord, JobStatus, JobStore, VideoRecord, VideoStore
+from trafficpulse.evidence import ArtifactStore
 
 _T0 = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 
@@ -80,7 +81,9 @@ def _service(
         videos=video_store,
         jobs=job_store,
         provider=_Provider(readiness),
-        artifacts_dir=artifacts_dir,
+        # H16: analytics reads the store's own maintained usage figure rather than
+        # walking a directory on every request.
+        artifacts=ArtifactStore(artifacts_dir) if artifacts_dir is not None else None,
     )
 
 

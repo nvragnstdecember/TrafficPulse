@@ -101,6 +101,7 @@ no absolute path is ever assumed.
 | `TRAFFICPULSE_APP_MAX_UPLOAD_BYTES` | `536870912` (512 MiB) | Hard upload size cap (enforced while streaming). |
 | `TRAFFICPULSE_APP_CORS_ORIGINS` | _(none)_ | Comma-separated browser origins allowed to call the API cross-origin. Empty adds **no** CORS middleware. |
 | `TRAFFICPULSE_APP_STATIC_DIR` | _(none)_ | Directory of a built SPA (`frontend/dist`) to serve from the API at `/`. Empty serves the JSON API only. |
+| `TRAFFICPULSE_APP_LOG_LEVEL` | `INFO` | Verbosity of the `trafficpulse` logger hierarchy: `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` (case-insensitive). An unrecognised value falls back to `INFO` rather than refusing to start. |
 
 The frontend's build/runtime knobs (`VITE_API_BASE_URL`, `VITE_API_TIMEOUT_MS`,
 `VITE_API_PROXY_TARGET`, `VITE_MAX_UPLOAD_BYTES`, `VITE_ACCEPTED_VIDEO_FORMATS`) are
@@ -124,9 +125,15 @@ for unknown paths so client-side routes (e.g. `/videos`) survive a refresh. Run 
 API with a production ASGI server:
 
 ```bash
-uvicorn trafficpulse.app.asgi:app --host 0.0.0.0 --port 8000
-# or: gunicorn -k uvicorn.workers.UvicornWorker trafficpulse.app.asgi:app
+uvicorn serve:app --host 0.0.0.0 --port 8000
+# or: gunicorn -k uvicorn.workers.UvicornWorker serve:app
 ```
+
+> **Use `serve:app`, not `trafficpulse.app.asgi:app`.** The latter is configured
+> purely from the environment and therefore has **no inference backend**: it serves
+> every read endpoint and the full UI, but a processing request returns
+> `503 engine_unavailable`. `serve.py` is `AppConfig.from_env()` plus the code-level
+> model composition — see [§9](#9-real-inference-rt-detr).
 
 Because the SPA and API share an origin, no CORS is needed. If the SPA is served
 from a **different** origin, set `TRAFFICPULSE_APP_CORS_ORIGINS` to that origin and
@@ -137,7 +144,7 @@ build the SPA with `VITE_API_BASE_URL` pointing at the API.
 ```bash
 export TRAFFICPULSE_APP_STATIC_DIR=frontend/dist
 export TRAFFICPULSE_APP_SCENE=configs/scenes/example-scene.yaml
-uvicorn trafficpulse.app.asgi:app --host 0.0.0.0 --port 8000
+uvicorn serve:app --host 0.0.0.0 --port 8000
 ```
 
 FastAPI then serves the SPA at `/` (hashed assets under `/assets`) with an
@@ -159,16 +166,81 @@ differs from the API origin.
 
 ## 8. Health & readiness
 
-`GET /api/health` returns `{"status","version","engine"}`:
+`GET /api/health` separates **liveness** from **readiness** — "the process is
+alive" and "the process can do its job" are different questions:
 
-- `status` is `ok` when the service is serving.
-- `engine` reports backend readiness: `ready` when a real inference backend is
-  available, else `unconfigured` (the service still serves every read endpoint and
-  stub-injected jobs).
+| Field | Meaning |
+| --- | --- |
+| `status` | `ok` whenever the service is serving. This is the **liveness** signal. |
+| `version` | TrafficPulse package version. |
+| `engine` | `ready` when a real inference backend is available, else `unconfigured`. |
+| `repository` | `ready` when the storage root is present and writable, else `unavailable`. A read-only repository still serves reads, so this is reported rather than turned into a 503. |
+| `inference_available` | Whether a processing job can actually run. `false` means every read endpoint works but `POST /api/process` returns `503 engine_unavailable`. |
+| `scene_configured` | Whether a fallback scene exists. Uncalibrated videos cannot be processed without one. |
 
-Use it as a liveness/readiness probe. `GET /api/metrics` exposes aggregate job
-counts (`jobs_total/pending/running/succeeded/failed/cancelled`, `events_total`)
-plus the latest run's engine metrics.
+The first three fields are unchanged from v1.0, so existing probes keep working.
+Use `status` for liveness and `inference_available` + `repository` for readiness.
+
+`GET /api/metrics` exposes aggregate job counts plus the latest run's engine
+metrics; `GET /api/analytics/summary` is the whole-repository view the dashboard
+renders.
+
+---
+
+## 8B. Logging
+
+All logging is configured once by `create_app`, under the `trafficpulse` logger
+hierarchy. Records carry a timestamp, level, subsystem name, and request id:
+
+```
+2026-08-04T23:26:13+0530 INFO     trafficpulse.recovery    [a1b2c3d4e5f6] repository recovery: 4 video(s), 10 run(s), 28 event(s) indexed
+```
+
+- **Level** — `TRAFFICPULSE_APP_LOG_LEVEL` (§5). An unrecognised value falls back
+  to `INFO`; the level actually applied is logged at startup.
+- **Subsystems** — `trafficpulse.app`, `.analytics`, `.engine`, `.evidence`,
+  `.recovery`. Raise or lower one area independently, e.g. during a rendering
+  investigation.
+- **Request correlation** — every HTTP request is assigned an id (or inherits an
+  inbound `X-Request-ID` from a reverse proxy), which appears in every log record
+  emitted while serving it and is echoed in the `X-Request-ID` response header. It
+  never appears in a response body. Background job threads log `[-]`, since they
+  legitimately run outside any request.
+- **Structured engine events** — the engine emits deterministic, JSON-serialisable
+  events (frames dropped, batches processed, finalized, persisted) to
+  `<storage>/logs/engine.jsonl`, one object per line, appended across runs. It
+  carries no wall-clock time unless the engine was given a clock, so writing it
+  changes nothing about replay determinism.
+
+---
+
+## 8C. Docker
+
+```bash
+docker compose up --build          # → http://localhost:8000
+```
+
+One service, serving the API and the built SPA from the same origin (so no CORS).
+The image is multi-stage: Node builds the SPA, a `python:3.12-slim` runtime serves
+it. It runs unprivileged and declares a `HEALTHCHECK` against `/api/health`.
+
+Two volumes, for the two kinds of state that must outlive the container:
+
+| Volume | Contents |
+| --- | --- |
+| `trafficpulse-data` → `/data` | The repository: uploads, runs, evidence artifacts, overlays, logs. **This is what to back up** — everything the system has concluded lives here, and recovery rebuilds the runtime indices from it on startup. |
+| `trafficpulse-models` → `/models` (read-only) | The HuggingFace cache. Weights are **never** baked into the image (ADR-001); populate this from a host cache to enable real inference. |
+
+Real inference needs the ML extra, which is off by default because it multiplies
+the image size:
+
+```bash
+docker build --build-arg INSTALL_EXTRAS=api,overlay,rtdetr -t trafficpulse .
+```
+
+The image is CPU-only. RT-DETR on CPU is roughly 2–3 s/frame — correct for review
+workflows and demos, not for realtime. A GPU deployment starts from a CUDA base
+image and changes only the `Dockerfile`.
 
 ---
 
@@ -184,11 +256,17 @@ To run real detection:
    are vendored or downloaded).
 2. Acquire a permissive RT-DETR checkpoint locally (operator-driven; see
    `docs/adr/ADR-001.md` for the licence posture).
-3. Construct `AppConfig(..., inference=InferenceConfig(...))` in a small launcher and
-   pass it to `create_app` (the RT-DETR backend is built lazily, per job). The
-   inference backend is intentionally **not** wired from environment variables in
-   v1.0 — it is a code-level composition decision (checkpoint provenance is a
-   per-artifact review, not a string).
+3. Run **`serve.py`** — the shipped launcher, and the documented production
+   entrypoint. It calls `AppConfig.from_env()` (so every deployment knob in §5 still
+   applies) and adds only the model composition: detector checkpoint, label map,
+   helmet classifier, and the calibration-free default rule set. The RT-DETR backend
+   is built lazily, per job.
+
+   The checkpoint is intentionally **not** a plain environment string in v1.0 — it
+   is a code-level composition decision, because checkpoint provenance is a
+   per-artifact licence review (ADR-001). For an operator who has done that review,
+   `TRAFFICPULSE_APP_DETECTOR_CHECKPOINT`, `TRAFFICPULSE_APP_HELMET_CHECKPOINT`, and
+   `TRAFFICPULSE_APP_DEVICE` override the defaults.
 
 Everything else (upload, the processing lifecycle, cancellation, evidence review,
 export) is fully exercisable without a real backend using the deterministic stub
@@ -207,8 +285,10 @@ provider in the test suite.
    activity log.
 5. Review: confirmed violations appear as timeline markers and in a filterable,
    severity-ranked list. Select one to inspect its measurements-vs-thresholds,
-   evidence manifest, and open the **evidence viewer** (zoom / pan / fullscreen /
-   frame navigation over the local video).
+   evidence manifest, and open the **evidence viewer** — which shows the
+   backend-rendered before/trigger/after frames (the frames the engine actually
+   picked, drawn by the same overlay renderer as the annotated video and verified
+   against the SHA-256 the manifest records), with zoom / pan / fullscreen.
 6. Add analyst notes, copy ids, and **export** selected events (JSON / CSV) or a
    single event's evidence manifest.
 7. A browser refresh mid-job reconnects and restores selection + playback position.

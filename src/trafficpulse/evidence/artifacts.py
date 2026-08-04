@@ -81,6 +81,10 @@ class ArtifactStore:
 
     def __init__(self, root: Path | str) -> None:
         self._root = Path(root)
+        # Cached (file count, total bytes). Computed lazily on first ask and then
+        # maintained incrementally by `put`, because this store is the only writer
+        # of artifact bytes. See `usage`.
+        self._usage: tuple[int, int] | None = None
 
     @property
     def root(self) -> Path:
@@ -156,9 +160,43 @@ class ArtifactStore:
             temp = path.with_name(f"{path.name}.partial")
             temp.write_bytes(data)
             temp.replace(path)
+            if self._usage is not None:
+                count, total = self._usage
+                self._usage = (count + 1, total + len(data))
         return ArtifactReference(
             kind=kind, locator=locator, sha256=digest, media_type=media_type
         )
+
+    def usage(self) -> tuple[int, int]:
+        """``(file count, total bytes)`` held by this store.
+
+        Walking the store on every request is what the H16 investigation found the
+        analytics dashboard doing -- an O(artifacts) filesystem scan every 30
+        seconds, growing with every rendered frame. Since this class is the **only**
+        writer of artifact bytes, the figure can be maintained instead of
+        rediscovered: it is computed once per process (a single cold scan) and then
+        updated in place by :meth:`put`.
+
+        The cache is therefore per-process and rebuilt after a restart, which is
+        exactly right -- a fresh process should measure what is actually on disk
+        rather than trust a number it did not compute.
+
+        A file that vanishes mid-scan is skipped rather than raising: a dashboard
+        must not fail over a concurrently-removed artifact.
+        """
+
+        if self._usage is None:
+            count = total = 0
+            if self._root.is_dir():
+                for path in self._root.rglob("*"):
+                    try:
+                        if path.is_file():
+                            count += 1
+                            total += path.stat().st_size
+                    except OSError:  # pragma: no cover - race with removal
+                        continue
+            self._usage = (count, total)
+        return self._usage
 
     def verify(self, reference: ArtifactReference) -> bool:
         """Whether the stored bytes match the reference's declared hash.

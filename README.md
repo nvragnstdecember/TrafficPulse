@@ -51,12 +51,26 @@ only. Concretely:
 - **Release hardening (H8): complete** — deployment configuration (opt-in CORS +
   single-process SPA serving), production documentation, and a demo-ready first-run
   experience.
-- **Not started:** the remaining four locked violations, real-footage validation,
-  the full evidence-rendering engine, and simulated penalties (see
-  [Roadmap](#planned-capabilities--roadmap)).
+- **Review, recovery, and library (H9–H12): complete** — an append-only analyst
+  decision journal, startup recovery that rebuilds the runtime indices from disk,
+  a browsable historical video library, and per-video scene calibration.
+- **Red-light jumping (H13): complete** — the fifth locked violation, with support
+  latched at the stop-line crossing.
+- **Evidence rendering (H14): complete** — content-addressed, hash-verified
+  evidence frames drawn by the shared overlay renderer, merged into the manifest at
+  read time, and downloadable as a deterministic ZIP package.
+- **Dashboard & analytics (H15): complete** — a single server-side aggregation
+  layer behind `GET /api/analytics/summary`, with the dashboard and analytics pages
+  built on it.
+- **Platform hardening (H16): complete** — production logging with request
+  correlation, an env-driven production launcher (`serve.py`), containerisation
+  (Dockerfile + compose), readiness reporting, and an evidence render lifecycle
+  with a repair path.
+- **Not started:** speeding (the sixth locked violation), real-footage validation,
+  ANPR, and simulated penalties (see [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), **1840 passing backend tests**
-(8 opt-in real-model/GPU tests skipped by default) plus **279 passing frontend
+Quality gates are green: `ruff`, `mypy src` (strict), **2341 passing backend tests**
+(9 opt-in real-model/GPU tests skipped by default) plus **479 passing frontend
 tests**, on the current tree, with single-environment Linux CI and a
 native-Windows verification checklist.
 
@@ -314,7 +328,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 2016 passing; 9 opt-in real-model/GPU tests
+- **Tests:** `pytest -q` (currently 2341 passing; 9 opt-in real-model/GPU tests
   skipped by default). Install the `api` and `overlay` extras so the web layer and
   the overlay renderer are both type-checked and tested — this is exactly what CI
   installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`

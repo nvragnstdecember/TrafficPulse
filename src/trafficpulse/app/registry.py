@@ -205,6 +205,45 @@ class OverlayStatus(StrEnum):
         return self is not OverlayStatus.PENDING
 
 
+class EvidenceStatus(StrEnum):
+    """Lifecycle of a run's rendered evidence frames (H16).
+
+    The counterpart of :class:`OverlayStatus`, and added for the same reason: a
+    render happens *after* the run's events and manifests are durably persisted,
+    so its outcome cannot be inferred from ``JobStatus``. Until H16 evidence
+    rendering had no status at all, which meant a render interrupted by a restart
+    left a partial artifact set that was **indistinguishable from a complete one** --
+    the dashboard reported the shortfall as the truth and nothing could tell an
+    operator otherwise.
+
+    ``NONE`` -- nothing to render (the run confirmed no events, or the manifests
+    predate engine frame picking); ``PENDING`` -- a render is in flight;
+    ``READY`` -- every event that could be rendered was; ``FAILED`` -- a render was
+    attempted and did not complete, so the recorded artifacts may be partial.
+
+    ``PENDING`` must never survive a restart: nothing resumes it. Recovery settles
+    it to ``FAILED``, which is what makes an interrupted render visible and
+    repairable rather than silently partial.
+    """
+
+    NONE = "none"
+    PENDING = "pending"
+    READY = "ready"
+    FAILED = "failed"
+
+    @property
+    def is_terminal(self) -> bool:
+        """True once the evidence outcome can no longer change on its own."""
+
+        return self is not EvidenceStatus.PENDING
+
+    @property
+    def needs_repair(self) -> bool:
+        """Whether a repair pass could still produce missing artifacts."""
+
+        return self is EvidenceStatus.FAILED
+
+
 @dataclass
 class JobRecord:
     """One processing job's mutable state (guarded by :class:`JobStore`)."""
@@ -224,6 +263,8 @@ class JobRecord:
     # Where the overlay render has got to; see :class:`OverlayStatus`. Starts at
     # NONE (nothing attempted) and is advanced by the processing service.
     overlay_status: OverlayStatus = OverlayStatus.NONE
+    # Where the evidence-frame render has got to; see :class:`EvidenceStatus`.
+    evidence_status: EvidenceStatus = EvidenceStatus.NONE
     # Metrics read back from a run snapshot at startup (H10). A recovered job has
     # neither a live engine nor an in-process result, so this is the only truthful
     # source left for its frame counts and FPS.
@@ -393,6 +434,20 @@ class JobStore:
             record = self._jobs.get(job_id)
             if record is not None:
                 record.overlay_status = status
+        self._notify(job_id)
+
+    def set_evidence_status(self, job_id: str, status: EvidenceStatus) -> None:
+        """Record where this run's evidence render has got to (H16).
+
+        Persisted through the same change observer as every other transition, so a
+        render marked ``PENDING`` is on disk *before* the work starts -- which is
+        exactly what lets recovery notice that a restart interrupted it.
+        """
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.evidence_status = status
         self._notify(job_id)
 
     def mark_failed(self, job_id: str, message: str) -> None:

@@ -1,0 +1,49 @@
+# Keep the build context small and the image reproducible (H16).
+#
+# Everything here is either rebuilt inside the image, irrelevant to it, or state
+# that belongs on a volume rather than in a layer.
+
+# --- version control / tooling ---------------------------------------------
+.git
+.github
+.gitignore
+.venv
+venv
+*.egg-info
+.mypy_cache
+.ruff_cache
+.pytest_cache
+__pycache__
+**/__pycache__
+*.py[cod]
+
+# --- frontend build state (rebuilt in the frontend stage) -------------------
+frontend/node_modules
+frontend/dist
+frontend/coverage
+
+# --- repository state (belongs on the /data volume, never in a layer) -------
+trafficpulse-data
+runs
+scratch_frames
+scratch
+test-videos
+
+# --- development-only trees -------------------------------------------------
+tests
+experiments
+demo
+viewer
+registry
+schemas
+launch.py
+
+# --- docs (README/LICENSE are copied explicitly; the rest is not needed) ----
+docs
+*.md
+!README.md
+
+# --- container files themselves ---------------------------------------------
+Dockerfile
+compose.yaml
+.dockerignore

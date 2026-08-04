@@ -1,0 +1,39 @@
+# TrafficPulse single-process deployment (H16).
+#
+#   docker compose up --build      # http://localhost:8000
+#
+# One service: the API and the built SPA are served from the same origin, so no
+# CORS configuration is needed. Two volumes, for the two kinds of state that must
+# outlive the container.
+
+services:
+  trafficpulse:
+    build:
+      context: .
+      args:
+        # Add rtdetr for real inference (large: torch + transformers):
+        #   INSTALL_EXTRAS: api,overlay,rtdetr
+        INSTALL_EXTRAS: api,overlay
+    image: trafficpulse:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # Deployment knobs. The model composition is code-level (see serve.py).
+      TRAFFICPULSE_APP_LOG_LEVEL: INFO
+      TRAFFICPULSE_APP_MAX_UPLOAD_BYTES: "536870912"
+      # Same-origin: the API serves the SPA, so no CORS surface is added.
+      # TRAFFICPULSE_APP_CORS_ORIGINS: "https://app.example.org"
+      # TRAFFICPULSE_APP_SCENE: /app/configs/scenes/example-scene.yaml
+    volumes:
+      # The repository: uploads, runs, evidence artifacts, overlays, logs. This is
+      # the volume that must be backed up -- everything the system has concluded
+      # lives here, and recovery rebuilds the runtime indices from it on startup.
+      - trafficpulse-data:/data
+      # Model cache, read-only. Weights are never baked into the image (ADR-001):
+      # populate this from a host HuggingFace cache to enable real inference.
+      - trafficpulse-models:/models:ro
+    restart: unless-stopped
+
+volumes:
+  trafficpulse-data:
+  trafficpulse-models:

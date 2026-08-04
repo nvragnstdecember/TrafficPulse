@@ -146,6 +146,32 @@ class ReviewStore:
 
         return {event_id: self.status(event_id) for event_id in event_ids}
 
+    def recently_reviewed_event_ids(self, limit: int) -> tuple[str, ...]:
+        """Event ids whose journals changed most recently, newest first.
+
+        For an activity feed, which wants the last handful of decisions and not the
+        whole audit history. Reading *every* journal to then discard all but a dozen
+        entries is O(reviewed events) file opens per request -- the cost the H16
+        investigation found on the analytics path.
+
+        A journal's mtime is when its last entry was appended, so ordering by mtime
+        orders by most-recent-activity without opening anything. Only the selected
+        journals are then read. Ties break on event id so the result is
+        deterministic on filesystems with coarse mtime resolution.
+        """
+
+        directory = self._root / _REVIEWS_DIR
+        if limit <= 0 or not directory.is_dir():
+            return ()
+        stamped: list[tuple[float, str]] = []
+        for path in directory.glob("*.jsonl"):
+            try:
+                stamped.append((path.stat().st_mtime, path.stem))
+            except OSError:  # pragma: no cover - race with concurrent removal
+                continue
+        stamped.sort(key=lambda item: (-item[0], item[1]))
+        return tuple(event_id for _, event_id in stamped[:limit])
+
     def reviewed_event_ids(self) -> frozenset[str]:
         """Every event id an analyst has acted on, from one directory listing (H11).
 

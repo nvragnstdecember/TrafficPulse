@@ -90,6 +90,7 @@ from .models import (
     EventListResponse,
     EventSort,
     EventSummary,
+    EvidenceRepairResponse,
     JobStatusResponse,
     MetricsResponse,
     ReviewDecisionRequest,
@@ -102,6 +103,7 @@ from .models import (
 )
 from .overlay_video import build_job_compositor, render_job_overlay
 from .registry import (
+    EvidenceStatus,
     JobExecutor,
     JobRecord,
     JobStatus,
@@ -255,6 +257,16 @@ class SceneService:
         # calibrated. Retained so an operator with one fixed camera keeps working
         # exactly as before H12; it is a default, no longer the only answer.
         self._fallback = fallback
+
+    @property
+    def has_fallback(self) -> bool:
+        """Whether the server has a configured fallback scene (H16 readiness).
+
+        An uncalibrated video can only be processed when one exists, so this is a
+        genuine readiness signal rather than a configuration detail.
+        """
+
+        return self._fallback is not None
 
     # --- reading -------------------------------------------------------------
     def get(self, scene_hash: str) -> SceneConfig:
@@ -653,11 +665,18 @@ class ProcessingService:
         so a failure here costs pictures, never records. The manifests it reads are
         the ones just written, which is what makes the rendered frames provably the
         frames the engine picked.
+
+        The lifecycle (H16) is recorded around the work: ``PENDING`` is persisted
+        *before* rendering starts, so a restart mid-render leaves a state recovery
+        can recognise as interrupted rather than one that passes for complete.
+        Whatever happens, the status is left terminal.
         """
 
         if self._artifacts is None or self._rendered is None or not stored:
+            self._jobs.set_evidence_status(job.job_id, EvidenceStatus.NONE)
             return
         assert job.engine is not None
+        self._jobs.set_evidence_status(job.job_id, EvidenceStatus.PENDING)
         try:
             report = render_run_evidence(
                 pairs=[(pair.event, pair.manifest) for pair in stored],
@@ -676,7 +695,12 @@ class ProcessingService:
                 report.artifacts_written,
                 report.frames_decoded,
             )
+            self._jobs.set_evidence_status(
+                job.job_id,
+                EvidenceStatus.READY if report.events_rendered else EvidenceStatus.NONE,
+            )
         except Exception:  # noqa: BLE001 - evidence rendering is never fatal to a run
+            self._jobs.set_evidence_status(job.job_id, EvidenceStatus.FAILED)
             _logger.exception(
                 "evidence render failed for job %s; events and manifests are persisted",
                 job.job_id,
@@ -718,6 +742,93 @@ class ProcessingService:
             _logger.exception(
                 "overlay render failed for job %s; original video still plays", job.job_id
             )
+
+    def repair_evidence(self, job_id: str) -> EvidenceRepairResponse:
+        """Re-render evidence frames for events of ``job_id`` that have none (H16).
+
+        The repair path for a render interrupted by a restart. It **does not
+        reprocess the video**: no detector, tracker, or reasoner runs, no event is
+        created or altered, and the write-once manifests are only read. It decodes
+        the source at the media times those manifests already record and stores the
+        frames that are missing.
+
+        Only events with *no* rendered artifact are touched -- an event that already
+        has frames is left exactly as it was, so repair can never replace evidence
+        that was rendered correctly.
+
+        **Repaired frames carry no overlay annotation.** The per-frame reasoning
+        metadata lives in the engine that produced the run and does not survive the
+        process, so a repaired still shows the real evidence pixels without the
+        boxes and banners a freshly-rendered one has. That is a visible, reported
+        limitation rather than a silent difference: the response says how many
+        events were repaired, and the alternative -- leaving the analyst with no
+        picture at all -- is worse.
+        """
+
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise JobNotFoundError(f"no processing job with id {job_id!r}")
+        if self._artifacts is None or self._rendered is None:
+            raise InvalidConfigurationError(
+                "this deployment has no evidence rendering layer configured"
+            )
+        if job.status is not JobStatus.SUCCEEDED:
+            raise InvalidConfigurationError(
+                f"job {job_id!r} is {job.status.value!r}; only a succeeded run has "
+                "evidence to repair"
+            )
+
+        video = self._videos.require(job.video_id)
+        try:
+            stored = self._store.load(job_id)
+        except RunNotFoundError as exc:
+            raise JobNotFoundError(f"run {job_id!r} has no persisted records") from exc
+
+        missing = [
+            pair for pair in stored if not self._rendered.artifacts(pair.event.event_id)
+        ]
+        if not missing:
+            self._jobs.set_evidence_status(job_id, EvidenceStatus.READY)
+            return EvidenceRepairResponse(
+                job_id=job_id, events_repaired=0, artifacts_written=0,
+                evidence_status=EvidenceStatus.READY,
+            )
+
+        self._jobs.set_evidence_status(job_id, EvidenceStatus.PENDING)
+        try:
+            report = render_run_evidence(
+                pairs=[(pair.event, pair.manifest) for pair in missing],
+                source_path=video.path,
+                # The camera the events were reasoned under; `missing` is non-empty
+                # here, and every event of a run shares one camera.
+                camera_id=missing[0].event.camera_id,
+                artifacts=self._artifacts,
+                rendered=self._rendered,
+                compositor=None,  # see the docstring: no metadata survives a restart
+            )
+        except Exception as exc:  # noqa: BLE001 - repair is best-effort, like the render
+            self._jobs.set_evidence_status(job_id, EvidenceStatus.FAILED)
+            _logger.exception("evidence repair failed for job %s", job_id)
+            raise InvalidConfigurationError(f"evidence repair failed: {exc}") from exc
+
+        still_missing = any(
+            not self._rendered.artifacts(pair.event.event_id) for pair in stored
+        )
+        status = EvidenceStatus.FAILED if still_missing else EvidenceStatus.READY
+        self._jobs.set_evidence_status(job_id, status)
+        _logger.info(
+            "job %s evidence repair: %d event(s), %d artifact(s), now %s",
+            job_id,
+            report.events_rendered,
+            report.artifacts_written,
+            status.value,
+        )
+        return EvidenceRepairResponse(
+            job_id=job_id,
+            events_repaired=report.events_rendered,
+            artifacts_written=report.artifacts_written,
+            evidence_status=status,
+        )
 
     def overlay_video_path(self, job_id: str) -> Path:
         """The rendered overlay video for a job, or a 404 when none is available."""
@@ -786,6 +897,7 @@ class ProcessingService:
             error=job.error,
             overlay_available=job.overlay_video is not None and job.overlay_video.exists(),
             overlay_status=job.overlay_status,
+            evidence_status=job.evidence_status,
         )
 
 

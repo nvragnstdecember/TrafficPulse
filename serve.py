@@ -1,25 +1,46 @@
-"""Runnable composition module that wires the REAL RT-DETR + helmet backend.
+"""The production launcher: real RT-DETR + helmet backend over env configuration.
 
-This is the operator composition root the architecture intends (see
-``AppConfig`` docstring): it constructs a typed ``AppConfig`` with the real
-inference detector, the real zero-shot helmet classifier, and a calibration-free
-default rule set, then exposes ``app`` for any ASGI server:
+**This is the documented production entrypoint.** Run it with any ASGI server::
 
-    uvicorn serve:app --port 8000
+    uvicorn serve:app --host 0.0.0.0 --port 8000
+
+Why this module exists at all
+-----------------------------
+``trafficpulse.app.asgi`` builds an application purely from the environment, which
+means it has **no inference backend**: every read endpoint works and the full UI
+loads, but a processing request returns a clean ``503 engine_unavailable``. That
+is the right default for a library entrypoint -- and the wrong thing to deploy.
+
+The split is deliberate (see ``docs/adr/ADR-001.md``): a model checkpoint is a
+licence-and-provenance decision reviewed per artifact, so it is composed in code
+rather than read from an arbitrary environment string. Everything that is a
+*deployment* decision -- where storage lives, which port, log level, CORS, upload
+limits, whether to serve the SPA -- stays environmental.
+
+So this module does exactly one thing on top of ``AppConfig.from_env()``: it
+supplies the model composition.
+
+Configured here (code-level, licence-reviewed)
+    ``inference``, ``helmet_classifier``, ``label_map``, ``default_rules``
+
+Configured by environment (deployment-level)
+    ``TRAFFICPULSE_APP_STORAGE``, ``_SCENE``, ``_HOST``, ``_PORT``,
+    ``_MAX_UPLOAD_BYTES``, ``_CORS_ORIGINS``, ``_STATIC_DIR``, ``_LOG_LEVEL``
 
 Rule choice: ``triple_riding`` and ``no_helmet`` are motorcycle-perception rules
 that need no per-camera geometry, so they work on arbitrary uploaded footage.
-``wrong_way`` and ``illegal_stopping`` are deliberately NOT enabled here because
-they require a ``SceneConfig`` calibrated to the uploaded video's camera (legal
-lane directions / no-stopping zone); enabling them against the synthetic example
-scene would produce meaningless geometry. Add them only with a scene calibrated
-to your camera.
+``wrong_way`` and ``illegal_stopping`` are deliberately NOT enabled by default
+because they require a ``SceneConfig`` calibrated to the uploaded video's camera;
+enabling them against the synthetic example scene would produce meaningless
+geometry. Calibrate a video in the UI (H12) to unlock them per video.
 
-Checkpoints load offline from the local HuggingFace cache (local_files_only).
+Checkpoints load offline from the local HuggingFace cache (``local_files_only``),
+so this launcher never reaches the network and never vendors weights.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from trafficpulse.app import AppConfig, create_app
@@ -34,6 +55,8 @@ from trafficpulse.engine import (
 # The RT-DETR (COCO-80) checkpoint's native labels -> TrafficPulse classes. This
 # checkpoint uses the VOC-style "motorbike" spelling (verified against the cached
 # model's id2label), which is what association/perception need for motorcycles.
+# A wrong key here silently disables a whole violation class, which is why
+# tests/app/test_serve_composition.py asserts this mapping.
 LABEL_MAP: dict[str, ObjectClass] = {
     "person": ObjectClass.PERSON,
     "bicycle": ObjectClass.BICYCLE,
@@ -43,22 +66,60 @@ LABEL_MAP: dict[str, ObjectClass] = {
     "truck": ObjectClass.TRUCK,
 }
 
-config = AppConfig(
-    storage_dir=Path("trafficpulse-data"),
-    scene_path=Path("configs/scenes/example-scene.yaml"),
-    inference=InferenceConfig(
-        checkpoint="PekingU/rtdetr_r50vd",
-        label_map=LABEL_MAP,
-        device="auto",  # uses CUDA when available, else CPU (CPU is ~2-3 s/frame)
-        score_threshold=0.5,
-        local_files_only=True,
-    ),
-    helmet_classifier=ZeroShotHelmetConfig(
-        checkpoint="openai/clip-vit-base-patch32",
-        device="cpu",
-        local_files_only=True,
-    ),
-    default_rules=(TripleRidingRuleConfig(), NoHelmetRuleConfig()),
-)
+#: The shipped example scene, used only when the operator sets no ``_SCENE``.
+DEFAULT_SCENE_PATH = Path("configs/scenes/example-scene.yaml")
 
+#: Detector checkpoint. Overridable by an operator who has reviewed a different
+#: artifact's licence; the default is the one this project validated.
+DETECTOR_CHECKPOINT = os.environ.get(
+    "TRAFFICPULSE_APP_DETECTOR_CHECKPOINT", "PekingU/rtdetr_r50vd"
+)
+#: Zero-shot helmet classifier checkpoint, same posture as the detector.
+HELMET_CHECKPOINT = os.environ.get(
+    "TRAFFICPULSE_APP_HELMET_CHECKPOINT", "openai/clip-vit-base-patch32"
+)
+#: Torch device for detection: ``auto`` uses CUDA when present, else CPU
+#: (CPU inference is roughly 2-3 s/frame).
+DETECTOR_DEVICE = os.environ.get("TRAFFICPULSE_APP_DEVICE", "auto")
+
+
+def build_config() -> AppConfig:
+    """The production configuration: environment first, model composition on top.
+
+    A function rather than only a module constant, so tests can build and assert
+    the composition without importing an ASGI application or loading a model --
+    constructing these configs imports no ML framework; the backends are built
+    lazily, per job.
+    """
+
+    env = AppConfig.from_env()
+    scene_path = env.scene_path
+    if scene_path is None and DEFAULT_SCENE_PATH.is_file():
+        # Keep the operator's choice when they made one; otherwise fall back to the
+        # shipped example so a fresh deployment is immediately demonstrable. When
+        # neither exists (e.g. an image built without ``configs/``) the server still
+        # serves every read endpoint and processes videos carrying their own scene.
+        scene_path = DEFAULT_SCENE_PATH
+
+    return env.model_copy(
+        update={
+            "scene_path": scene_path,
+            "inference": InferenceConfig(
+                checkpoint=DETECTOR_CHECKPOINT,
+                label_map=LABEL_MAP,
+                device=DETECTOR_DEVICE,
+                score_threshold=0.5,
+                local_files_only=True,
+            ),
+            "helmet_classifier": ZeroShotHelmetConfig(
+                checkpoint=HELMET_CHECKPOINT,
+                device="cpu",
+                local_files_only=True,
+            ),
+            "default_rules": (TripleRidingRuleConfig(), NoHelmetRuleConfig()),
+        }
+    )
+
+
+config = build_config()
 app = create_app(config)

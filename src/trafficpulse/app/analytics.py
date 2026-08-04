@@ -54,6 +54,7 @@ from pathlib import Path
 
 from .. import __version__
 from ..engine import EngineMetrics
+from ..evidence import ArtifactStore
 from ..persistence import RenderedArtifactStore, ReviewStore
 from ..persistence.errors import CorruptRecordError
 from .engine_provider import EngineProvider
@@ -70,7 +71,7 @@ from .models import (
 )
 from .registry import JobRecord, JobStatus, JobStore, VideoRecord, VideoStore
 
-_logger = logging.getLogger("trafficpulse.app")
+_logger = logging.getLogger("trafficpulse.analytics")
 
 #: How many activity entries the feed carries. A feed is a glance, not a log; the
 #: existing per-resource endpoints are where a full history is browsed.
@@ -95,7 +96,7 @@ class AnalyticsService:
         provider: EngineProvider,
         reviews: ReviewStore | None = None,
         rendered: RenderedArtifactStore | None = None,
-        artifacts_dir: Path | None = None,
+        artifacts: ArtifactStore | None = None,
         overlays_dir: Path | None = None,
         activity_limit: int = DEFAULT_ACTIVITY_LIMIT,
     ) -> None:
@@ -104,7 +105,9 @@ class AnalyticsService:
         self._provider = provider
         self._reviews = reviews
         self._rendered = rendered
-        self._artifacts_dir = artifacts_dir
+        # H16: the store itself, not its directory. It maintains its own usage
+        # figure, so storage statistics cost no filesystem walk per request.
+        self._artifacts = artifacts
         self._overlays_dir = overlays_dir
         self._activity_limit = activity_limit
 
@@ -221,7 +224,9 @@ class AnalyticsService:
         rendered: frozenset[str],
         jobs: Sequence[JobRecord],
     ) -> EvidenceStats:
-        artifacts_total, artifact_bytes = _directory_usage(self._artifacts_dir)
+        artifacts_total, artifact_bytes = (
+            self._artifacts.usage() if self._artifacts is not None else (0, 0)
+        )
         return EvidenceStats(
             events_total=len(event_ids),
             events_with_artifacts=len(event_ids & rendered),
@@ -304,15 +309,17 @@ class AnalyticsService:
     def _review_activity(self) -> list[ActivityEntry]:
         """Recent analyst decisions, read from the append-only journals.
 
-        Bounded work: only the journals of events an analyst has actually touched
-        are opened, and an unreadable one is skipped with a log line rather than
-        failing the whole dashboard.
+        Bounded by construction (H16): only the ``activity_limit`` most recently
+        *modified* journals are opened, selected by mtime without reading anything.
+        Previously every reviewed event's journal was parsed on every request so
+        that all but a dozen entries could be discarded. An unreadable journal is
+        skipped with a log line rather than failing the whole dashboard.
         """
 
         if self._reviews is None:
             return []
         entries: list[ActivityEntry] = []
-        for event_id in sorted(self._reviews.reviewed_event_ids()):
+        for event_id in self._reviews.recently_reviewed_event_ids(self._activity_limit):
             try:
                 history = self._reviews.history(event_id)
             except CorruptRecordError:
@@ -379,22 +386,3 @@ def _latest_metrics(jobs: Sequence[JobRecord]) -> EngineMetrics | None:
     return None
 
 
-def _directory_usage(directory: Path | None) -> tuple[int, int]:
-    """``(file count, total bytes)`` under a directory; ``(0, 0)`` when absent.
-
-    Storage figures are a convenience, not a guarantee: a file that vanishes
-    between the listing and the ``stat`` is skipped rather than raising, because a
-    dashboard must not fail over a concurrently-removed artifact.
-    """
-
-    if directory is None or not directory.is_dir():
-        return 0, 0
-    count = total = 0
-    for path in directory.rglob("*"):
-        try:
-            if path.is_file():
-                count += 1
-                total += path.stat().st_size
-        except OSError:  # pragma: no cover - race with concurrent removal
-            continue
-    return count, total

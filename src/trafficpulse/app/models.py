@@ -23,7 +23,7 @@ from ..contracts import ConfidenceBreakdown, ReviewCase, ReviewEntry
 from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
 from ..contracts.scene import CalibrationStatus, SceneStatus
 from ..engine import EngineMetrics, RuleConfig
-from .registry import JobStatus, OverlayStatus, VideoRecord
+from .registry import EvidenceStatus, JobStatus, OverlayStatus, VideoRecord
 
 
 class _ApiModel(BaseModel):
@@ -34,13 +34,35 @@ class _ApiModel(BaseModel):
 
 # --- health --------------------------------------------------------------------
 class HealthResponse(_ApiModel):
-    """Liveness + version + engine-readiness summary."""
+    """Liveness + version + readiness summary.
+
+    The three original fields are unchanged, so every existing client keeps
+    working. H16 adds strictly additive readiness detail, because "the process is
+    alive" and "the process can actually do its job" are different questions and a
+    container orchestrator needs both.
+    """
 
     status: str = Field(description="Overall service status; 'ok' when serving.")
     version: str = Field(description="TrafficPulse package version.")
     engine: str = Field(
         description="Engine readiness: 'ready' when a backend is available, "
         "else 'unconfigured'."
+    )
+    repository: str = Field(
+        default="ready",
+        description="Repository readiness: 'ready' when the storage root is present "
+        "and writable, else 'unavailable'. A repository that cannot be written "
+        "still serves reads, so this is reported rather than turned into a 503.",
+    )
+    inference_available: bool = Field(
+        default=False,
+        description="Whether a processing job can actually run. False means every "
+        "read endpoint works but POST /api/process returns 503 engine_unavailable.",
+    )
+    scene_configured: bool = Field(
+        default=False,
+        description="Whether the server has a fallback scene. Uncalibrated videos "
+        "cannot be processed without one.",
     )
 
 
@@ -332,6 +354,16 @@ class JobStatusResponse(_ApiModel):
         "attempted and did not complete. Events and evidence are queryable as soon "
         "as the job succeeds, regardless of this field.",
     )
+    evidence_status: EvidenceStatus = Field(
+        default=EvidenceStatus.NONE,
+        description="Lifecycle of this run's rendered evidence frames (H16). "
+        "'pending' means a render is in flight; 'ready' means every event that "
+        "could be rendered was; 'none' means there was nothing to render; 'failed' "
+        "means a render was attempted and did not complete, so the stored artifacts "
+        "may be partial -- POST /api/process/{job_id}/evidence/repair re-renders "
+        "what is missing. A run interrupted by a restart always settles to 'failed' "
+        "rather than passing for complete.",
+    )
 
 
 # --- events --------------------------------------------------------------------
@@ -445,6 +477,20 @@ class MetricsResponse(_ApiModel):
     latest: EngineMetrics | None = Field(
         default=None,
         description="H6 EngineMetrics of the most recent job with metrics, or null.",
+    )
+
+
+class EvidenceRepairResponse(_ApiModel):
+    """Outcome of re-rendering a run's missing evidence frames (H16)."""
+
+    job_id: str = Field(description="The run whose evidence was repaired.")
+    events_repaired: int = Field(
+        description="Events that had no rendered artifact and now have one."
+    )
+    artifacts_written: int = Field(description="Rendered artifacts stored by the repair.")
+    evidence_status: EvidenceStatus = Field(
+        description="The run's evidence state after the repair. 'ready' when every "
+        "event now has artifacts; 'failed' when some still do not."
     )
 
 

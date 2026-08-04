@@ -20,13 +20,24 @@ suite, not here, so the shipped package carries no test scaffolding.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Protocol
 
 from ..contracts import SceneConfig
-from ..engine import EngineConfig, InferenceEngine, RuleConfig, build_engine
+from ..engine import (
+    EngineConfig,
+    EngineLogSink,
+    InferenceEngine,
+    JsonlLogSink,
+    NullLogSink,
+    RuleConfig,
+    build_engine,
+)
 from .config import AppConfig
 from .errors import EngineUnavailableError
+
+_logger = logging.getLogger("trafficpulse.engine")
 
 
 class EngineProvider(Protocol):
@@ -83,12 +94,14 @@ class RealEngineProvider:
             if self._config.helmet_classifier is not None
             else None
         )
+        sink = self._log_sink()
         # build_engine also mints an EventStore; the processing service owns
         # persistence (one store rooted at runs_dir), so only the engine is kept.
         engine, _store = build_engine(
             scene=scene,
             config=engine_config,
             classifier=classifier,
+            sink=sink,
             output_root=self._config.runs_dir,
             perf=time.perf_counter,  # real wall-clock FPS for live job metrics
             # Capture overlay metadata so the processing service can render an
@@ -97,6 +110,32 @@ class RealEngineProvider:
             capture_overlay=True,
         )
         return engine
+
+    def _log_sink(self) -> EngineLogSink:
+        """The structured engine log sink for a production run (H16).
+
+        The engine has emitted deterministic, JSON-serialisable events since H6,
+        and until now the application dropped every one of them: ``build_engine``
+        defaults to ``NullLogSink``. Wiring the existing
+        :class:`~trafficpulse.engine.JsonlLogSink` makes that stream inspectable --
+        one append-only file under the storage root, alongside the runs it
+        describes.
+
+        The sink is *appended* to, never truncated, and carries no wall-clock time
+        unless the engine was given a clock, so writing it changes nothing about
+        replay determinism. A sink that cannot be created (an unwritable directory)
+        degrades to the null sink: losing logs must never cost a run.
+        """
+
+        try:
+            return JsonlLogSink(self._config.engine_log_path)
+        except OSError:
+            _logger.warning(
+                "cannot open the engine log at %s; continuing without structured "
+                "engine logs",
+                self._config.engine_log_path,
+            )
+            return NullLogSink()
 
     def describe(self) -> str:
         return "ready" if self._config.inference is not None else "unconfigured"

@@ -65,6 +65,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ..engine import EngineMetrics
 from .config import AppConfig
 from .registry import (
+    EvidenceStatus,
     JobRecord,
     JobStatus,
     JobStore,
@@ -73,7 +74,7 @@ from .registry import (
     VideoStore,
 )
 
-_logger = logging.getLogger("trafficpulse.app.recovery")
+_logger = logging.getLogger("trafficpulse.recovery")
 
 # Bound to the snapshot base so the loader stays generic over both record kinds
 # while returning the exact type it was asked for. A classic TypeVar rather than
@@ -198,6 +199,7 @@ class RunSnapshot(BaseModel):
     frames_total: int | None = None
     error: str | None = None
     overlay_status: OverlayStatus = OverlayStatus.NONE
+    evidence_status: EvidenceStatus = EvidenceStatus.NONE
     metrics: EngineMetrics | None = None
     submitted_at: datetime | None = None
     started_at: datetime | None = None
@@ -213,6 +215,7 @@ class RunSnapshot(BaseModel):
             frames_total=record.frames_total,
             error=record.error,
             overlay_status=record.overlay_status,
+            evidence_status=record.evidence_status,
             metrics=record.metrics(),
             submitted_at=record.submitted_at,
             started_at=record.started_at,
@@ -391,6 +394,7 @@ class RepositoryRecovery:
                     error=error,
                     overlay_video=self._overlay_for(snapshot.job_id),
                     overlay_status=self._overlay_status(snapshot),
+                    evidence_status=self._evidence_status(snapshot),
                     restored_metrics=snapshot.metrics,
                     # H15: carried verbatim. A snapshot written before these fields
                     # existed restores them as None/{} , so a recovered job reports
@@ -459,6 +463,25 @@ class RepositoryRecovery:
         if snapshot.overlay_status is OverlayStatus.FAILED:
             return OverlayStatus.FAILED
         return OverlayStatus.NONE
+
+    @staticmethod
+    def _evidence_status(snapshot: RunSnapshot) -> EvidenceStatus:
+        """The evidence-render state a recovered run should report (H16).
+
+        A render in flight when the process died will never resume, so ``PENDING``
+        must not survive recovery -- it would leave a client waiting for artifacts
+        nothing is producing and, worse, let a partial artifact set pass for a
+        complete one. It settles to ``FAILED``, which is both honest and the state
+        the repair pass looks for.
+
+        A snapshot written before H16 has no ``evidence_status`` and defaults to
+        ``NONE``, which is the truthful answer for a run whose render was never
+        tracked.
+        """
+
+        if snapshot.evidence_status is EvidenceStatus.PENDING:
+            return EvidenceStatus.FAILED
+        return snapshot.evidence_status
 
     def _read(
         self, model: type[_M], path: Path, label: str, skipped: list[str]
