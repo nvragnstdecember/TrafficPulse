@@ -279,7 +279,6 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
         <VideoPlayer src={objectUrl} />
         <Timeline
           markers={markers}
-          duration={duration}
           selectedEventId={selectedEventId}
           onSelect={handleSelect}
         />

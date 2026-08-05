@@ -15,8 +15,18 @@ import { Button } from '../ui/button';
 import { usePlayer } from './player-context';
 
 export interface TimelineProps {
+  /**
+   * Markers carrying their own `positionRatio`, already laid out by
+   * `buildTimelineMarkers` against the workspace's layout span.
+   *
+   * The timeline deliberately takes **no** `duration` prop. It used to, and used
+   * it as the denominator for the playhead and for seeking — but that span falls
+   * back to the last event's media time when no video is loaded, so the timeline
+   * reported a confident, wrong position. Playback position has exactly one
+   * correct source, the media clock, which this component reads from the shared
+   * player controller.
+   */
   markers: TimelineMarker[];
-  duration: number;
   selectedEventId: string | null;
   onSelect: (eventId: string) => void;
 }
@@ -46,15 +56,23 @@ function clusterTone(cluster: MarkerCluster): ViolationTone {
  * preview, click-to-seek, and zoom/scroll. Playback state comes from the shared
  * controller; selection is lifted to the caller.
  */
-export function Timeline({ markers, duration, selectedEventId, onSelect }: TimelineProps) {
+export function Timeline({ markers, selectedEventId, onSelect }: TimelineProps) {
   const { state, controls } = usePlayer();
   const [zoom, setZoom] = useState(1);
   const [hovered, setHovered] = useState<MarkerCluster | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   const clusters = useMemo(() => clusterMarkers(markers, 0.02 / zoom), [markers, zoom]);
-  const playheadRatio = duration > 0 ? Math.min(1, state.currentTime / duration) : 0;
-  const canSeek = duration > 0;
+
+  // Playback position comes from the media clock and nothing else. The workspace's
+  // layout span (which falls back to the last event's time when no video is loaded)
+  // is fine for placing markers, but using it here made the timeline lie: on a 60s
+  // clip whose last violation is at 30s the playhead advanced at double rate and
+  // pinned at 100% halfway through, and a click at the middle of the track seeked to
+  // 0:15 instead of 0:30. Unknown duration now means "no position to report".
+  const mediaDuration = state.duration > 0 ? state.duration : 0;
+  const canSeek = mediaDuration > 0;
+  const playheadRatio = canSeek ? Math.min(1, state.currentTime / mediaDuration) : 0;
 
   const zoomIndex = ZOOM_LEVELS.indexOf(zoom);
 
@@ -67,7 +85,7 @@ export function Timeline({ markers, duration, selectedEventId, onSelect }: Timel
     if (!track || !canSeek) return;
     const rect = track.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    controls.seek(ratio * duration);
+    controls.seek(ratio * mediaDuration);
   }
 
   /** Jump to the nearest violation after (1) or before (-1) the playhead. */

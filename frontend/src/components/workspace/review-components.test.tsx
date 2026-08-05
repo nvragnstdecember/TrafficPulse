@@ -321,7 +321,7 @@ describe('Timeline (H7E navigation)', () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId={null} onSelect={onSelect} />,
+      <Timeline markers={markers} selectedEventId={null} onSelect={onSelect} />,
     );
     await user.click(screen.getByRole('button', { name: 'Next violation' }));
     expect(onSelect).toHaveBeenCalledWith('a');
@@ -329,7 +329,7 @@ describe('Timeline (H7E navigation)', () => {
 
   it('marks the active marker with aria-current', () => {
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId="b" onSelect={vi.fn()} />,
+      <Timeline markers={markers} selectedEventId="b" onSelect={vi.fn()} />,
     );
     const active = screen.getByRole('button', { name: /No helmet at 1:20/ });
     expect(active).toHaveAttribute('aria-current', 'true');

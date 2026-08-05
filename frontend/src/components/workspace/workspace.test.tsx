@@ -550,7 +550,7 @@ describe('Timeline', () => {
 
   it('clusters overlapping markers and labels them', () => {
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId={null} onSelect={vi.fn()} />,
+      <Timeline markers={markers} selectedEventId={null} onSelect={vi.fn()} />,
     );
     expect(
       screen.getByRole('button', { name: /Wrong way at 0:10 and 1 more/ }),
@@ -562,7 +562,7 @@ describe('Timeline', () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId={null} onSelect={onSelect} />,
+      <Timeline markers={markers} selectedEventId={null} onSelect={onSelect} />,
     );
 
     await user.click(screen.getByRole('button', { name: 'No helmet at 1:20' }));
@@ -572,7 +572,7 @@ describe('Timeline', () => {
   it('previews the hovered marker', async () => {
     const user = userEvent.setup();
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId={null} onSelect={vi.fn()} />,
+      <Timeline markers={markers} selectedEventId={null} onSelect={vi.fn()} />,
     );
 
     await user.hover(screen.getByRole('button', { name: /Wrong way at 0:10 and 1 more/ }));
@@ -582,7 +582,7 @@ describe('Timeline', () => {
   it('zooms the track in and out', async () => {
     const user = userEvent.setup();
     renderInPlayer(
-      <Timeline markers={markers} duration={100} selectedEventId={null} onSelect={vi.fn()} />,
+      <Timeline markers={markers} selectedEventId={null} onSelect={vi.fn()} />,
     );
 
     expect(screen.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
