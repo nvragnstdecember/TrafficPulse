@@ -21,18 +21,23 @@ So this module does exactly one thing on top of ``AppConfig.from_env()``: it
 supplies the model composition.
 
 Configured here (code-level, licence-reviewed)
-    ``inference``, ``helmet_classifier``, ``label_map``, ``default_rules``
+    ``inference``, ``helmet_classifier``, ``label_map``
 
 Configured by environment (deployment-level)
     ``TRAFFICPULSE_APP_STORAGE``, ``_SCENE``, ``_HOST``, ``_PORT``,
     ``_MAX_UPLOAD_BYTES``, ``_CORS_ORIGINS``, ``_STATIC_DIR``, ``_LOG_LEVEL``
 
-Rule choice: ``triple_riding`` and ``no_helmet`` are motorcycle-perception rules
-that need no per-camera geometry, so they work on arbitrary uploaded footage.
-``wrong_way`` and ``illegal_stopping`` are deliberately NOT enabled by default
-because they require a ``SceneConfig`` calibrated to the uploaded video's camera;
-enabling them against the synthetic example scene would produce meaningless
-geometry. Calibrate a video in the UI (H12) to unlock them per video.
+Rule choice: **none is pinned here.** ``default_rules`` is deliberately left empty
+so the application derives a job's rules from the scene that actually resolves for
+the video being processed -- every shipped rule that scene can legitimately
+support, run together. Pinning a fixed pair here (as this launcher previously did
+with ``triple_riding`` + ``no_helmet``) meant a calibrated video still ran only the
+two geometry-free motorcycle rules until an analyst manually reprocessed it, which
+is precisely the multi-violation gap. The scene remains the authority: an
+uncalibrated upload falls back to the shipped example scene and gets exactly what
+that scene supports, and a rule whose geometry the scene cannot satisfy is never
+selected. Setting ``default_rules`` here again would re-pin the set and is
+supported for an operator who wants that.
 
 Checkpoints load offline from the local HuggingFace cache (``local_files_only``),
 so this launcher never reaches the network and never vendors weights.
@@ -46,11 +51,7 @@ from pathlib import Path
 from trafficpulse.app import AppConfig, create_app
 from trafficpulse.classifier import ZeroShotHelmetConfig
 from trafficpulse.contracts.enums import ObjectClass
-from trafficpulse.engine import (
-    InferenceConfig,
-    NoHelmetRuleConfig,
-    TripleRidingRuleConfig,
-)
+from trafficpulse.engine import InferenceConfig
 
 # The RT-DETR (COCO-80) checkpoint's native labels -> TrafficPulse classes. This
 # checkpoint uses the VOC-style "motorbike" spelling (verified against the cached
@@ -116,7 +117,9 @@ def build_config() -> AppConfig:
                 device="cpu",
                 local_files_only=True,
             ),
-            "default_rules": (TripleRidingRuleConfig(), NoHelmetRuleConfig()),
+            # Deliberately absent: ``default_rules``. Leaving it empty is what makes
+            # the processing service derive a job's rules from the resolved scene --
+            # see this module's docstring.
         }
     )
 

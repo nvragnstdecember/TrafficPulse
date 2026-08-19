@@ -72,6 +72,22 @@ class OverlayProvider(Protocol):
         """Return the elements to draw for ``frame`` (possibly empty)."""
         ...
 
+    def has_content(self) -> bool:
+        """Whether this provider has anything to contribute to the run at all.
+
+        Asked **once**, by the driver, to decide whether an annotated video is worth
+        producing -- not per frame. ``False`` means the rule ran but published no
+        overlay metadata (its capture was disabled, or it observed nothing), which
+        is why a run can legitimately have events and still have no overlay.
+
+        The answer is the provider's own, because "nothing to draw" is
+        violation-specific: a provider carrying scene geometry has something worth
+        showing on every frame even when no track was ever seen -- a mis-drawn zone
+        should be visible immediately rather than deduced from an absence -- while a
+        provider whose only content is per-frame capture has nothing without it.
+        """
+        ...
+
 
 class OverlayCompositor:
     """Fuses every provider's per-frame elements into one scene.
@@ -121,15 +137,48 @@ class OverlayProviderRegistry:
     knows which rules ran asks the registry to build a provider per kind and hands
     them to an :class:`OverlayCompositor`. Nothing here -- and nothing in the
     renderer -- is violation-specific.
+
+    Dispatching by capture type (R6)
+    ---------------------------------
+    A driver holding a finished run has the rules' **capture objects** -- a helmet
+    observer, a red-light capture -- and not their violation kinds; asking it to
+    recover the kind means an ``isinstance`` chain in the driver, which is exactly
+    the hardcoding the registry exists to remove. So a registration may also declare
+    the ``source_type`` its factory consumes, and :meth:`kind_for` /
+    :meth:`create_for` turn a capture straight into the right provider. The kind is
+    still the registry key; the source type is an additional index onto it.
     """
 
     def __init__(self) -> None:
         self._factories: dict[str, OverlayProviderFactory] = {}
+        self._by_source: dict[type, str] = {}
 
-    def register(self, kind: str, factory: OverlayProviderFactory) -> None:
+    def register(
+        self,
+        kind: str,
+        factory: OverlayProviderFactory,
+        *,
+        source_type: type | None = None,
+    ) -> None:
+        """Bind ``factory`` to ``kind``, optionally indexed by its capture type.
+
+        Raises:
+            ValueError: ``kind`` is already registered, or ``source_type`` is already
+                claimed by another kind -- an ambiguous capture would make
+                :meth:`create_for` non-deterministic, so it is refused at
+                registration rather than resolved by arbitrary order.
+        """
+
         if kind in self._factories:
             raise ValueError(f"an overlay provider is already registered for {kind!r}")
+        if source_type is not None and source_type in self._by_source:
+            raise ValueError(
+                f"{source_type.__name__} is already the overlay source for "
+                f"{self._by_source[source_type]!r}; one capture type maps to one kind"
+            )
         self._factories[kind] = factory
+        if source_type is not None:
+            self._by_source[source_type] = kind
 
     def create(self, kind: str, *args: object, **kwargs: object) -> OverlayProvider:
         try:
@@ -137,6 +186,29 @@ class OverlayProviderRegistry:
         except KeyError:
             raise KeyError(f"no overlay provider registered for violation kind {kind!r}") from None
         return factory(*args, **kwargs)
+
+    def kind_for(self, source: object) -> str | None:
+        """The violation kind ``source`` is the capture for, or ``None`` if unknown.
+
+        ``None`` is the answer for any object no violation claimed -- an observer a
+        rule uses for its own reasoning but publishes no overlay from, for instance.
+        A driver skips those; it never has to know what they are.
+        """
+
+        for source_type, kind in self._by_source.items():
+            if isinstance(source, source_type):
+                return kind
+        return None
+
+    def create_for(
+        self, source: object, *args: object, **kwargs: object
+    ) -> OverlayProvider | None:
+        """Build the provider for ``source``'s kind, or ``None`` when unregistered."""
+
+        kind = self.kind_for(source)
+        if kind is None:
+            return None
+        return self.create(kind, source, *args, **kwargs)
 
     def known_kinds(self) -> frozenset[str]:
         return frozenset(self._factories)

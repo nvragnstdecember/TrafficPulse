@@ -33,7 +33,19 @@ def test_the_launcher_configures_a_real_inference_backend(serve_module: Any) -> 
     config = serve_module.build_config()
     assert config.inference is not None
     assert config.helmet_classifier is not None
-    assert config.default_rules, "a launcher with no rules can process nothing"
+
+
+def test_the_launcher_pins_no_rule_set_so_rules_are_derived(serve_module: Any) -> None:
+    """R5: the launcher deliberately leaves ``default_rules`` empty.
+
+    Pinning a pair here meant every upload ran exactly those two rules, whatever
+    its scene supported. Leaving it empty hands the decision to the processing
+    service, which derives it from the scene that actually resolves for the video --
+    so this assertion is the launcher's half of the multi-violation contract, not an
+    omission.
+    """
+
+    assert serve_module.build_config().default_rules == ()
 
 
 def test_checkpoints_are_resolved_offline(serve_module: Any) -> None:

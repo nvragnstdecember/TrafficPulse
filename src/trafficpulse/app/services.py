@@ -67,7 +67,7 @@ from ..persistence import (
 )
 from ..pipeline.errors import SceneConfigurationError
 from ..scenes import SceneDraft, build_scene
-from .capabilities import supported_violations
+from .capabilities import rules_for, supported_violations
 from .config import AppConfig
 from .engine_provider import EngineProvider
 from .errors import (
@@ -347,6 +347,18 @@ class SceneService:
         scene = self.for_video(video_id)
         return () if scene is None else self.supported_violations(scene)
 
+    def default_rules_for(self, scene: SceneConfig) -> tuple[RuleConfig, ...]:
+        """The rule set to run over ``scene`` when the client named none.
+
+        The same capability probe :meth:`supported_violations` reports from, turned
+        into runnable declarations -- so what a client is *offered* and what the
+        server *runs by default* can never disagree. This service is the natural
+        owner because deciding it needs both the scene and the deployment's
+        classifier availability, which is exactly what this service already holds.
+        """
+
+        return rules_for(scene, classifier_available=self._classifier_available)
+
     # --- writing -------------------------------------------------------------
     def calibrate(self, video_id: str, draft: SceneDraft) -> SceneSummary:
         """Author this video's scene from a draft, store it, and bind it.
@@ -572,6 +584,21 @@ class ProcessingService:
         configured fallback), so two videos from different cameras are reasoned
         over their own geometry in the same process.
 
+        Rule resolution, in order:
+
+        1. the request's own ``rules`` -- honoured verbatim, including rules this
+           scene cannot satisfy, which still fail fast as a clean 400. A client that
+           asked for something specific is told it cannot have it, never quietly
+           given something else;
+        2. the server's configured ``default_rules`` -- a deliberate deployment
+           override, so an operator who pinned a rule set keeps it;
+        3. otherwise **derived from the resolved scene**: every shipped rule this
+           scene can legitimately support (see
+           :meth:`SceneService.default_rules_for`). This is what makes an ordinary
+           upload a multi-violation run instead of a fixed two-rule one, while
+           keeping the system scene-aware -- it never runs a rule the scene cannot
+           support, and never reaches for a violation with no shipped reasoner.
+
         Validation is eager: the engine is *built* here (so an invalid scene/rule
         combination or an unavailable backend fails as a clean HTTP error) before
         the job is scheduled. Only the actual inference runs on the executor.
@@ -584,10 +611,12 @@ class ProcessingService:
                 f"video {video_id!r} has no calibrated scene and the server has no "
                 "default scene configured; calibrate the video before processing it"
             )
-        resolved = rules if rules is not None else self._config.default_rules
+        resolved = rules or self._config.default_rules or self._scenes.default_rules_for(scene)
         if not resolved:
             raise InvalidConfigurationError(
-                "no rules were specified and the server has no default rule set"
+                "no rules were specified, the server has no default rule set, and "
+                f"the scene resolved for video {video_id!r} supports no shipped "
+                "rule; calibrate the video before processing it"
             )
 
         engine = self._build_engine(scene, resolved)

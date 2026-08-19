@@ -22,6 +22,24 @@ from trafficpulse.app.registry import (
     JobStore,
     VideoStore,
 )
+from trafficpulse.contracts import SceneConfig
+
+
+def _scene_without_rule_parameters() -> str:
+    """The example scene stripped of every rule-parameter block, as JSON.
+
+    Structurally valid (the geometry is untouched) but supporting nothing: every
+    shipped rule needs its own parameter block, so this is the honest "calibrated
+    for nothing" case rather than a malformed scene.
+    """
+
+    import yaml
+    from _app_helpers import EXAMPLE_SCENE_PATH
+
+    scene = SceneConfig.model_validate(
+        yaml.safe_load(EXAMPLE_SCENE_PATH.read_text(encoding="utf-8"))
+    )
+    return scene.model_copy(update={"rule_parameters": ()}).model_dump_json()
 
 
 def test_process_runs_to_completion_and_confirms_an_event(tmp_path: Path) -> None:
@@ -60,10 +78,40 @@ def test_status_unknown_job_is_404(tmp_path: Path) -> None:
     assert response.json()["error"]["type"] == "job_not_found"
 
 
-def test_process_with_no_rules_configured_is_400(tmp_path: Path) -> None:
+def test_process_with_no_rules_configured_derives_them_from_the_scene(
+    tmp_path: Path,
+) -> None:
+    """R5: an unconfigured server derives the rule set rather than refusing.
+
+    A server that pins no ``default_rules`` used to be unable to process anything.
+    It now asks the resolved scene what it supports -- so an ordinary request that
+    names no rules runs every shipped rule that scene can legitimately satisfy.
+    """
+
     config = make_config(tmp_path, default_rules=())
     client = make_client(tmp_path, config=config)
     video_id = upload_wrong_way_video(client, tmp_path)
+
+    response = client.post("/api/process", json={"video_id": video_id})
+    assert response.status_code == 202, response.text
+    status = client.get(f"/api/process/{response.json()['job_id']}").json()
+    assert status["status"] == JobStatus.SUCCEEDED.value
+
+
+def test_process_is_400_when_the_scene_supports_no_shipped_rule(tmp_path: Path) -> None:
+    """The 400 that survives R5: nothing to derive, so nothing can be run.
+
+    Derivation is scene-aware, not "run everything": a scene declaring no rule
+    parameters at all supports nothing, and the request fails as a clean
+    configuration error instead of starting a job that would confirm nothing.
+    """
+
+    scene_path = tmp_path / "bare-scene.json"
+    scene_path.write_text(_scene_without_rule_parameters(), encoding="utf-8")
+    config = make_config(tmp_path, scene_path=scene_path, default_rules=())
+    client = make_client(tmp_path, config=config)
+    video_id = upload_wrong_way_video(client, tmp_path)
+
     response = client.post("/api/process", json={"video_id": video_id})
     assert response.status_code == 400
     assert response.json()["error"]["type"] == "invalid_configuration"

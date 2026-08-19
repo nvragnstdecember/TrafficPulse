@@ -252,6 +252,14 @@ rule_parameters:
         unit: seconds
         status: provisional
         note: Provisional (architecture-review ~0.3 s); requires tuning on held-out data.
+      - id: min_persistence
+        value: 0.4
+        unit: seconds
+        status: provisional
+        note: >
+          Debounce only -- the violation is complete at the stop line; this window
+          exists so a single frame of boundary jitter cannot mint an event. Matches
+          the scene builder's DEFAULT_RED_LIGHT_PERSISTENCE; provisional, not tuned.
       - id: crossing_dedup_window
         value: null
         unit: seconds

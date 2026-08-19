@@ -130,6 +130,16 @@ class RedLightOverlayProvider:
     def violation_kind(self) -> str:
         return VIOLATION_KIND
 
+    def has_content(self) -> bool:
+        """Always: the stop line and junction are worth drawing on their own.
+
+        The long-standing behaviour this provider was written with -- a mis-drawn
+        stop line should be visible on the first frame, not deduced from a missing
+        event -- now stated explicitly for the driver.
+        """
+
+        return True
+
     def elements_for_frame(self, frame: OverlayFrameRef) -> Sequence[OverlayElement]:
         elements: list[OverlayElement] = [*self._geometry_elements()]
         confirmed_now: list[RedLightTrackFrame] = []
@@ -242,4 +252,6 @@ def register_red_light_overlay(registry: OverlayProviderRegistry) -> None:
     events.
     """
 
-    registry.register(VIOLATION_KIND, RedLightOverlayProvider)
+    registry.register(
+        VIOLATION_KIND, RedLightOverlayProvider, source_type=RedLightOverlayCapture
+    )

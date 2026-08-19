@@ -245,6 +245,16 @@ class NoHelmetOverlayProvider:
                     self._episodes[track_id] = episode
 
     # --- OverlayProvider protocol -------------------------------------------
+    def has_content(self) -> bool:
+        """Only the per-frame capture: this violation has no scene geometry.
+
+        Empty when the run's observer had capture disabled, or classified nothing --
+        which is what makes "the rule ran but there is no annotated video" a state
+        the driver can still recognise.
+        """
+
+        return bool(self._by_index)
+
     def elements_for_frame(self, frame: OverlayFrameRef) -> Sequence[OverlayElement]:
         captured = self._by_index.get(frame.frame_index)
         if captured is None:

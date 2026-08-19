@@ -56,10 +56,16 @@ builds a fresh reasoner from the scene each call (idempotent over the accumulate
 history); ``reset`` returns the orchestration to a replayable initial state.
 """
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 
-from ..contracts import ConfirmedEvent, ModelRef, SceneConfig, TrackState
+from ..contracts import (
+    ConfirmedEvent,
+    HeadingVsLaneObservation,
+    ModelRef,
+    SceneConfig,
+    TrackState,
+)
 from ..contracts.scene import DirectionVector, LegalDirection
 from ..detector.config import DetectorConfig
 from ..detector.interface import Detector
@@ -75,7 +81,9 @@ from .errors import SceneConfigurationError
 # base and re-exported here (listed in ``__all__``) so the callers and tests that
 # reference them through :mod:`trafficpulse.pipeline.wrong_way` resolve unchanged.
 __all__ = [
+    "WrongWayOverlayCapture",
     "WrongWayPipeline",
+    "WrongWayTrackFrame",
     "frame_record_to_frame",
     "wrong_way_finalize_strategy",
     "_MEDIA_TIME_EPOCH",
@@ -122,23 +130,75 @@ def _resolve_legal_direction(
     return chosen.vector, chosen.zone_ids[0]
 
 
+# --- overlay capture (R6) ----------------------------------------------------------
+@dataclass(frozen=True)
+class WrongWayTrackFrame:
+    """One track's state on one frame, as the wrong-way slice saw it.
+
+    Recorded during reasoning so the overlay provider can redraw *what the rule
+    concluded* without re-running anything or touching pixels -- the pattern H13
+    established for red-light. Every field is read straight off the
+    ``TrackState`` and the ``HeadingVsLaneObservation`` the derivation already
+    produced; nothing here is recomputed or estimated.
+
+    ``heading_degrees`` is the direction the vehicle was **actually** measured
+    travelling and ``legal_heading_degrees`` the direction the lane declares (``None``
+    when the scene left it unstated -- an honest absence, never a fabricated arrow).
+    ``is_contradiction`` is the per-frame verdict the reasoner accumulated.
+    """
+
+    frame_index: int
+    media_seconds: float
+    track_id: str
+    bbox: tuple[float, float, float, float]
+    heading_degrees: float
+    legal_heading_degrees: float | None
+    deviation_degrees: float
+    is_contradiction: bool
+
+
+@dataclass
+class WrongWayOverlayCapture:
+    """Everything the wrong-way overlay provider needs, produced by reasoning.
+
+    Mutable and owned by the strategy: cleared at the start of every ``finalize``
+    (via ``build_reasoner``) so a replayed run captures exactly the run it replayed,
+    never an accumulation of both -- identical to ``RedLightOverlayCapture``.
+
+    ``lane_id`` and ``legal_direction`` are the scene facts the rule was configured
+    with, carried so the provider can state which lane governed the decision.
+    """
+
+    lane_id: str
+    legal_direction: tuple[float, float]
+    frames: list[WrongWayTrackFrame] = field(default_factory=list)
+
+    def clear(self) -> None:
+        self.frames.clear()
+
+
 @dataclass(frozen=True)
 class _WrongWayFinalize:
     """The wrong-way reasoning back half injected into ``CompositionPipeline``.
 
-    Holds the resolved run parameters (deviation threshold, min persistence) and
-    the single governing legal direction / lane. Builds a ``WrongWayReasoner`` for
-    the run and, per track, derives the P1-U4 heading stream and reasons over it --
-    the exact operations the pre-generalization ``finalize`` performed.
+    Holds the resolved run parameters (deviation threshold, min persistence), the
+    single governing legal direction / lane, and the overlay capture it populates as
+    it reasons. Builds a ``WrongWayReasoner`` for the run and, per track, derives the
+    P1-U4 heading stream and reasons over it -- the exact operations the
+    pre-generalization ``finalize`` performed.
     """
 
     params: WrongWayParameters
     legal_direction: DirectionVector
     lane_id: str
+    capture: WrongWayOverlayCapture
 
     def build_reasoner(
         self, *, scene_config_hash: str | None, models: tuple[ModelRef, ...]
     ) -> WrongWayReasoner:
+        # A cleared capture per finalize, so a replay describes only the replayed
+        # run (matching the fresh-reasoner guarantee beside it).
+        self.capture.clear()
         return WrongWayReasoner(
             RuleEngine(), self.params, scene_config_hash=scene_config_hash, models=models
         )
@@ -152,7 +212,39 @@ class _WrongWayFinalize:
             lane_id=self.lane_id,
             deviation_max_degrees=self.params.deviation_max_degrees,
         )
+        self._capture(track, derivation.observations)
         return reasoner.run_derivation(derivation)
+
+    def _capture(
+        self,
+        track: Sequence[TrackState],
+        observations: Sequence[HeadingVsLaneObservation],
+    ) -> None:
+        """Record per-frame geometry + heading verdict for the overlay.
+
+        Pairs each observation back to the ``TrackState`` it was derived from by
+        timestamp -- the same join red-light uses. A state with no frame index
+        cannot be drawn on a frame and is skipped rather than guessed at.
+        """
+
+        by_timestamp = {state.timestamp: state for state in track}
+        for observation in observations:
+            state = by_timestamp.get(observation.timestamp)
+            if state is None or state.frame_index is None:
+                continue
+            box = state.bbox
+            self.capture.frames.append(
+                WrongWayTrackFrame(
+                    frame_index=state.frame_index,
+                    media_seconds=(state.timestamp - _MEDIA_TIME_EPOCH).total_seconds(),
+                    track_id=state.track_id,
+                    bbox=(box.x1, box.y1, box.x2, box.y2),
+                    heading_degrees=observation.heading_degrees,
+                    legal_heading_degrees=observation.legal_heading_degrees,
+                    deviation_degrees=observation.deviation_degrees,
+                    is_contradiction=observation.is_contradiction,
+                )
+            )
 
 
 def wrong_way_finalize_strategy(
@@ -174,7 +266,18 @@ def wrong_way_finalize_strategy(
 
     params = wrong_way_parameters(scene)
     legal_direction, lane_id = _resolve_legal_direction(scene, direction_id)
-    return _WrongWayFinalize(params=params, legal_direction=legal_direction, lane_id=lane_id)
+    return _WrongWayFinalize(
+        params=params,
+        legal_direction=legal_direction,
+        lane_id=lane_id,
+        # The strategy owns its capture rather than returning it alongside (as
+        # red-light does): this factory has callers that only probe whether the
+        # scene resolves, and widening its return type would churn every one of
+        # them for a value they do not want. Drivers read ``strategy.capture``.
+        capture=WrongWayOverlayCapture(
+            lane_id=lane_id, legal_direction=(legal_direction.dx, legal_direction.dy)
+        ),
+    )
 
 
 class WrongWayPipeline:

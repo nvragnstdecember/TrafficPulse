@@ -129,7 +129,7 @@ class AnalyticsService:
         return AnalyticsSummary(
             repository=self._repository(videos, jobs),
             processing=self._processing(jobs),
-            violations=self._violations(jobs, event_ids),
+            violations=self._violations(jobs),
             evidence=self._evidence(event_ids, rendered, jobs),
             review=self._review(event_ids, reviewed),
             health=self._health(videos, jobs),
@@ -187,20 +187,36 @@ class AnalyticsService:
             frames_processed=frames,
         )
 
-    def _violations(
-        self, jobs: Sequence[JobRecord], event_ids: frozenset[str]
-    ) -> ViolationStats:
+    def _violations(self, jobs: Sequence[JobRecord]) -> ViolationStats:
         """Per-type counts from the persisted histograms -- no event file is opened.
 
         Reprocessing a video produces the same content-derived event ids, so summing
         every run's histogram would count one violation several times. Runs are
         therefore folded per video, keeping only the newest succeeded run of each --
         the same run ``VideoLibraryService`` opens, so the two surfaces agree.
+
+        **One scope, for both figures.** ``events_total`` is counted over exactly the
+        representative runs ``by_type`` is built from, not over every run that ever
+        succeeded. Mixing the two -- a repository-wide total beside a
+        representative-run breakdown -- let one response contradict itself the moment
+        a video was reprocessed with a different rule set: the total counted an
+        earlier run's events while the breakdown described only the newest run's.
+        Sharing the scope makes ``events_total == sum(by_type)`` hold whenever the
+        breakdown is complete, and ``uncounted_jobs`` remains the declared (and only)
+        reason it can fall short -- a run recovered from a pre-H15 snapshot has its
+        events on disk but no histogram, so its events are counted honestly while its
+        types stay unknown rather than being guessed or dropped.
+
+        The repository-wide total is unchanged and still reported, by
+        :class:`EvidenceStats` and :class:`ReviewStats`, which are genuinely about
+        every event that exists rather than about the current state of each video.
         """
 
         counts: dict[str, int] = {}
+        event_ids: set[str] = set()
         counted = uncounted = 0
         for job in _representative_jobs(jobs):
+            event_ids.update(job.event_ids)
             if not job.has_violation_counts:
                 uncounted += 1
                 continue

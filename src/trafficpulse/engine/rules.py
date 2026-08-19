@@ -87,8 +87,11 @@ def build_rules(
     """Realise the configured rules against one scene (fail-fast; see module doc).
 
     ``capture_overlay`` (default off) enables overlay-metadata capture on any rule
-    observer that supports it (currently no-helmet), so the engine can redraw
-    inference for the visualization framework without re-running a model.
+    observer that supports it (no-helmet, triple-riding), so the engine can redraw
+    inference for the visualization framework without re-running a model. The
+    geometry-only rules (wrong-way, illegal-stopping, red-light) always populate a
+    capture: it is a by-product of reasoning they already perform over ``TrackState``
+    history the pipeline retains anyway, so there is no work to gate.
 
     Raises:
         EngineConfigurationError: a no-helmet rule is configured but no
@@ -103,23 +106,27 @@ def build_rules(
     built: list[BuiltRule] = []
     for config in configs:
         if isinstance(config, WrongWayRuleConfig):
+            ww_strategy = wrong_way_finalize_strategy(scene, direction_id=config.direction_id)
             built.append(
                 BuiltRule(
                     violation=ViolationType.WRONG_WAY,
-                    strategy=wrong_way_finalize_strategy(
-                        scene, direction_id=config.direction_id
-                    ),
+                    strategy=ww_strategy,
+                    # Geometry-only, like red-light: the reasoning pass produces the
+                    # overlay metadata, so there is no pixel observer to register.
+                    overlay_capture=ww_strategy.capture,
                 )
             )
         elif isinstance(config, IllegalStoppingRuleConfig):
+            is_strategy = illegal_stopping_finalize_strategy(
+                scene,
+                stationary_window=config.stationary_window,
+                stationary_epsilon_px=config.stationary_epsilon_px,
+            )
             built.append(
                 BuiltRule(
                     violation=ViolationType.ILLEGAL_STOPPING,
-                    strategy=illegal_stopping_finalize_strategy(
-                        scene,
-                        stationary_window=config.stationary_window,
-                        stationary_epsilon_px=config.stationary_epsilon_px,
-                    ),
+                    strategy=is_strategy,
+                    overlay_capture=is_strategy.capture,
                 )
             )
         elif isinstance(config, NoHelmetRuleConfig):
@@ -166,7 +173,9 @@ def build_rules(
         else:
             assert isinstance(config, TripleRidingRuleConfig)  # closed discriminated union
             # Pure geometry over the perception + association seams: no classifier.
-            tr_strategy, tr_observer = triple_riding_finalize_strategy(scene)
+            tr_strategy, tr_observer = triple_riding_finalize_strategy(
+                scene, capture_overlay=capture_overlay
+            )
             built.append(
                 BuiltRule(
                     violation=ViolationType.TRIPLE_RIDING,

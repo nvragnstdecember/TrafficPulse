@@ -29,6 +29,7 @@ from trafficpulse.engine import (
     EngineMetrics,
     InferenceEngine,
     RuleConfig,
+    TripleRidingRuleConfig,
     WrongWayRuleConfig,
 )
 from trafficpulse.tracking import IouTracker
@@ -38,6 +39,14 @@ EXAMPLE_SCENE_PATH = (
     Path(__file__).resolve().parents[2] / "configs" / "scenes" / "example-scene.yaml"
 )
 DEFAULT_RULES: tuple[RuleConfig, ...] = (WrongWayRuleConfig(direction_id=NORTH_DIRECTION_ID),)
+
+# A rule set whose run publishes **no overlay metadata**, for the "this run has no
+# annotated video" paths. Since R6 every shipped rule has an overlay provider, so a
+# wrong-way run -- which these tests used to rely on -- now legitimately renders one.
+# Triple-riding's capture is opt-in and this stub provider leaves it off, so the rule
+# runs, confirms whatever it confirms, and has nothing to draw: the real shape of an
+# overlay-less run.
+NO_OVERLAY_RULES: tuple[RuleConfig, ...] = (TripleRidingRuleConfig(),)
 
 
 class DeferredJobExecutor:

@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from _app_helpers import make_client, make_config, upload_wrong_way_video
+from _app_helpers import (
+    NO_OVERLAY_RULES,
+    make_client,
+    make_config,
+    upload_wrong_way_video,
+)
 from fastapi.testclient import TestClient
 
 from trafficpulse.app.recovery import (
@@ -142,9 +147,9 @@ def test_the_uploaded_video_is_recovered_with_its_original_filename(tmp_path: Pa
 
 
 def test_the_overlay_endpoint_resolves_after_a_restart(tmp_path: Path) -> None:
-    first = make_client(tmp_path)
+    first = make_client(tmp_path, config=make_config(tmp_path, default_rules=NO_OVERLAY_RULES))
     _, job_id = _process(first, tmp_path)
-    # The stub run produces no overlay metadata, so the honest recovered state is
+    # This run produces no overlay metadata, so the honest recovered state is
     # "nothing to play" -- not a stale 'pending' that a client would poll forever.
     assert first.get(f"/api/process/{job_id}").json()["overlay_status"] == "none"
 
@@ -232,7 +237,7 @@ def test_an_interrupted_job_is_recovered_as_failed_not_running(tmp_path: Path) -
 
 
 def test_a_pending_overlay_does_not_survive_as_pending(tmp_path: Path) -> None:
-    client = make_client(tmp_path)
+    client = make_client(tmp_path, config=make_config(tmp_path, default_rules=NO_OVERLAY_RULES))
     _, job_id = _process(client, tmp_path)
     snapshot_path = make_config(tmp_path).runs_dir / job_id / RUN_SNAPSHOT_NAME
     raw = json.loads(snapshot_path.read_text(encoding="utf-8"))

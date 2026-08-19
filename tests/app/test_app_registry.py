@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from _app_helpers import FakeEngine, make_metrics
@@ -13,6 +14,8 @@ from trafficpulse.app.registry import (
     VideoRecord,
     VideoStore,
 )
+from trafficpulse.contracts import ConfirmedEvent
+from trafficpulse.contracts.enums import ViolationType
 from trafficpulse.engine import EngineRunResult
 
 
@@ -132,3 +135,77 @@ def test_metrics_snapshot_prefers_result_then_engine_then_none() -> None:
     )
     final = done_record.metrics()
     assert final is not None and final.frames_processed == 9  # result wins over engine
+
+
+# --- duplicate-event folding (R2) -----------------------------------------------------
+def _event(event_id: str, violation: ViolationType, *, second: int) -> ConfirmedEvent:
+    """A minimal ConfirmedEvent; only identity, type, and ordering matter here."""
+
+    at = datetime(1970, 1, 1, tzinfo=UTC) + timedelta(seconds=second)
+    return ConfirmedEvent(
+        event_id=event_id,
+        violation_type=violation,
+        camera_id="cam-1",
+        track_ids=("trk-1",),
+        start_at=at,
+        trigger_at=at,
+        rule_id=violation.value,
+        created_at=at,
+    )
+
+
+def test_mark_succeeded_folds_events_that_share_an_event_id() -> None:
+    """R2: a duplicated rule declaration re-confirms one violation, counted once.
+
+    ``event_id`` is content-derived, so two entries sharing one are the same
+    violation reasoned twice. The write-once store already treated the repeat as a
+    byte-identical no-op; before this fold the job-level count and histogram did
+    not, and analytics reported twice the violations that exist.
+    """
+
+    store = JobStore()
+    store.add(JobRecord(job_id="j", video_id="v"))
+    stop = _event("evt-stop", ViolationType.ILLEGAL_STOPPING, second=4)
+    wrong = _event("evt-wrong", ViolationType.WRONG_WAY, second=1)
+    store.mark_succeeded(
+        "j",
+        EngineRunResult(
+            source_id="v",
+            # The shape MultiRuleFinalize produces for [wrong_way, wrong_way,
+            # illegal_stopping, illegal_stopping]: sorted by (trigger_at, event_id).
+            events=(wrong, wrong, stop, stop),
+            manifests=(),
+            metrics=make_metrics(),
+        ),
+    )
+
+    record = store.get("j")
+    assert record is not None
+    assert record.event_ids == ("evt-wrong", "evt-stop")  # deduped, order preserved
+    assert record.violation_counts == {"wrong_way": 1, "illegal_stopping": 1}
+    assert store.job_for_event("evt-wrong") == "j"
+    assert store.job_for_event("evt-stop") == "j"
+
+
+def test_mark_succeeded_keeps_distinct_events_distinct() -> None:
+    """Folding is by ``event_id`` alone -- two real violations stay two."""
+
+    store = JobStore()
+    store.add(JobRecord(job_id="j", video_id="v"))
+    store.mark_succeeded(
+        "j",
+        EngineRunResult(
+            source_id="v",
+            events=(
+                _event("evt-a", ViolationType.WRONG_WAY, second=1),
+                _event("evt-b", ViolationType.WRONG_WAY, second=2),
+            ),
+            manifests=(),
+            metrics=make_metrics(),
+        ),
+    )
+
+    record = store.get("j")
+    assert record is not None
+    assert record.event_ids == ("evt-a", "evt-b")
+    assert record.violation_counts == {"wrong_way": 2}

@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from trafficpulse.app.analytics import AnalyticsService
 from trafficpulse.app.registry import JobRecord, JobStatus, JobStore, VideoRecord, VideoStore
 from trafficpulse.evidence import ArtifactStore
@@ -203,6 +205,103 @@ def test_reprocessing_a_video_does_not_double_count(tmp_path: Path) -> None:
     violations = _service([], jobs).summary().violations
     assert violations.events_total == 2
     assert [(v.violation_type, v.count) for v in violations.by_type] == [("no_helmet", 2)]
+
+
+def test_reprocessing_with_a_different_rule_set_keeps_the_two_figures_consistent(
+    tmp_path: Path,
+) -> None:
+    """R3: ``events_total`` and ``by_type`` are scoped to the same runs.
+
+    The audit's case. A video processed for illegal-stopping and then reprocessed
+    for wrong-way only used to report ``events_total=2`` (a repository-wide union
+    including the superseded run) beside ``by_type=[wrong_way: 1]`` (the newest run
+    alone) -- one response contradicting itself. Both figures now describe the
+    newest run, which is the run every other surface opens.
+    """
+
+    jobs = [
+        _job("job-1", "vid-a", event_ids=("evt-stop",),
+             violation_counts={"illegal_stopping": 1}),
+        _job("job-2", "vid-a", event_ids=("evt-wrong",),
+             violation_counts={"wrong_way": 1}),
+    ]
+    violations = _service([], jobs).summary().violations
+
+    assert [(v.violation_type, v.count) for v in violations.by_type] == [("wrong_way", 1)]
+    assert violations.events_total == 1
+    assert violations.events_total == sum(v.count for v in violations.by_type)
+
+
+def test_a_widening_reprocess_reports_every_type_of_the_newest_run(
+    tmp_path: Path,
+) -> None:
+    """The multi-violation workflow: calibrate, then reprocess with more rules."""
+
+    jobs = [
+        _job("job-1", "vid-a", event_ids=("evt-a",), violation_counts={"no_helmet": 1}),
+        _job(
+            "job-2",
+            "vid-a",
+            event_ids=("evt-a", "evt-b", "evt-c"),
+            violation_counts={"no_helmet": 1, "wrong_way": 1, "illegal_stopping": 1},
+        ),
+    ]
+    violations = _service([], jobs).summary().violations
+
+    assert {v.violation_type for v in violations.by_type} == {
+        "no_helmet",
+        "wrong_way",
+        "illegal_stopping",
+    }
+    assert violations.events_total == 3
+    assert violations.events_total == sum(v.count for v in violations.by_type)
+
+
+@pytest.mark.parametrize(
+    "jobs_factory",
+    [
+        pytest.param(
+            lambda: [_job("job-1", "vid-a", event_ids=("evt-1",),
+                          violation_counts={"wrong_way": 1})],
+            id="one-run",
+        ),
+        pytest.param(
+            lambda: [
+                _job("job-1", "vid-a", event_ids=("evt-1", "evt-2"),
+                     violation_counts={"wrong_way": 1, "no_helmet": 1}),
+            ],
+            id="several-types-in-one-run",
+        ),
+        pytest.param(
+            lambda: [
+                _job("job-1", "vid-a", event_ids=("evt-1",),
+                     violation_counts={"wrong_way": 1}),
+                _job("job-2", "vid-a", event_ids=("evt-1",),
+                     violation_counts={"wrong_way": 1}),
+            ],
+            id="same-video-run-twice",
+        ),
+        pytest.param(
+            lambda: [
+                _job("job-1", "vid-a", event_ids=("evt-1",),
+                     violation_counts={"wrong_way": 1}),
+                _job("job-2", "vid-b", event_ids=("evt-2", "evt-3"),
+                     violation_counts={"no_helmet": 2}),
+            ],
+            id="several-videos",
+        ),
+        pytest.param(lambda: [], id="empty-repository"),
+    ],
+)
+def test_events_total_always_equals_the_sum_of_the_breakdown(
+    jobs_factory: object, tmp_path: Path
+) -> None:
+    """R3's invariant, wherever the breakdown is complete (uncounted_jobs == 0)."""
+
+    violations = _service([], jobs_factory()).summary().violations  # type: ignore[operator]
+
+    assert violations.uncounted_jobs == 0
+    assert violations.events_total == sum(v.count for v in violations.by_type)
 
 
 def test_a_pre_h15_run_is_reported_as_uncounted_not_as_zero(tmp_path: Path) -> None:

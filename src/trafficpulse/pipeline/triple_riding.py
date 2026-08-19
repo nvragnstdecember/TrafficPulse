@@ -65,7 +65,30 @@ from ..rules.triple_riding import (
     triple_riding_parameters,
 )
 from ..tracking.interface import Tracker
-from .base import CompositionPipeline
+from .base import _MEDIA_TIME_EPOCH, CompositionPipeline
+
+
+# --- overlay capture (R6) ----------------------------------------------------------
+@dataclass(frozen=True)
+class TripleRidingOverlayFrame:
+    """One motorcycle's occupancy on one frame, as the rider-count pass saw it.
+
+    Emitted only when the observer is constructed with ``capture_overlay=True``; the
+    default path produces none and is byte-identical to the pre-overlay observer --
+    the same opt-in posture ``HelmetFrameObserver`` uses.
+
+    ``rider_bboxes`` are the boxes of the riders the association actually attached to
+    this motorcycle on this frame, in track-id order. They are the associator's own
+    output: no rider position is estimated, and a motorcycle whose riders were not
+    resolved simply carries an empty tuple rather than an invented seat layout.
+    """
+
+    frame_index: int
+    media_seconds: float
+    motorcycle_track_id: str
+    motorcycle_bbox: tuple[float, float, float, float]
+    rider_count: int
+    rider_bboxes: tuple[tuple[float, float, float, float], ...]
 
 
 class RiderCountFrameObserver:
@@ -77,10 +100,22 @@ class RiderCountFrameObserver:
     and accumulates them plus the rider↔motorcycle associations. It reads no pixels;
     the ``frame`` argument is ignored. The accumulated stream is exposed via
     :meth:`derivation`; nothing is persisted and no event is produced.
+
+    ``capture_overlay`` additionally records per-frame occupancy geometry for the
+    visualization framework (:meth:`overlay_frames`). Off by default, and when off
+    this class behaves exactly as it did before: the capture only *reads* values the
+    derivation already produced and computes nothing of its own.
     """
 
-    def __init__(self, *, association_config: RiderAssociationConfig | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        association_config: RiderAssociationConfig | None = None,
+        capture_overlay: bool = False,
+    ) -> None:
         self._association_config = association_config
+        self._capture_overlay = capture_overlay
+        self._overlay_frames: list[TripleRidingOverlayFrame] = []
         self._observations: list[RiderCountObservation] = []
         self._associations: list[Association] = []
         # Motorcycles seen tainted since their last emitted observation; the next
@@ -102,14 +137,70 @@ class RiderCountFrameObserver:
         self._associations.extend(derivation.associations)
         for observation in derivation.observations:
             self._emit(observation)
+        if self._capture_overlay:
+            self._capture(frame, states, derivation)
 
     def reset(self) -> None:
         """Return the observer to its initial (pre-stream) state for replay."""
 
         self._observations = []
         self._associations = []
+        self._overlay_frames = []
         self._tainted_since_emit = set()
         self._restart_ids = set()
+
+    # --- overlay capture -----------------------------------------------------
+    def overlay_frames(self) -> tuple[TripleRidingOverlayFrame, ...]:
+        """The accumulated per-frame occupancy capture (empty unless enabled)."""
+
+        return tuple(self._overlay_frames)
+
+    def _capture(
+        self, frame: Frame, states: Sequence[TrackState], derivation: RiderCountDerivation
+    ) -> None:
+        """Record this frame's motorcycle + attached-rider geometry (no recomputation).
+
+        Reads the boxes off the very ``TrackState``s the derivation just consumed and
+        the rider↔motorcycle links the associator just produced. A motorcycle the
+        derivation did not observe is not recorded at all.
+        """
+
+        by_track = {state.track_id: state for state in states}
+        riders_by_motorcycle: dict[str, list[str]] = {}
+        for association in derivation.associations:
+            riders_by_motorcycle.setdefault(association.object_track_id, []).append(
+                association.subject_track_id
+            )
+        for observation in derivation.observations:
+            track_id = observation.track_id
+            # An observation with no track cannot be drawn on a frame -- there is no
+            # box to attach it to -- so it is skipped rather than given a placeholder.
+            if track_id is None:
+                continue
+            motorcycle = by_track.get(track_id)
+            if motorcycle is None or motorcycle.frame_index is None:
+                continue
+            box = motorcycle.bbox
+            rider_boxes: list[tuple[float, float, float, float]] = []
+            for rider_id in sorted(riders_by_motorcycle.get(track_id, ())):
+                rider = by_track.get(rider_id)
+                if rider is None:
+                    continue
+                rider_boxes.append(
+                    (rider.bbox.x1, rider.bbox.y1, rider.bbox.x2, rider.bbox.y2)
+                )
+            self._overlay_frames.append(
+                TripleRidingOverlayFrame(
+                    frame_index=motorcycle.frame_index,
+                    media_seconds=(
+                        motorcycle.timestamp - _MEDIA_TIME_EPOCH
+                    ).total_seconds(),
+                    motorcycle_track_id=track_id,
+                    motorcycle_bbox=(box.x1, box.y1, box.x2, box.y2),
+                    rider_count=observation.rider_count,
+                    rider_bboxes=tuple(rider_boxes),
+                )
+            )
 
     # --- accumulated output --------------------------------------------------
     def _emit(self, observation: RiderCountObservation) -> None:
@@ -181,6 +272,7 @@ def triple_riding_finalize_strategy(
     scene: SceneConfig,
     *,
     association_config: RiderAssociationConfig | None = None,
+    capture_overlay: bool = False,
 ) -> tuple[_TripleRidingFinalize, RiderCountFrameObserver]:
     """Build the triple-riding back half for one scene (public factory).
 
@@ -195,7 +287,9 @@ def triple_riding_finalize_strategy(
     """
 
     params = triple_riding_parameters(scene)
-    observer = RiderCountFrameObserver(association_config=association_config)
+    observer = RiderCountFrameObserver(
+        association_config=association_config, capture_overlay=capture_overlay
+    )
     return _TripleRidingFinalize(params=params, observer=observer), observer
 
 

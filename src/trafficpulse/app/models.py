@@ -289,15 +289,20 @@ class SceneValidationResponse(_ApiModel):
 class ProcessRequest(_ApiModel):
     """Request to process one uploaded video.
 
-    ``rules`` is the H6 rule declaration set (reused verbatim); when omitted the
-    server's configured ``default_rules`` apply. No engine/detector object is ever
+    ``rules`` is the H6 rule declaration set (reused verbatim). When omitted the
+    server's configured ``default_rules`` apply, and when it has none the rule set
+    is **derived from the scene resolved for this video**: every shipped rule that
+    scene can legitimately support, run together. No engine/detector object is ever
     named -- only which shipped rules to run and their options.
     """
 
     video_id: str = Field(description="Id of a previously uploaded video.")
     rules: tuple[RuleConfig, ...] | None = Field(
         default=None,
-        description="Rules to run; defaults to the server's configured rule set.",
+        description="Rules to run. Omit (or send an empty list) to use the server's "
+        "configured rule set, or -- when it has none -- every shipped rule the "
+        "video's resolved scene supports. Rules named here are run verbatim, and "
+        "one the scene cannot satisfy is refused rather than silently dropped.",
     )
 
 
@@ -545,7 +550,11 @@ class ProcessingStats(_ApiModel):
 class ViolationStats(_ApiModel):
     """Confirmed violations across the repository."""
 
-    events_total: int = Field(description="Confirmed events, deduplicated by event id.")
+    events_total: int = Field(
+        description="Confirmed events across the newest succeeded run of each video, "
+        "deduplicated by event id. Scoped to exactly the runs by_type is built from, "
+        "so the two agree: when uncounted_jobs is 0 this equals the sum of by_type."
+    )
     by_type: tuple[ViolationCount, ...] = Field(
         default=(), description="Counts per violation type, most frequent first."
     )

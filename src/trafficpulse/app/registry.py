@@ -387,18 +387,40 @@ class JobStore:
         self._notify(job_id)
 
     def mark_succeeded(self, job_id: str, result: EngineRunResult) -> None:
+        """Record a run's outcome, folding the result to one entry per ``event_id``.
+
+        Deduplication happens **here**, at the boundary where a run's events first
+        become job-level metadata, rather than in the engine: the engine's per-rule
+        fan-out is deliberately un-deduplicated (two identical rule declarations
+        genuinely run twice, which is what makes a one-rule engine event-identical
+        to the standalone pipeline), and the write-once ``EventStore`` already
+        absorbs the repeat as a byte-identical no-op. Only the *counts* were wrong,
+        so only the counts are fixed, and only where they are formed.
+
+        ``event_id`` is content-derived, so two entries sharing one are the same
+        confirmed violation reasoned twice -- never two violations. First occurrence
+        wins, and because ``result.events`` arrives sorted by
+        ``(trigger_at, event_id)`` the retained order is that sort, unchanged.
+        """
+
         with self._lock:
             record = self._jobs[job_id]
             record.status = JobStatus.SUCCEEDED
             record.result = result
-            record.event_ids = tuple(event.event_id for event in result.events)
             # The histogram is computed here because this is the one moment the
             # events are already in memory; every later reader gets it for free.
+            event_ids: list[str] = []
             counts: dict[str, int] = {}
+            seen: set[str] = set()
             for event in result.events:
+                if event.event_id in seen:
+                    continue  # the same violation, confirmed by a duplicate rule
+                seen.add(event.event_id)
+                event_ids.append(event.event_id)
                 self._event_index[event.event_id] = job_id
                 key = event.violation_type.value
                 counts[key] = counts.get(key, 0) + 1
+            record.event_ids = tuple(event_ids)
             record.violation_counts = counts
             record.finished_at = _utc_now()
         self._notify(job_id)

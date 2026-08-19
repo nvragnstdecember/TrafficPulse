@@ -12,7 +12,12 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from _app_helpers import make_client, make_config, upload_wrong_way_video
+from _app_helpers import (
+    NO_OVERLAY_RULES,
+    make_client,
+    make_config,
+    upload_wrong_way_video,
+)
 from _slice_fixtures import FRAME_COUNT, write_wrong_way_clip
 from fastapi.testclient import TestClient
 
@@ -255,7 +260,10 @@ def test_review_progress_survives_a_restart(tmp_path: Path) -> None:
 
 
 def test_a_ready_overlay_is_advertised_on_the_library_row(tmp_path: Path) -> None:
-    client = make_client(tmp_path)
+    # NO_OVERLAY_RULES so the run renders none of its own: this asserts that a file
+    # appearing on disk is what advertises an overlay, which needs a run that made no
+    # overlay itself.
+    client = make_client(tmp_path, config=make_config(tmp_path, default_rules=NO_OVERLAY_RULES))
     video_id, job_id = _process(client, tmp_path)
     assert client.get(f"/api/videos/{video_id}").json()["overlay_available"] is False
 

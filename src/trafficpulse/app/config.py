@@ -86,7 +86,13 @@ class AppConfig(BaseModel):
     routes, so a single process serves both. ``/api/*`` always takes precedence."""
 
     default_rules: tuple[RuleConfig, ...] = ()
-    """The rule set applied when a processing request supplies none (H6 configs)."""
+    """An operator's pinned rule set for requests that supply none (H6 configs).
+
+    Empty by default, and empty is not "nothing to run": a request naming no rules
+    against an unpinned server derives its rules from the scene that resolves for
+    the video -- every shipped rule that scene can legitimately support. Pinning a
+    set here overrides that derivation for every video, which is occasionally what
+    an operator wants and is why the knob remains."""
 
     inference: InferenceConfig | None = None
     """The real RT-DETR backend the production engine provider builds. ``None``

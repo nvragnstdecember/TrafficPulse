@@ -79,10 +79,17 @@ fresh reasoner from the scene each call (idempotent over the accumulated history
 ``reset`` returns the orchestration to a replayable initial state.
 """
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 
-from ..contracts import ConfirmedEvent, ModelRef, SceneConfig, TrackState
+from ..contracts import (
+    ConfirmedEvent,
+    InZoneObservation,
+    ModelRef,
+    SceneConfig,
+    StationaryObservation,
+    TrackState,
+)
 from ..contracts.scene import Zone, ZoneType
 from ..detector.config import DetectorConfig
 from ..detector.interface import Detector
@@ -100,7 +107,7 @@ from ..rules.illegal_stopping import (
     illegal_stopping_parameters,
 )
 from ..tracking.interface import Tracker
-from .base import CompositionPipeline
+from .base import _MEDIA_TIME_EPOCH, CompositionPipeline
 from .errors import SceneConfigurationError
 
 
@@ -130,25 +137,73 @@ def _resolve_no_stopping_zones(scene: SceneConfig) -> tuple[Zone, ...]:
     return zones
 
 
+# --- overlay capture (R6) ----------------------------------------------------------
+@dataclass(frozen=True)
+class IllegalStoppingTrackFrame:
+    """One track's state on one frame, as the illegal-stopping slice saw it.
+
+    Recorded during reasoning so the overlay provider can redraw *what the rule
+    concluded* without re-running anything or touching pixels -- the pattern H13
+    established for red-light. Every field is read off the ``TrackState`` and the
+    in-zone / stationary observations the derivations already produced.
+
+    ``zone_id`` names the no-stopping zone the track was found inside on this frame
+    (``None`` when it was inside none of them), and ``dwell_seconds`` is the dwell
+    the stationarity derivation itself measured -- ``None`` while it has none, never
+    a substituted zero.
+    """
+
+    frame_index: int
+    media_seconds: float
+    track_id: str
+    bbox: tuple[float, float, float, float]
+    zone_id: str | None
+    is_inside: bool
+    is_stationary: bool
+    dwell_seconds: float | None
+
+
+@dataclass
+class IllegalStoppingOverlayCapture:
+    """Everything the illegal-stopping overlay provider needs, from reasoning.
+
+    Mutable and owned by the strategy: cleared at the start of every ``finalize``
+    (via ``build_reasoner``) so a replayed run captures exactly the run it replayed.
+
+    ``zone_polygons`` are the scene's own no-stopping polygons -- the very geometry
+    the rule tested membership against -- so the overlay can show the prohibited
+    area rather than implying one.
+    """
+
+    zone_polygons: tuple[tuple[str, tuple[tuple[float, float], ...]], ...]
+    frames: list[IllegalStoppingTrackFrame] = field(default_factory=list)
+
+    def clear(self) -> None:
+        self.frames.clear()
+
+
 @dataclass(frozen=True)
 class _IllegalStoppingFinalize:
     """The illegal-stopping reasoning back half injected into ``CompositionPipeline``.
 
-    Holds the resolved run parameters, the eligible no-stopping zones, and the
-    provisional pixel-space stationarity parameters. Builds an
-    ``IllegalStoppingReasoner`` for the run and, per track, derives the P2-U2
-    in-zone and P2-U3 stationary streams and joins them -- the exact operations the
-    pre-generalization ``finalize`` performed.
+    Holds the resolved run parameters, the eligible no-stopping zones, the
+    provisional pixel-space stationarity parameters, and the overlay capture it
+    populates as it reasons. Builds an ``IllegalStoppingReasoner`` for the run and,
+    per track, derives the P2-U2 in-zone and P2-U3 stationary streams and joins them
+    -- the exact operations the pre-generalization ``finalize`` performed.
     """
 
     params: IllegalStoppingParameters
     zones: tuple[Zone, ...]
     stationary_window: int
     stationary_epsilon_px: float
+    capture: IllegalStoppingOverlayCapture
 
     def build_reasoner(
         self, *, scene_config_hash: str | None, models: tuple[ModelRef, ...]
     ) -> IllegalStoppingReasoner:
+        # A cleared capture per finalize, so a replay describes only the replayed run.
+        self.capture.clear()
         return IllegalStoppingReasoner(
             RuleEngine(), self.params, scene_config_hash=scene_config_hash, models=models
         )
@@ -163,7 +218,51 @@ class _IllegalStoppingFinalize:
             epsilon_px=self.stationary_epsilon_px,
             motion_threshold=self.params.motion_threshold,
         )
+        self._capture(track, in_zone.observations, stationary.observations)
         return reasoner.run_join(in_zone, stationary)
+
+    def _capture(
+        self,
+        track: Sequence[TrackState],
+        in_zone: Sequence[InZoneObservation],
+        stationary: Sequence[StationaryObservation],
+    ) -> None:
+        """Record per-frame geometry + zone/dwell verdict for the overlay.
+
+        The two streams are joined back onto the track by timestamp -- the same key
+        the reasoner's own join uses. A frame present in neither stream is not
+        recorded: the rule formed no view of it, so the overlay states none.
+        """
+
+        inside_at: dict[object, InZoneObservation] = {}
+        for observation in in_zone:
+            # A track can be inside several no-stopping zones on one frame; the one
+            # that matters is any zone it is actually inside, so a positive wins.
+            current = inside_at.get(observation.timestamp)
+            if current is None or (observation.is_inside and not current.is_inside):
+                inside_at[observation.timestamp] = observation
+        stationary_at = {observation.timestamp: observation for observation in stationary}
+
+        for state in track:
+            if state.frame_index is None:
+                continue
+            zone = inside_at.get(state.timestamp)
+            still = stationary_at.get(state.timestamp)
+            if zone is None and still is None:
+                continue
+            box = state.bbox
+            self.capture.frames.append(
+                IllegalStoppingTrackFrame(
+                    frame_index=state.frame_index,
+                    media_seconds=(state.timestamp - _MEDIA_TIME_EPOCH).total_seconds(),
+                    track_id=state.track_id,
+                    bbox=(box.x1, box.y1, box.x2, box.y2),
+                    zone_id=zone.zone_id if zone is not None and zone.is_inside else None,
+                    is_inside=zone.is_inside if zone is not None else False,
+                    is_stationary=still.is_stationary if still is not None else False,
+                    dwell_seconds=still.dwell_seconds if still is not None else None,
+                )
+            )
 
 
 def illegal_stopping_finalize_strategy(
@@ -185,11 +284,21 @@ def illegal_stopping_finalize_strategy(
         ValueError: if the scene declares no usable ``illegal_stopping`` block.
     """
 
+    zones = _resolve_no_stopping_zones(scene)
     return _IllegalStoppingFinalize(
         params=illegal_stopping_parameters(scene),
-        zones=_resolve_no_stopping_zones(scene),
+        zones=zones,
         stationary_window=stationary_window,
         stationary_epsilon_px=stationary_epsilon_px,
+        # The strategy owns its capture (rather than returning it alongside, as
+        # red-light does) so this factory's signature -- which capability probing
+        # and every existing caller depend on -- is unchanged. Drivers read
+        # ``strategy.capture``.
+        capture=IllegalStoppingOverlayCapture(
+            zone_polygons=tuple(
+                (zone.zone_id, tuple(zone.polygon)) for zone in zones
+            )
+        ),
     )
 
 

@@ -7,7 +7,13 @@ import time
 from pathlib import Path
 
 import pytest
-from _app_helpers import make_client, make_config, make_scene_service, upload_wrong_way_video
+from _app_helpers import (
+    NO_OVERLAY_RULES,
+    make_client,
+    make_config,
+    make_scene_service,
+    upload_wrong_way_video,
+)
 
 from trafficpulse.app import SynchronousJobExecutor, ThreadJobExecutor
 from trafficpulse.app.errors import JobNotFoundError, OverlayNotFoundError
@@ -23,8 +29,10 @@ from trafficpulse.persistence import EventStore
 
 
 def test_status_reports_overlay_unavailable_for_a_run_without_overlay(tmp_path: Path) -> None:
-    # The stub wrong-way run has no helmet observer, so no overlay is produced.
-    client = make_client(tmp_path)
+    # A run whose only rule published no overlay metadata (see NO_OVERLAY_RULES):
+    # since R6 every shipped rule has a provider, so "no overlay" means the capture
+    # was empty, not that the violation has no visualization.
+    client = make_client(tmp_path, config=make_config(tmp_path, default_rules=NO_OVERLAY_RULES))
     video_id = upload_wrong_way_video(client, tmp_path)
     job_id = client.post("/api/process", json={"video_id": video_id}).json()["job_id"]
 
@@ -132,7 +140,7 @@ def test_a_failed_render_settles_the_overlay_without_failing_the_job(
 
 
 def test_overlay_endpoint_404_when_no_overlay(tmp_path: Path) -> None:
-    client = make_client(tmp_path)
+    client = make_client(tmp_path, config=make_config(tmp_path, default_rules=NO_OVERLAY_RULES))
     video_id = upload_wrong_way_video(client, tmp_path)
     job_id = client.post("/api/process", json={"video_id": video_id}).json()["job_id"]
 
