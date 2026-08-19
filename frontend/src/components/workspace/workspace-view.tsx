@@ -91,7 +91,9 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   const [schedule, setSchedule] = useState<SignalPhaseSpec[]>([]);
 
   const active = isActivePhase(processing.phase);
-  const workspace = useWorkspaceEvents(processing.video?.video_id, { active });
+  const workspace = useWorkspaceEvents(processing.video?.video_id, processing.jobId ?? undefined, {
+    active,
+  });
   const { events, selectedEventId, selectedEvent, select } = workspace;
 
   // Anchors for the workflow stepper. The workspace is one page by design, so a

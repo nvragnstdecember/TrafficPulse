@@ -36,8 +36,15 @@ export interface WorkspaceEventsResult {
 }
 
 /**
- * Workspace events (H7C, live in H7D): the video's confirmed events as
+ * Workspace events (H7C, live in H7D): the current run's confirmed events as
  * view-models, plus the selected event's detail + evidence.
+ *
+ * Scoped to `jobId` (R7). The workspace is a view of **one processing run**, so
+ * once a video has been reprocessed it must not show the superseded run's
+ * conclusions beside the current ones — an analyst has no way to tell them apart,
+ * and the two runs can legitimately disagree. The narrowing is the backend's: this
+ * hook asks for one run's events and renders what it gets, never fetching the
+ * video's whole history and filtering it here.
  *
  * While `active`, the list is polled so events appear as the run confirms them,
  * and each poll is merged into the prior set ({@link mergeWorkspaceEvents}) to
@@ -48,13 +55,14 @@ export interface WorkspaceEventsResult {
  */
 export function useWorkspaceEvents(
   videoId: string | undefined,
+  jobId: string | undefined,
   options?: UseWorkspaceEventsOptions,
 ): WorkspaceEventsResult {
   const selectedEventId = useSelectionStore((s) => s.selectedEventId);
   const select = useSelectionStore((s) => s.selectEvent);
 
   const listQuery = useEventsList(
-    { videoId, limit: WORKSPACE_EVENT_LIMIT, offset: 0, sort: 'trigger_at' },
+    { videoId, jobId, limit: WORKSPACE_EVENT_LIMIT, offset: 0, sort: 'trigger_at' },
     { refetchInterval: options?.active ? EVENTS_POLL_INTERVAL_MS : false },
   );
 

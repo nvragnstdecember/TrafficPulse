@@ -107,6 +107,7 @@ function makeController(overrides: Partial<ProcessingController> = {}): Processi
   return {
     phase: 'running',
     job: makeJob(),
+    jobId: 'job-1',
     video: makeVideo(),
     progressRatio: 0.5,
     elapsedSeconds: 42,

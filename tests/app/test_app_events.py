@@ -164,3 +164,150 @@ def test_list_deduplicates_events_across_runs(tmp_path: Path) -> None:
     events = EventService(store, job_store)
     page = events.list(video_id=None, limit=50, offset=0, sort=EventSort.EVENT_ID_ASC)
     assert page.total == 1  # deduplicated by event id
+
+
+# --- run scoping (R7) ------------------------------------------------------------
+def _reprocessed(tmp_path: Path) -> tuple[EventService, JobStore]:
+    """One video processed twice: a wide first run, a narrower second one.
+
+    ``evt-shared`` is confirmed by both runs -- reprocessing re-confirms identical
+    content-derived ids -- while ``evt-only-1`` exists solely in the first. That is
+    the shape the reported bug appears in: the second run did not find it, but a
+    video-scoped listing still returned it.
+    """
+
+    store = EventStore(tmp_path / "runs")
+    job_store = JobStore()
+    shared = _event("evt-shared", trigger_offset=1.0, video="a")
+    dropped = _event("evt-only-1", trigger_offset=2.0, video="a")
+    plan = {"job-1": [shared, dropped], "job-2": [shared]}
+    for job_id, events in plan.items():
+        store.persist(job_id, events)
+        job_store.add(JobRecord(job_id=job_id, video_id="vid-a"))
+        job_store.mark_succeeded(
+            job_id,
+            EngineRunResult(
+                source_id=job_id, events=tuple(events), manifests=(), metrics=make_metrics()
+            ),
+        )
+    return EventService(store, job_store), job_store
+
+
+def _ids(page: object) -> list[str]:
+    return [summary.event_id for summary in page.items]  # type: ignore[attr-defined]
+
+
+def _list(events: EventService, **kwargs: object) -> object:
+    params: dict[str, object] = {
+        "video_id": None,
+        "limit": 50,
+        "offset": 0,
+        "sort": EventSort.EVENT_ID_ASC,
+    }
+    params.update(kwargs)
+    return events.list(**params)  # type: ignore[arg-type]
+
+
+def test_scoping_to_a_run_returns_only_that_runs_events(tmp_path: Path) -> None:
+    events, _ = _reprocessed(tmp_path)
+
+    assert _ids(_list(events, video_id="vid-a", job_id="job-1")) == [
+        "evt-only-1",
+        "evt-shared",
+    ]
+    assert _ids(_list(events, video_id="vid-a", job_id="job-2")) == ["evt-shared"]
+
+
+def test_a_narrower_rerun_does_not_show_the_superseded_runs_events(
+    tmp_path: Path,
+) -> None:
+    """The reported bug, as a regression guard."""
+
+    events, _ = _reprocessed(tmp_path)
+
+    page = _list(events, video_id="vid-a", job_id="job-2")
+    assert "evt-only-1" not in _ids(page)
+    assert page.total == 1  # type: ignore[attr-defined]
+
+
+def test_without_a_run_the_whole_history_is_still_returned(tmp_path: Path) -> None:
+    """The repository view is unchanged: both runs, deduplicated by event id."""
+
+    events, _ = _reprocessed(tmp_path)
+
+    page = _list(events, video_id="vid-a")
+    assert _ids(page) == ["evt-only-1", "evt-shared"]
+    assert page.total == 2  # type: ignore[attr-defined]
+
+
+def test_a_duplicated_event_is_attributed_to_the_run_serving_its_evidence(
+    tmp_path: Path,
+) -> None:
+    """``EventSummary.job_id`` must agree with where ``locate`` reads the event.
+
+    Both point at the newest run that produced it. They disagreed before R7 -- the
+    listing labelled such an event with the *oldest* run while its detail and
+    evidence were served from the newest -- so a client could not use the label to
+    address anything.
+    """
+
+    events, job_store = _reprocessed(tmp_path)
+
+    summary = next(
+        item for item in _list(events, video_id="vid-a").items  # type: ignore[attr-defined]
+        if item.event_id == "evt-shared"
+    )
+    assert summary.job_id == "job-2"
+    assert summary.job_id == job_store.job_for_event("evt-shared")
+
+
+def test_a_run_of_another_video_selects_nothing(tmp_path: Path) -> None:
+    """A mismatched pair describes no run, so it is not silently widened."""
+
+    events, _ = _reprocessed(tmp_path)
+    seeded = _seeded_events(tmp_path / "seeded")
+
+    assert _list(events, video_id="vid-b", job_id="job-1").total == 0  # type: ignore[attr-defined]
+    assert _list(seeded, video_id="vid-a", job_id="job-b").total == 0  # type: ignore[attr-defined]
+
+
+def test_an_unknown_or_unfinished_run_yields_an_empty_page(tmp_path: Path) -> None:
+    """Empty, not an error -- the same shape an unknown video_id has always had."""
+
+    events, job_store = _reprocessed(tmp_path)
+    job_store.add(JobRecord(job_id="job-running", video_id="vid-a"))
+    job_store.mark_running("job-running", frames_total=10)
+    job_store.add(JobRecord(job_id="job-failed", video_id="vid-a"))
+    job_store.mark_failed("job-failed", "boom")
+
+    for job_id in ("job-nope", "job-running", "job-failed"):
+        assert _list(events, job_id=job_id).total == 0, job_id  # type: ignore[attr-defined]
+
+
+def test_run_scoping_composes_with_sorting_and_paging(tmp_path: Path) -> None:
+    events, _ = _reprocessed(tmp_path)
+
+    descending = _list(
+        events, video_id="vid-a", job_id="job-1", sort=EventSort.EVENT_ID_DESC
+    )
+    assert _ids(descending) == ["evt-shared", "evt-only-1"]
+
+    paged = _list(events, video_id="vid-a", job_id="job-1", limit=1, offset=1)
+    assert _ids(paged) == ["evt-shared"]
+    assert paged.total == 2  # type: ignore[attr-defined]
+
+
+def test_the_endpoint_accepts_a_run_filter(tmp_path: Path) -> None:
+    """Over HTTP: the query parameter reaches the service and narrows the page."""
+
+    client = make_client(tmp_path)
+    video_id = upload_wrong_way_video(client, tmp_path)
+    job_id = client.post("/api/process", json={"video_id": video_id}).json()["job_id"]
+
+    scoped = client.get("/api/events", params={"video_id": video_id, "job_id": job_id})
+    assert scoped.status_code == 200
+    assert [item["job_id"] for item in scoped.json()["items"]] == [job_id]
+
+    other = client.get("/api/events", params={"video_id": video_id, "job_id": "job-nope"})
+    assert other.status_code == 200
+    assert other.json()["total"] == 0

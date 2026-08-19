@@ -951,15 +951,38 @@ class EventService:
         self,
         *,
         video_id: str | None,
+        job_id: str | None = None,
         limit: int,
         offset: int,
         sort: EventSort,
     ) -> EventListResponse:
-        """Return a deterministic page of event summaries."""
+        """Return a deterministic page of event summaries.
+
+        Two scopes, both legitimate (R7):
+
+        * ``job_id`` given -- **one run's** events. This is what a review surface
+          needs: after a video is reprocessed, the analyst is looking at a
+          particular run and must not be shown a superseded run's conclusions.
+        * ``job_id`` omitted -- every succeeded run of the video, deduplicated by
+          ``event_id``. Reprocessing re-confirms byte-identical events, so this is
+          "what has this video ever been found to contain", which the library's
+          ``event_count`` and the review journal are both built around.
+
+        Scoping happens **here**, at the data-access boundary: the selected runs are
+        the only ones read from the store, so a caller can never be handed events it
+        then has to filter. An unknown, unfinished, or mismatched ``job_id`` selects
+        no run and yields an empty page -- the same shape an unknown ``video_id``
+        has always produced, rather than a new error class for the same situation.
+        """
 
         summaries: list[EventSummary] = []
         seen: set[str] = set()
-        for job in self._jobs.succeeded_for_video(video_id):
+        # Newest run first, so a duplicated event is attributed to the most recent
+        # run that produced it. That matches ``JobStore.job_for_event`` (which
+        # ``locate`` uses to serve the event and its evidence), ``_opening_job``, and
+        # the analytics breakdown -- previously this loop ran oldest-first and
+        # labelled such an event with a run its evidence was *not* served from.
+        for job in reversed(self._scoped_jobs(video_id=video_id, job_id=job_id)):
             if not job.event_ids:
                 continue  # a succeeded job that confirmed nothing persisted no run
             for pair in self._store.load(job.job_id):
@@ -1003,6 +1026,31 @@ class EventService:
         return EventListResponse(
             items=tuple(page), total=len(ordered), limit=limit, offset=offset
         )
+
+    def _scoped_jobs(
+        self, *, video_id: str | None, job_id: str | None
+    ) -> tuple[JobRecord, ...]:
+        """The runs a listing should read, in insertion (oldest-first) order.
+
+        Naming a run narrows to exactly that run, and a ``video_id`` given alongside
+        it is applied as a **check** rather than ignored: a pair that does not agree
+        describes no run this repository holds, so it selects none instead of
+        quietly answering the question the client did not ask.
+
+        Only succeeded runs are ever selected -- a pending, running, or failed job
+        has no persisted events to read, so scoping to one is honestly empty.
+        """
+
+        if job_id is None:
+            return self._jobs.succeeded_for_video(video_id)
+        job = self._jobs.get(job_id)
+        if (
+            job is None
+            or job.status is not JobStatus.SUCCEEDED
+            or (video_id is not None and job.video_id != video_id)
+        ):
+            return ()
+        return (job,)
 
     def get(self, event_id: str) -> ConfirmedEvent:
         """Return the full contract for one event or raise :class:`EventNotFoundError`."""

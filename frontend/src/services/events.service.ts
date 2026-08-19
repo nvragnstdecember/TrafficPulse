@@ -18,6 +18,7 @@ export const eventsService = {
     return apiClient.get<EventListResponse>(endpoints.events, {
       query: {
         video_id: params.videoId,
+        job_id: params.jobId,
         limit: params.limit,
         offset: params.offset,
         sort: params.sort,

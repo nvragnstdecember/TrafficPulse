@@ -202,19 +202,19 @@ describe('useWorkspaceEvents', () => {
       limit: 200,
       offset: 0,
     });
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1'), { wrapper });
 
     await waitFor(() => expect(result.current.events).toHaveLength(2));
     expect(result.current.events.map((event) => event.mediaSeconds)).toEqual([4, 30]);
     expect(result.current.total).toBe(2);
     expect(eventsService.list).toHaveBeenCalledWith(
-      { videoId: 'vid-1', limit: 200, offset: 0, sort: 'trigger_at' },
+      { videoId: 'vid-1', jobId: 'job-1', limit: 200, offset: 0, sort: 'trigger_at' },
       expect.anything(),
     );
   });
 
   it('enriches the selected event with its detail and evidence', async () => {
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1'), { wrapper });
     await waitFor(() => expect(result.current.events).toHaveLength(1));
 
     act(() => result.current.select('evt-1'));
@@ -231,14 +231,14 @@ describe('useWorkspaceEvents', () => {
     vi.mocked(eventsService.list).mockRejectedValue(
       new ApiError('Events unavailable', { kind: 'http', status: 500 }),
     );
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1'), { wrapper });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.events).toEqual([]);
   });
 
   it('does not fetch detail while nothing is selected', async () => {
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1'), { wrapper });
     await waitFor(() => expect(result.current.events).toHaveLength(1));
 
     expect(result.current.selectedEvent).toBeNull();
@@ -247,7 +247,7 @@ describe('useWorkspaceEvents', () => {
   });
 
   it('preserves event references across an identical refetch (H7D)', async () => {
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1', { active: true }), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1', { active: true }), { wrapper });
     await waitFor(() => expect(result.current.events).toHaveLength(1));
     const first = result.current.events;
 
@@ -263,7 +263,7 @@ describe('useWorkspaceEvents', () => {
     vi.mocked(eventsService.getEvidence).mockRejectedValue(
       new ApiError('Evidence not ready', { kind: 'http', status: 404 }),
     );
-    const { result } = renderHook(() => useWorkspaceEvents('vid-1'), { wrapper });
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-1'), { wrapper });
     await waitFor(() => expect(result.current.events).toHaveLength(1));
 
     act(() => result.current.select('evt-1'));
@@ -277,6 +277,53 @@ describe('useWorkspaceEvents', () => {
       result.current.refetchEvidence();
     });
     await waitFor(() => expect(result.current.evidence?.evidence_package_id).toBe('pkg-1'));
+  });
+
+  // --- run scoping (R7) ---------------------------------------------------------
+  it("asks the backend for one run, never the video's whole history", async () => {
+    const { result } = renderHook(() => useWorkspaceEvents('vid-1', 'job-2'), { wrapper });
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+
+    // The run reaches the request, so the narrowing happens at the backend's data
+    // boundary. Nothing here filters a wider response.
+    expect(eventsService.list).toHaveBeenCalledWith(
+      expect.objectContaining({ videoId: 'vid-1', jobId: 'job-2' }),
+      expect.anything(),
+    );
+  });
+
+  it("refetches for a new run rather than reusing the previous run's page", async () => {
+    const { rerender, result } = renderHook(
+      ({ jobId }: { jobId: string }) => useWorkspaceEvents('vid-1', jobId),
+      { initialProps: { jobId: 'job-1' }, wrapper },
+    );
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+
+    vi.mocked(eventsService.list).mockResolvedValue({
+      items: [makeEventSummary({ event_id: 'evt-rerun', job_id: 'job-2' })],
+      total: 1,
+      limit: 200,
+      offset: 0,
+    });
+    rerender({ jobId: 'job-2' });
+
+    // The run is part of the cache key, so reprocessing cannot leave the workspace
+    // showing the superseded run's events.
+    await waitFor(() => expect(result.current.events[0]?.id).toBe('evt-rerun'));
+    expect(eventsService.list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ jobId: 'job-2' }),
+      expect.anything(),
+    );
+  });
+
+  it('exposes the current run so the workspace can scope to it', async () => {
+    const { result } = renderHook(() => useProcessing(), { wrapper });
+
+    act(() => result.current.actions.selectAndUpload(makeFile('clip.mp4')));
+
+    // Available from the store as soon as the job is attached -- before the first
+    // job poll returns, which is what keeps the event list scoped from the start.
+    await waitFor(() => expect(result.current.jobId).toBe('job-1'));
   });
 });
 

@@ -89,6 +89,12 @@ def _process(client: TestClient, video_id: str, rules: Any = None) -> dict[str, 
     return status
 
 
+def _types(client: TestClient, **params: Any) -> set[str]:
+    listing = client.get("/api/events", params=params)
+    assert listing.status_code == 200, listing.text
+    return {item["violation_type"] for item in listing.json()["items"]}
+
+
 # --- R5: derived rules produce a genuinely multi-violation run ----------------------
 def test_a_default_run_derives_its_rules_and_confirms_several_types(
     client: TestClient, tmp_path: Path
@@ -243,3 +249,57 @@ def test_distinct_events_are_never_folded_together(
     events = client.get("/api/events", params={"video_id": video_id}).json()
     assert events["total"] == 2
     assert len({item["event_id"] for item in events["items"]}) == 2
+
+
+# --- run scoping over a real reprocess (R7) -----------------------------------------
+def test_a_reprocess_can_be_reviewed_without_the_superseded_runs_events(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """The workflow R7 exists for, end to end.
+
+    A video is processed for both violations, then reprocessed for illegal-stopping
+    alone -- the narrowing an analyst does after deciding the wrong-way geometry was
+    wrong. Scoped to the second run the wrong-way event is gone; the repository view
+    still holds it, because it genuinely happened.
+    """
+
+    video_id = _upload(client, tmp_path)
+    first = _process(
+        client,
+        video_id,
+        rules=[
+            {"kind": "wrong_way", "direction_id": "dir-north"},
+            {"kind": "illegal_stopping"},
+        ],
+    )
+    second = _process(client, video_id, rules=[{"kind": "illegal_stopping"}])
+    assert first["job_id"] != second["job_id"]
+
+    assert _types(client, video_id=video_id, job_id=first["job_id"]) == {
+        "wrong_way",
+        "illegal_stopping",
+    }
+    assert _types(client, video_id=video_id, job_id=second["job_id"]) == {
+        "illegal_stopping"
+    }
+    # The history is untouched: both runs' findings remain addressable.
+    assert _types(client, video_id=video_id) == {"wrong_way", "illegal_stopping"}
+
+
+def test_a_listed_events_run_is_the_run_its_evidence_is_served_from(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """``job_id`` on a summary must address something -- across a reprocess too."""
+
+    video_id = _upload(client, tmp_path)
+    _process(client, video_id, rules=[{"kind": "illegal_stopping"}])
+    latest = _process(client, video_id, rules=[{"kind": "illegal_stopping"}])
+
+    for item in client.get("/api/events", params={"video_id": video_id}).json()["items"]:
+        # Re-listing scoped to the run the summary names must return that same event.
+        scoped = client.get(
+            "/api/events", params={"video_id": video_id, "job_id": item["job_id"]}
+        ).json()
+        assert item["event_id"] in {row["event_id"] for row in scoped["items"]}
+        assert item["job_id"] == latest["job_id"]
+        assert client.get(f"/api/evidence/{item['event_id']}").status_code == 200

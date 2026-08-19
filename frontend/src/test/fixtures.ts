@@ -409,6 +409,9 @@ export function makeProcessingController(
   return {
     phase: 'running',
     job: makeJob(),
+    // The run the workspace is scoped to (R7); matches makeJob()'s id so a fixture
+    // controller and its job describe the same run.
+    jobId: 'job-1',
     video: makeVideo(),
     progressRatio: 0.5,
     elapsedSeconds: 10,

@@ -50,6 +50,16 @@ export interface ProcessingActions {
 export interface ProcessingController {
   phase: ProcessingPhase;
   job: JobStatusResponse | undefined;
+  /**
+   * The run the workspace is showing, from the store rather than the job poll (R7).
+   *
+   * Read here — not from `job?.job_id` — because the store's value is set the moment
+   * a job is attached or adopted and survives a reload, whereas the polled job is
+   * undefined until the first response. Sourcing it from the poll would leave a
+   * window where the event list had no run to scope to and briefly showed the
+   * video's whole history, which is the behaviour R7 removes.
+   */
+  jobId: string | null;
   video: VideoUploadResponse | null;
   /** Upload progress while uploading, else job progress; 0..1 or null. */
   progressRatio: number | null;
@@ -365,6 +375,7 @@ export function useProcessing(): ProcessingController {
   return {
     phase: processing.phase,
     job: jobQuery.data,
+    jobId: processing.jobId,
     video: uploadStore.video,
     progressRatio,
     elapsedSeconds,

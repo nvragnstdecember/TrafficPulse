@@ -2,6 +2,15 @@ import { type EventSort, type VideoSort } from './types';
 
 export interface EventListParams {
   videoId?: string;
+  /**
+   * Restrict to one processing run (R7).
+   *
+   * Omitted, the backend returns every succeeded run of the video, deduplicated —
+   * the repository view. Supplied, it returns that run alone, which is what a
+   * review surface needs once a video has been processed more than once. The
+   * filtering is the backend's; nothing here narrows a wider response.
+   */
+  jobId?: string;
   limit?: number;
   offset?: number;
   sort?: EventSort;

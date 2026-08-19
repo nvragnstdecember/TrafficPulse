@@ -32,13 +32,27 @@ router = APIRouter(tags=["events"])
     "/api/events",
     response_model=EventListResponse,
     summary="List confirmed events",
-    description="List event summaries, optionally filtered by video, with "
-    "deterministic sorting and pagination.",
+    description="List event summaries, optionally filtered by video and by "
+    "processing run, with deterministic sorting and pagination.\n\n"
+    "Without `job_id` the response covers **every succeeded run** of the matching "
+    "videos, deduplicated by event id -- reprocessing re-confirms byte-identical "
+    "events, so this is the repository view: what these videos have ever been found "
+    "to contain. With `job_id` it covers exactly that one run, which is what a "
+    "review surface wants once a video has been processed more than once.",
 )
 def list_events(
     events: EventServiceDep,
     video_id: Annotated[
         str | None, Query(description="Restrict to one video's events.")
+    ] = None,
+    job_id: Annotated[
+        str | None,
+        Query(
+            description="Restrict to one processing run's events. Omit for the "
+            "video's whole history. A job that does not exist, has not succeeded, "
+            "or belongs to a different video selects no run and returns an empty "
+            "page."
+        ),
     ] = None,
     limit: Annotated[int, Query(ge=1, le=200, description="Page size.")] = 50,
     offset: Annotated[int, Query(ge=0, description="Page offset.")] = 0,
@@ -46,7 +60,9 @@ def list_events(
         EventSort, Query(description="Ordering; '-' prefixes descending.")
     ] = EventSort.TRIGGER_AT_ASC,
 ) -> EventListResponse:
-    return events.list(video_id=video_id, limit=limit, offset=offset, sort=sort)
+    return events.list(
+        video_id=video_id, job_id=job_id, limit=limit, offset=offset, sort=sort
+    )
 
 
 @router.get(
