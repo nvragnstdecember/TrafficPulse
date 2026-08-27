@@ -12,6 +12,8 @@ import pytest
 from _pipeline_helpers import (
     CAMERA,
     DETECTOR_CONFIG,
+    LANE_X,
+    LANE_Y0_DOWN,
     NORTH_DIRECTION_ID,
     SCENE,
     make_frame_record,
@@ -60,8 +62,14 @@ class _DownCarDetector(Detector):
     """A minimal ``Detector`` (neither StubDetector nor RTDetrDetector)."""
 
     def detect(self, frame: Frame) -> tuple[RawDetection, ...]:
-        top = 50.0 + frame.frame_index * 5.0
-        return (RawDetection(label="car", score=0.9, box=(50.0, top, 70.0, top + 20.0)),)
+        # Inside SCENE's governing lane, like every other wrong-way fixture: a
+        # box outside it yields no heading facts and so could never confirm.
+        top = LANE_Y0_DOWN + frame.frame_index * 5.0
+        return (
+            RawDetection(
+                label="car", score=0.9, box=(LANE_X, top, LANE_X + 20.0, top + 20.0)
+            ),
+        )
 
 
 class _SingleTrackTracker(Tracker):

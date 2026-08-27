@@ -63,6 +63,7 @@ import yaml  # noqa: E402  (after sys.path setup)
 from _slice_fixtures import (  # noqa: E402
     scripted_down_detector,
     write_wrong_way_clip,
+    wrong_way_test_scene,
 )
 from _stopping_fixtures import (  # noqa: E402
     illegal_stopping_test_scene,
@@ -105,7 +106,11 @@ def _run_wrong_way(output_dir: Path, run_id: str) -> _SliceResult:
     clip = write_wrong_way_clip(output_dir / "clips" / "wrong_way.mp4")
     report = run_wrong_way_slice(
         clip=clip,
-        scene=_load_example_scene(),
+        # The clip-space wrong-way scene, not the example scene: wrong-way
+        # reasoning is contained to its governing lane's polygon, and the example
+        # scene's lane is authored for 1920x1080 footage this 320x240 synthetic
+        # clip is not in -- against it this demo would honestly confirm nothing.
+        scene=wrong_way_test_scene(),
         detector=scripted_down_detector(),
         tracker=IouTracker(),
         detector_config=DetectorConfig(label_map={"car": ObjectClass.CAR}),

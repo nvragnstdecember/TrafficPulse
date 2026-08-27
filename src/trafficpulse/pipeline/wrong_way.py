@@ -66,12 +66,15 @@ from ..contracts import (
     SceneConfig,
     TrackState,
 )
+from ..contracts.enums import ObjectClass
 from ..contracts.scene import DirectionVector, LegalDirection
 from ..detector.config import DetectorConfig
 from ..detector.interface import Detector
+from ..geometry import Point
 from ..ingestion.video import FrameRecord
 from ..observations.heading import derive_heading_observations_with_taint
 from ..rules.engine import RuleEngine
+from ..rules.vehicles import VEHICLE_CLASSES
 from ..rules.wrong_way import WrongWayParameters, WrongWayReasoner, wrong_way_parameters
 from ..tracking.interface import Tracker
 from .base import _MEDIA_TIME_EPOCH, CompositionPipeline, frame_record_to_frame
@@ -92,13 +95,22 @@ __all__ = [
 
 def _resolve_legal_direction(
     scene: SceneConfig, direction_id: str | None
-) -> tuple[DirectionVector, str]:
-    """Resolve the single governing ``(legal_direction, lane_id)`` for the slice.
+) -> tuple[DirectionVector, str, tuple[Point, ...]]:
+    """Resolve the governing ``(legal_direction, lane_id, lane_polygon)``.
+
+    The polygon is resolved here, beside the lane id it belongs to, because the
+    derivation must evaluate headings **only inside the lane the direction
+    governs** (architecture-review §5a). Returning the id alone is what allowed
+    the direction to be applied to every track in frame, including lawful traffic
+    on an opposing carriageway.
 
     Raises:
         SceneConfigurationError: if the single lane cannot be picked (no legal
             direction; more than one with no ``direction_id``; an unknown
-            ``direction_id``; or the chosen direction has no zone/lane id).
+            ``direction_id``; or the chosen direction has no zone/lane id), or if
+            the zone it names is absent from the scene or disabled -- both leave
+            the run with no lane to contain reasoning to, and silently reasoning
+            over the whole frame instead is the bug this guard exists to prevent.
     """
 
     directions = scene.legal_directions
@@ -127,7 +139,20 @@ def _resolve_legal_direction(
         raise SceneConfigurationError(
             f"legal direction {chosen.direction_id!r} carries no zone/lane id"
         )
-    return chosen.vector, chosen.zone_ids[0]
+    lane_id = chosen.zone_ids[0]
+    zone = next((z for z in scene.zones if z.zone_id == lane_id), None)
+    if zone is None:
+        raise SceneConfigurationError(
+            f"legal direction {chosen.direction_id!r} governs zone {lane_id!r}, "
+            "which the scene does not declare; wrong-way reasoning needs its "
+            "polygon to know which traffic the direction applies to"
+        )
+    if not zone.enabled:
+        raise SceneConfigurationError(
+            f"legal direction {chosen.direction_id!r} governs zone {lane_id!r}, "
+            "which is disabled; wrong-way reasoning has no lane to contain to"
+        )
+    return chosen.vector, lane_id, tuple(zone.polygon)
 
 
 # --- overlay capture (R6) ----------------------------------------------------------
@@ -181,10 +206,19 @@ class WrongWayOverlayCapture:
 class _WrongWayFinalize:
     """The wrong-way reasoning back half injected into ``CompositionPipeline``.
 
-    Holds the resolved run parameters (deviation threshold, min persistence), the
-    single governing legal direction / lane, and the overlay capture it populates as
-    it reasons. Builds a ``WrongWayReasoner`` for the run and, per track, derives the
-    P1-U4 heading stream and reasons over it -- the exact operations the
+    Holds the resolved run parameters (deviation threshold, min persistence,
+    boundary abstain margin), the single governing legal direction / lane / lane
+    polygon, the classes that may commit the violation, and the overlay capture it
+    populates as it reasons.
+
+    Two gates decide whether a track is this rule's business at all, and both
+    exist because it was reasoning about traffic it should never have scored:
+    **who** (``vehicle_classes`` -- a pedestrian is not committing a vehicle
+    movement violation) and **where** (``lane_polygon`` -- a track outside the
+    governed lane yields no heading observations, so it can never support a run).
+
+    Builds a ``WrongWayReasoner`` for the run and, per track, derives the P1-U4
+    heading stream and reasons over it -- the exact operations the
     pre-generalization ``finalize`` performed.
     """
 
@@ -192,6 +226,13 @@ class _WrongWayFinalize:
     legal_direction: DirectionVector
     lane_id: str
     capture: WrongWayOverlayCapture
+    #: Polygon of the lane ``lane_id`` names. Reasoning is contained to it, so a
+    #: track outside the governed lane produces no heading facts at all.
+    lane_polygon: tuple[Point, ...] = ()
+    #: The classes that can commit this violation. A pedestrian's track opposes the
+    #: traffic direction as a matter of course; scoring it against a vehicle's
+    #: thresholds is a false positive waiting on a threshold. See VEHICLE_CLASSES.
+    vehicle_classes: frozenset[ObjectClass] = VEHICLE_CLASSES
 
     def build_reasoner(
         self, *, scene_config_hash: str | None, models: tuple[ModelRef, ...]
@@ -206,11 +247,23 @@ class _WrongWayFinalize:
     def events_for_track(
         self, reasoner: WrongWayReasoner, track: list[TrackState]
     ) -> tuple[ConfirmedEvent, ...]:
+        if not track:
+            return ()
+        if track[0].object_class not in self.vehicle_classes:
+            # Pedestrians and cyclists are detected (helmet and triple-riding
+            # reasoning need riders) but cannot commit this violation; see
+            # VEHICLE_CLASSES. Returning before the derivation also keeps them out
+            # of the overlay capture, so the annotated video does not show a
+            # heading verdict the rule never intended to reach.
+            return ()
+
         derivation = derive_heading_observations_with_taint(
             track,
             legal_direction=self.legal_direction,
             lane_id=self.lane_id,
             deviation_max_degrees=self.params.deviation_max_degrees,
+            lane_polygon=self.lane_polygon,
+            boundary_abstain_margin=self.params.boundary_abstain_margin,
         )
         self._capture(track, derivation.observations)
         return reasoner.run_derivation(derivation)
@@ -248,9 +301,18 @@ class _WrongWayFinalize:
 
 
 def wrong_way_finalize_strategy(
-    scene: SceneConfig, *, direction_id: str | None = None
+    scene: SceneConfig,
+    *,
+    direction_id: str | None = None,
+    vehicle_classes: frozenset[ObjectClass] = VEHICLE_CLASSES,
 ) -> _WrongWayFinalize:
     """Build the wrong-way reasoning back half for one scene (public factory).
+
+    ``vehicle_classes`` defaults to the shared
+    :data:`~trafficpulse.rules.vehicles.VEHICLE_CLASSES` and is a parameter rather
+    than a scene field for the same reason red-light's is: it is a deployment
+    judgement about which road users a jurisdiction adjudicates, not a fact about
+    the camera's geometry.
 
     The exact strategy ``WrongWayPipeline`` injects into the shared
     ``CompositionPipeline`` -- exposed so a multi-rule composition (the P?-H6
@@ -265,11 +327,13 @@ def wrong_way_finalize_strategy(
     """
 
     params = wrong_way_parameters(scene)
-    legal_direction, lane_id = _resolve_legal_direction(scene, direction_id)
+    legal_direction, lane_id, lane_polygon = _resolve_legal_direction(scene, direction_id)
     return _WrongWayFinalize(
         params=params,
         legal_direction=legal_direction,
         lane_id=lane_id,
+        lane_polygon=lane_polygon,
+        vehicle_classes=vehicle_classes,
         # The strategy owns its capture rather than returning it alongside (as
         # red-light does): this factory has callers that only probe whether the
         # scene resolves, and widening its return type would churn every one of

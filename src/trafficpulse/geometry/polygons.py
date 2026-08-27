@@ -2,8 +2,9 @@
 
 Deterministic, dependency-free membership test over the image-space convention
 documented in :mod:`trafficpulse.geometry.vectors` (top-left origin, +y down).
-It answers a single geometric question -- "is this point inside this polygon?"
--- and decides nothing about zones, violations, or rules.
+It answers two geometric questions -- "is this point inside this polygon?" and
+"how far is this point from the polygon's boundary?" -- and decides nothing about
+zones, violations, or rules.
 
 Scope: simple polygons as produced by U5 ``SceneConfig`` zones/ROIs (an ordered
 ring of at least three vertices, closed implicitly). Self-intersecting polygons
@@ -12,7 +13,7 @@ and arbitrary GIS geometry are out of scope and not supported.
 
 from collections.abc import Sequence
 
-from .segments import point_on_segment
+from .segments import point_on_segment, point_to_segment_distance
 from .vectors import Point
 
 
@@ -59,3 +60,27 @@ def point_in_polygon(point: Point, polygon: Sequence[Point]) -> bool:
             if x < x_cross:
                 inside = not inside
     return inside
+
+
+def distance_to_polygon_boundary(point: Point, polygon: Sequence[Point]) -> float:
+    """Return the shortest distance from ``point`` to any edge of ``polygon``.
+
+    The boundary is the closed ring of edges (the closing edge from the last
+    vertex back to the first is implicit, matching the ``ordered_ring``
+    convention), so the result is **unsigned**: it is the clearance from the
+    boundary whether the point lies inside or outside. Callers that need to
+    distinguish the two combine this with :func:`point_in_polygon`.
+
+    A point exactly on an edge or vertex returns ``0.0``, consistent with
+    :func:`point_in_polygon` treating the boundary as inside.
+
+    Raises:
+        ValueError: if ``polygon`` has fewer than three vertices.
+    """
+
+    n = len(polygon)
+    if n < 3:
+        raise ValueError("polygon requires at least 3 vertices")
+    return min(
+        point_to_segment_distance(point, polygon[i], polygon[(i + 1) % n]) for i in range(n)
+    )

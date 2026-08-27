@@ -28,12 +28,47 @@ is +x (right), increasing toward +y (down). They are provenance only; the
 load-bearing quantity is ``deviation_degrees`` -- the reference-free unsigned
 angle in ``[0, 180]`` from P1-U1 ``angle_between_degrees``.
 
+Lane containment and boundary abstain
+-------------------------------------
+Heading is only meaningful *relative to the lane whose legal direction it is
+compared against*, so a step is derived only when it happened **inside that
+lane's polygon** (architecture-review §5a: "track heading/displacement inside a
+lane polygon"). Without this gate the configured legal direction is applied to
+every track in frame, and lawful traffic on an opposing carriageway -- which by
+construction moves at ~180 deg to the declared direction -- is reported as a
+contradiction. On a real divided-road camera that is a false-positive generator.
+
+The same section names "near the polygon boundary" as an abstain condition: a
+reference point within ``boundary_abstain_margin`` of the boundary is not
+confidently in the lane (detection jitter alone can move it across), so its step
+abstains rather than voting. ``margin = 0.0`` keeps containment but disables the
+abstain band; ``lane_polygon = None`` disables both, which is the behaviour the
+pure-geometry callers (and this module's own unit tests) rely on. The
+wrong-way pipeline always supplies the polygon -- see
+:func:`trafficpulse.pipeline.wrong_way.wrong_way_finalize_strategy`.
+
+Containment uses the **bbox center**, deliberately the same reference point this
+module already measures displacement between, so "the displacement happened
+inside the lane" is a statement about one consistent point. This differs from
+:mod:`trafficpulse.observations.zones`, which asks a different question ("does
+this vehicle *occupy* the zone") and answers it with the ground-contact
+bottom-center. Both choices are provisional in the same way and for the same
+reason: neither survives contact with calibrated ground-plane reasoning.
+
+A containment/boundary skip is an **ordinary gap**, not a taint restart: it drops
+the step's observation and nothing more. Whether support should also be *reset*
+when a track leaves and re-enters the lane is a persistence-semantics question
+this derivation deliberately does not decide.
+
 Explicit edge behavior
 ----------------------
 * Fewer than two TrackStates -> no observations.
 * A zero-displacement step (``is_zero_vector`` via the geometry numeric epsilon,
   a numerical fact, not a behavioral threshold) -> no observation for that step.
   This is an *ordinary* gap (a genuinely missing/immobile sample of one track).
+* A step with either endpoint outside the lane polygon, or within
+  ``boundary_abstain_margin`` of its boundary -> no observation for that step
+  (an ordinary gap; see above).
 * A step whose either endpoint is a tainted ``TrackState`` -> no observation,
   and the next clean observation is flagged as a **taint restart** (see below).
 
@@ -61,11 +96,27 @@ from dataclasses import dataclass
 from ..contracts import HeadingVsLaneObservation, Producer, TrackState
 from ..contracts.enums import ProducerKind
 from ..contracts.scene import DirectionVector
-from ..geometry import Vector, angle_between_degrees, displacement, is_zero_vector
+from ..geometry import (
+    Point,
+    Vector,
+    angle_between_degrees,
+    displacement,
+    distance_to_polygon_boundary,
+    is_zero_vector,
+    point_in_polygon,
+)
 
 DEFAULT_PRODUCER = Producer(
     name="wrong-way-heading", version="0.1.0-provisional", kind=ProducerKind.HEURISTIC
 )
+
+#: Provisional default clearance (pixels) a reference point must keep from the
+#: lane boundary before its step is allowed to vote. Small on purpose: it guards
+#: against localisation jitter at the edge, it is not a policy threshold, and it
+#: is stated in pixels because an uncalibrated scene has no metric scale. Sites
+#: that need a different band set ``boundary_abstain_margin`` in their scene's
+#: ``wrong_way`` parameter block, which is what the pipeline actually passes.
+DEFAULT_BOUNDARY_ABSTAIN_MARGIN = 4.0
 
 
 @dataclass(frozen=True)
@@ -86,6 +137,29 @@ def _center(track_state: TrackState) -> Vector:
     return ((box.x1 + box.x2) / 2.0, (box.y1 + box.y2) / 2.0)
 
 
+def _confidently_inside(
+    track_state: TrackState,
+    lane_polygon: Sequence[Point] | None,
+    boundary_abstain_margin: float,
+) -> bool:
+    """Whether this state's reference point is inside the lane, clear of its edge.
+
+    ``None`` polygon means "no lane gating configured" and admits everything, so
+    the pure-geometry callers keep their existing behaviour. Otherwise the point
+    must be inside *and* at least ``boundary_abstain_margin`` from the boundary;
+    a non-positive margin keeps containment and disables the abstain band.
+    """
+
+    if lane_polygon is None:
+        return True
+    point = _center(track_state)
+    if not point_in_polygon(point, lane_polygon):
+        return False
+    if boundary_abstain_margin <= 0.0:
+        return True
+    return distance_to_polygon_boundary(point, lane_polygon) >= boundary_abstain_margin
+
+
 def _heading_degrees(vector: Vector) -> float:
     """Absolute heading of ``vector`` in ``[0, 360)`` (image space, +y down)."""
 
@@ -104,12 +178,14 @@ def _iter_derivation(
     lane_id: str,
     deviation_max_degrees: float,
     producer: Producer | None,
+    lane_polygon: Sequence[Point] | None = None,
+    boundary_abstain_margin: float = 0.0,
 ) -> Iterator[tuple[HeadingVsLaneObservation, bool]]:
     """Yield ``(observation, is_taint_restart)`` for each usable step.
 
     ``is_taint_restart`` is ``True`` when the observation is the first clean one
-    after one or more tainted steps. Zero-displacement (ordinary-gap) skips do
-    not set it -- only taint does.
+    after one or more tainted steps. Zero-displacement and lane-containment
+    (ordinary-gap) skips do not set it -- only taint does.
     """
 
     legal_vector: Vector = (legal_direction.dx, legal_direction.dy)
@@ -120,6 +196,16 @@ def _iter_derivation(
     for previous, current in zip(track, track[1:], strict=False):
         if previous.tainted or current.tainted:
             taint_since_last_emit = True  # abstain on tainted data; mark discontinuity
+            continue
+        if not (
+            _confidently_inside(previous, lane_polygon, boundary_abstain_margin)
+            and _confidently_inside(current, lane_polygon, boundary_abstain_margin)
+        ):
+            # The step did not happen confidently inside the lane whose legal
+            # direction governs it, so this derivation has nothing to say about
+            # it. Both endpoints are required: a displacement with one end
+            # outside is not a movement "inside the lane". An ordinary gap, not
+            # a taint discontinuity.
             continue
         step: Vector = displacement(_center(previous), _center(current))
         if is_zero_vector(step):
@@ -150,11 +236,14 @@ def derive_heading_observations(
     lane_id: str,
     deviation_max_degrees: float,
     producer: Producer | None = None,
+    lane_polygon: Sequence[Point] | None = None,
+    boundary_abstain_margin: float = 0.0,
 ) -> list[HeadingVsLaneObservation]:
     """Derive ``HeadingVsLaneObservation`` facts from a TrackState sequence.
 
     Returns one observation per usable consecutive step, in input order. Steps
-    involving a tainted TrackState or with zero displacement are skipped. Use
+    involving a tainted TrackState, with zero displacement, or not confidently
+    inside ``lane_polygon`` are skipped. Use
     :func:`derive_heading_observations_with_taint` when the taint-discontinuity
     markers are needed for reasoning.
 
@@ -168,6 +257,12 @@ def derive_heading_observations(
             (``heading_deviation_max``); a step is a contradiction iff its
             deviation strictly exceeds it. Passed in from configuration.
         producer: observation provenance (defaults to a synthetic heuristic).
+        lane_polygon: the polygon of the lane ``lane_id`` names. When given, only
+            steps whose endpoints lie confidently inside it are derived. ``None``
+            disables lane gating entirely.
+        boundary_abstain_margin: clearance a reference point must keep from the
+            lane boundary before its step may vote. Ignored when ``lane_polygon``
+            is ``None``; ``0.0`` keeps containment without an abstain band.
     """
 
     return [
@@ -178,6 +273,8 @@ def derive_heading_observations(
             lane_id=lane_id,
             deviation_max_degrees=deviation_max_degrees,
             producer=producer,
+            lane_polygon=lane_polygon,
+            boundary_abstain_margin=boundary_abstain_margin,
         )
     ]
 
@@ -189,6 +286,8 @@ def derive_heading_observations_with_taint(
     lane_id: str,
     deviation_max_degrees: float,
     producer: Producer | None = None,
+    lane_polygon: Sequence[Point] | None = None,
+    boundary_abstain_margin: float = 0.0,
 ) -> HeadingDerivation:
     """Like :func:`derive_heading_observations`, but also return taint restarts.
 
@@ -205,6 +304,8 @@ def derive_heading_observations_with_taint(
         lane_id=lane_id,
         deviation_max_degrees=deviation_max_degrees,
         producer=producer,
+        lane_polygon=lane_polygon,
+        boundary_abstain_margin=boundary_abstain_margin,
     ):
         observations.append(observation)
         if is_restart:

@@ -7,16 +7,23 @@ purpose-built **test** ``SceneConfig``.
 
 Why a purpose-built test scene
 ------------------------------
-Unlike wrong-way (which reasons on a *global* legal-direction vector, so the P1-U12
-clip works against the unmodified example scene), illegal stopping is gated on
-**zone membership**: the vehicle's bbox bottom-center must fall inside a
-``no_stopping`` polygon. The example scene's ``zone-no-stop`` lives at 1920x1080
-pixel coordinates a tiny 320x240 clip cannot reach, so this module derives a test
-scene from the example scene by patching **only** the ``zone-no-stop`` polygon into
-the clip's pixel space and lowering ``stationary_duration`` (to keep the clip
-short). Every point stays within the example scene's declared 1920x1080 frame, so
-the ``SceneConfig`` bounds validator still passes. This is a **test fixture only**;
-the example scene's ``zone-no-stop`` remains the analogue for the real/demo path.
+Both rules this scene supports are geometry-gated, and the example scene's geometry
+is authored for 1920x1080 footage a tiny 320x240 clip cannot reach:
+
+* illegal stopping is gated on **zone membership** -- the vehicle's bbox
+  bottom-center must fall inside a ``no_stopping`` polygon;
+* wrong-way is gated on **lane containment** -- heading is only derived for steps
+  inside the polygon of the lane whose legal direction governs them
+  (architecture-review §5a). It is *not* a global legal-direction vector; treating
+  it as one is what made lawful traffic on an opposing carriageway confirm as a
+  violation.
+
+So this module derives a test scene from the example scene by patching **only** the
+``zone-no-stop`` and ``zone-lane-north`` polygons into the clip's pixel space and
+lowering ``stationary_duration`` (to keep the clip short). Every point stays within
+the example scene's declared 1920x1080 frame, so the ``SceneConfig`` bounds
+validator still passes. This is a **test fixture only**; the example scene's own
+polygons remain the analogue for the real/demo path.
 
 Motion shape (``enter-then-stop``)
 ----------------------------------
@@ -43,6 +50,7 @@ from pathlib import Path
 import av
 import numpy as np
 import yaml
+from _slice_fixtures import LANE_POLYGON
 
 from trafficpulse.contracts import ObjectClass, SceneConfig
 from trafficpulse.detector import DetectorConfig, RawDetection, StubDetector
@@ -177,12 +185,17 @@ def stopping_detector_config() -> DetectorConfig:
 
 
 def illegal_stopping_test_scene() -> SceneConfig:
-    """A test ``SceneConfig``: the example scene with the no-stop zone in clip space.
+    """A test ``SceneConfig``: the example scene with its zones in clip space.
 
-    Patches **only** the ``zone-no-stop`` polygon (into the clip's pixel space) and
-    the ``stationary_duration`` value (to :data:`STATIONARY_DURATION_S`); everything
-    else -- frame reference, other zones, calibration -- is the example scene
-    verbatim, so the change is minimal and the scene stays valid.
+    Patches **only** the ``zone-no-stop`` and ``zone-lane-north`` polygons (into the
+    clip's pixel space) and the ``stationary_duration`` value (to
+    :data:`STATIONARY_DURATION_S`); everything else -- frame reference, other zones,
+    calibration -- is the example scene verbatim, so the change is minimal and the
+    scene stays valid.
+
+    ``zone-lane-north`` is patched to the same lane ``_slice_fixtures`` uses, so a
+    track in this clip is in the wrong-way lane *and* the no-stopping zone -- which
+    is what lets one track genuinely commit both violations in one run.
     """
 
     raw = yaml.safe_load(_EXAMPLE_SCENE_PATH.read_text(encoding="utf-8"))
@@ -190,6 +203,8 @@ def illegal_stopping_test_scene() -> SceneConfig:
     for zone in scene["zones"]:
         if zone["zone_id"] == "zone-no-stop":
             zone["polygon"] = [list(pt) for pt in NO_STOP_POLYGON]
+        elif zone["zone_id"] == "zone-lane-north":
+            zone["polygon"] = [list(pt) for pt in LANE_POLYGON]
     for block in scene["rule_parameters"]:
         if block["violation_type"] == "illegal_stopping":
             for param in block["parameters"]:

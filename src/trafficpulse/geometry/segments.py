@@ -7,6 +7,7 @@ This module answers *geometric* questions only:
 
 * how three points are oriented (the sign of a cross-product determinant);
 * whether a point lies on a closed segment;
+* how far a point lies from a closed segment;
 * whether two closed segments intersect;
 * which side of an infinite line a point lies on;
 * whether a movement from one point to another changed sides of a line and/or
@@ -20,7 +21,7 @@ side facts about a configured stop line; it does not interpret them.
 
 from typing import NamedTuple
 
-from .vectors import NUMERIC_EPSILON, Point, cross, displacement
+from .vectors import NUMERIC_EPSILON, Point, cross, displacement, magnitude
 
 
 def orientation(a: Point, b: Point, c: Point) -> int:
@@ -63,6 +64,31 @@ def point_on_segment(p: Point, a: Point, b: Point) -> bool:
         min(a[1], b[1]) - NUMERIC_EPSILON <= p[1] <= max(a[1], b[1]) + NUMERIC_EPSILON
     )
     return within_x and within_y
+
+
+def point_to_segment_distance(p: Point, a: Point, b: Point) -> float:
+    """Return the shortest Euclidean distance from ``p`` to the closed segment ``ab``.
+
+    The nearest point on a closed segment is either an endpoint or the
+    perpendicular foot, whichever the clamped projection parameter selects. The
+    projection parameter is clamped to ``[0, 1]`` so the result is a distance to
+    the *segment*, never to its infinite line -- which is what callers measuring
+    clearance from a polygon edge need.
+
+    A degenerate segment (``a == b`` within the geometry epsilon) is treated as
+    the single point ``a``, so the result is simply ``|p - a|`` rather than a
+    division by zero.
+    """
+
+    ab = displacement(a, b)
+    ap = displacement(a, p)
+    ab_squared = ab[0] * ab[0] + ab[1] * ab[1]
+    if ab_squared <= NUMERIC_EPSILON:  # degenerate segment: distance to the point
+        return magnitude(ap)
+    t = (ap[0] * ab[0] + ap[1] * ab[1]) / ab_squared
+    t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)  # clamp onto the closed segment
+    foot: Point = (a[0] + t * ab[0], a[1] + t * ab[1])
+    return magnitude(displacement(foot, p))
 
 
 def segments_intersect(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:

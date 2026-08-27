@@ -11,6 +11,9 @@ from _pipeline_helpers import (
     CAMERA,
     DEFAULT_FRAME_COUNT,
     DETECTOR_CONFIG,
+    LANE_X_LEFT,
+    LANE_X_RIGHT,
+    LANE_Y0_UP,
     NORTH_DIRECTION_ID,
     SCENE,
     make_frame_record,
@@ -98,7 +101,7 @@ def test_legal_direction_motion_produces_no_event() -> None:
     # Moving up (direction=-1, starting high so the box stays in frame) agrees
     # with legal north -> no contradiction.
     pipeline = _pipeline(
-        moving_down_detector(direction=-1, y0=300.0), StubTracker(_single_track_script())
+        moving_down_detector(direction=-1, y0=LANE_Y0_UP), StubTracker(_single_track_script())
     )
     assert pipeline.process(_frames()) == ()
 
@@ -122,7 +125,8 @@ def test_empty_frame_stream_produces_no_event() -> None:
 # --- multiple tracks ----------------------------------------------------------
 def test_two_tracks_each_confirm_independently() -> None:
     per_frame = {
-        i: (moving_raw(i, x=50.0), moving_raw(i, x=300.0)) for i in range(DEFAULT_FRAME_COUNT)
+        i: (moving_raw(i, x=LANE_X_LEFT), moving_raw(i, x=LANE_X_RIGHT))
+        for i in range(DEFAULT_FRAME_COUNT)
     }
     script = {
         i: (ScriptedAssignment(track_id="left"), ScriptedAssignment(track_id="right"))
@@ -137,7 +141,8 @@ def test_two_tracks_each_confirm_independently() -> None:
 # --- deterministic event ordering --------------------------------------------
 def test_event_ordering_is_deterministic_by_trigger_then_id() -> None:
     per_frame = {
-        i: (moving_raw(i, x=50.0), moving_raw(i, x=300.0)) for i in range(DEFAULT_FRAME_COUNT)
+        i: (moving_raw(i, x=LANE_X_LEFT), moving_raw(i, x=LANE_X_RIGHT))
+        for i in range(DEFAULT_FRAME_COUNT)
     }
     script = {
         i: (ScriptedAssignment(track_id="b"), ScriptedAssignment(track_id="a"))

@@ -3,14 +3,19 @@
 Covers orientation sign, on-segment membership (including degenerate segments),
 segment intersection (ordinary, none, endpoint contact, parallel, collinear
 overlap/disjoint, degenerate, and axis-aligned crossings), and the directional
-``stop_line_crossing`` facts. Coordinates are image-space (top-left origin,
-+y down). These are geometric facts only -- no legality decision is made.
+``stop_line_crossing`` facts, and point-to-segment distance (the clearance
+measure lane-boundary abstain is built on). Coordinates are image-space
+(top-left origin, +y down). These are geometric facts only -- no legality
+decision is made.
 """
+
+import pytest
 
 from trafficpulse.geometry.segments import (
     CrossingFact,
     orientation,
     point_on_segment,
+    point_to_segment_distance,
     segments_intersect,
     side_of_line,
     stop_line_crossing,
@@ -173,3 +178,31 @@ def test_invariant_intersection_symmetric_endpoint_order() -> None:
 def test_invariant_deterministic_repeated_calls() -> None:
     for _ in range(5):
         assert segments_intersect((0.0, 0.0), (4.0, 4.0), (0.0, 4.0), (4.0, 0.0)) is True
+
+
+# --- point-to-segment distance (lane-boundary clearance) ----------------------
+def test_distance_to_perpendicular_foot_when_projection_falls_inside() -> None:
+    # Foot at (5, 0); the perpendicular distance is the answer, not an endpoint.
+    assert point_to_segment_distance((5.0, 3.0), (0.0, 0.0), (10.0, 0.0)) == pytest.approx(3.0)
+
+
+def test_distance_clamps_to_the_nearer_endpoint_beyond_the_segment() -> None:
+    # Projection parameter < 0: the segment ends, so the endpoint is nearest. A
+    # distance to the infinite *line* would wrongly report 3.0 here.
+    assert point_to_segment_distance((-4.0, 3.0), (0.0, 0.0), (10.0, 0.0)) == pytest.approx(5.0)
+    assert point_to_segment_distance((14.0, 3.0), (0.0, 0.0), (10.0, 0.0)) == pytest.approx(5.0)
+
+
+def test_distance_is_zero_on_the_segment_and_at_its_endpoints() -> None:
+    assert point_to_segment_distance((5.0, 0.0), (0.0, 0.0), (10.0, 0.0)) == 0.0
+    assert point_to_segment_distance((0.0, 0.0), (0.0, 0.0), (10.0, 0.0)) == 0.0
+    assert point_to_segment_distance((10.0, 0.0), (0.0, 0.0), (10.0, 0.0)) == 0.0
+
+
+def test_degenerate_segment_is_treated_as_a_point_not_a_division_by_zero() -> None:
+    assert point_to_segment_distance((3.0, 4.0), (0.0, 0.0), (0.0, 0.0)) == pytest.approx(5.0)
+
+
+def test_distance_is_symmetric_in_the_segment_endpoint_order() -> None:
+    a, b, p = (1.0, 2.0), (9.0, 6.0), (4.0, 9.0)
+    assert point_to_segment_distance(p, a, b) == pytest.approx(point_to_segment_distance(p, b, a))

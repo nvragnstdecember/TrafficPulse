@@ -317,13 +317,18 @@ def test_cli_reports_typed_error_for_missing_scene(tmp_path, capsys) -> None:
 def test_wrong_way_slice_still_confirms(tmp_path: Path) -> None:
     # Adding the illegal-stopping sibling runner must not disturb the shipped
     # wrong-way slice (it reuses runner.py's stateless CLI helpers unchanged).
-    import yaml
-    from _slice_fixtures import scripted_down_detector, write_wrong_way_clip
+    from _slice_fixtures import (
+        scripted_down_detector,
+        write_wrong_way_clip,
+        wrong_way_test_scene,
+    )
 
     from trafficpulse.pipeline.runner import run_wrong_way_slice
 
-    scene_path = Path(__file__).resolve().parents[2] / "configs" / "scenes" / "example-scene.yaml"
-    scene = SceneConfig.model_validate(yaml.safe_load(scene_path.read_text(encoding="utf-8")))
+    # The clip-space wrong-way scene, for the same reason this module has its own
+    # illegal-stopping one: the rule is geometry-gated and the committed example
+    # scene's lane is authored for 1920x1080 footage this clip is not.
+    scene = wrong_way_test_scene()
     clip = write_wrong_way_clip(tmp_path / "ww.mp4")
     report = run_wrong_way_slice(
         clip=clip,

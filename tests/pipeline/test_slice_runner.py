@@ -17,11 +17,12 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
 from _slice_fixtures import (
     FRAME_COUNT,
     scripted_down_detector,
     write_wrong_way_clip,
+    write_wrong_way_scene_file,
+    wrong_way_test_scene,
 )
 
 from trafficpulse.contracts import ObjectClass, SceneConfig, ViolationType
@@ -40,9 +41,12 @@ from trafficpulse.tracking import IouTracker
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENE_PATH = REPO_ROOT / "configs" / "scenes" / "example-scene.yaml"
-SCENE: SceneConfig = SceneConfig.model_validate(
-    yaml.safe_load(SCENE_PATH.read_text(encoding="utf-8"))
-)
+#: The scene the clip-based runs reason against. Wrong-way reasoning is contained
+#: to its governing lane's polygon, and the committed example scene's lane is
+#: authored for 1920x1080 footage the 320x240 fixture clip cannot reach -- so the
+#: clip must be reasoned about in a scene whose lane it is actually in.
+#: ``SCENE_PATH`` is still the committed file, used by the loader tests below.
+SCENE: SceneConfig = wrong_way_test_scene()
 NORTH = "dir-north"  # legal north = (0, -1); the clip's box moves down => wrong-way
 DETECTOR_CONFIG = DetectorConfig(label_map={"car": ObjectClass.CAR})
 
@@ -166,7 +170,9 @@ def test_fresh_process_determinism(tmp_path: Path) -> None:
     proc = subprocess.run(
         [
             sys.executable, str(script_file),
-            fixtures_dir, str(SCENE_PATH), str(clip), str(tmp_path / "fresh-runs"),
+            fixtures_dir,
+            str(write_wrong_way_scene_file(tmp_path / "scene.yaml")),
+            str(clip), str(tmp_path / "fresh-runs"),
         ],
         capture_output=True,
         text=True,
@@ -248,7 +254,7 @@ def test_cli_success_path_with_injected_detector(tmp_path, capsys, monkeypatch) 
     code = main(
         [
             "--clip", str(clip),
-            "--scene", str(SCENE_PATH),
+            "--scene", str(write_wrong_way_scene_file(tmp_path / "scene.yaml")),
             "--output-dir", str(tmp_path / "runs"),
             "--run-id", "cli-1",
             "--checkpoint", "unused-because-injected",
@@ -277,7 +283,7 @@ def test_cli_composition_root_stamps_truthful_model_provenance(
     code = main(
         [
             "--clip", str(clip),
-            "--scene", str(SCENE_PATH),
+            "--scene", str(write_wrong_way_scene_file(tmp_path / "scene.yaml")),
             "--output-dir", str(tmp_path / "runs"),
             "--run-id", "prov-1",
             "--checkpoint", "cp-test-checkpoint",

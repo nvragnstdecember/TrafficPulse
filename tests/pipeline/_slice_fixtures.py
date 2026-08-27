@@ -26,8 +26,13 @@ from pathlib import Path
 
 import av
 import numpy as np
+import yaml
 
+from trafficpulse.contracts import SceneConfig
 from trafficpulse.detector import RawDetection, StubDetector
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_EXAMPLE_SCENE_PATH = _REPO_ROOT / "configs" / "scenes" / "example-scene.yaml"
 
 # Clip geometry. FPS * FRAME_COUNT well exceeds the example scene's 1.0 s wrong_way
 # min_persistence (10 fps * 30 frames = 3.0 s of media time).
@@ -46,6 +51,60 @@ _STEP = 6.0
 
 def _box_top(frame_index: int) -> float:
     return _Y0 + frame_index * _STEP
+
+
+# The lane the rectangle drives down, in the clip's own 320x240 pixel space.
+# Wrong-way reasoning is contained to the polygon of the lane its legal direction
+# governs, so the clip's rectangle has to actually be *in* that lane -- and the
+# example scene's ``zone-lane-north`` sits at 1920x1080 coordinates a 320x240 clip
+# cannot reach. Chosen so the box center (160, 35..209) keeps >= 25 px of clearance
+# from every edge for the whole run, comfortably outside the boundary-abstain band.
+LANE_POLYGON: tuple[tuple[float, float], ...] = (
+    (100.0, 0.0),
+    (220.0, 0.0),
+    (220.0, 260.0),
+    (100.0, 260.0),
+)
+
+
+def wrong_way_test_scene() -> SceneConfig:
+    """The example scene with ``zone-lane-north`` patched into the clip's pixel space.
+
+    The wrong-way analogue of ``_stopping_fixtures.illegal_stopping_test_scene``,
+    and it exists for the same reason: the rule is geometry-gated, and the example
+    scene's geometry is authored for 1920x1080 footage rather than a tiny synthetic
+    clip. Only that one polygon changes -- frame reference, other zones, directions,
+    calibration and every rule parameter stay the example scene verbatim, so the
+    scene stays valid and the change is auditable.
+
+    Note the polygon's points remain inside the example scene's declared 1920x1080
+    frame, so ``SceneConfig``'s bounds validator still passes.
+
+    This is a **test fixture only**: the committed example scene's
+    ``zone-lane-north`` is still the analogue for the real/demo path.
+    """
+
+    raw = yaml.safe_load(_EXAMPLE_SCENE_PATH.read_text(encoding="utf-8"))
+    scene = SceneConfig.model_validate(raw).model_dump(mode="json")
+    for zone in scene["zones"]:
+        if zone["zone_id"] == "zone-lane-north":
+            zone["polygon"] = [list(pt) for pt in LANE_POLYGON]
+    return SceneConfig.model_validate(scene)
+
+
+def write_wrong_way_scene_file(path: Path) -> Path:
+    """Dump :func:`wrong_way_test_scene` to YAML for callers that need a scene *path*.
+
+    The application layer is configured with a scene **file**, not a
+    ``SceneConfig``, so its tests need the clip-space scene on disk.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(wrong_way_test_scene().model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
 
 
 def write_wrong_way_clip(

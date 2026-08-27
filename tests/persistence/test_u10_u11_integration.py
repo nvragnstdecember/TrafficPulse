@@ -52,10 +52,30 @@ def _frames() -> list[FrameRecord]:
     ]
 
 
+# Wrong-way reasoning is contained to the polygon of the lane its legal direction
+# governs, so the car has to drive down the lane itself. ``dir-north`` governs
+# ``zone-lane-north`` = [(860,1060),(1060,1060),(1010,640),(910,640)]; this column
+# keeps the 20x20 box's center on the lane's mid-line (x=960) travelling y 710 ->
+# 930, ~58 px clear of every edge for the whole run.
+_LANE_X = 950.0
+_LANE_Y0 = 700.0
+
+
 def _moving_down_detector() -> StubDetector:
     # A car moving DOWN (+y) each frame -> contradicts legal north -> wrong-way.
     per_frame = {
-        i: (RawDetection(label="car", score=0.9, box=(50.0, 50.0 + 5.0 * i, 70.0, 70.0 + 5.0 * i)),)
+        i: (
+            RawDetection(
+                label="car",
+                score=0.9,
+                box=(
+                    _LANE_X,
+                    _LANE_Y0 + 5.0 * i,
+                    _LANE_X + 20.0,
+                    _LANE_Y0 + 20.0 + 5.0 * i,
+                ),
+            ),
+        )
         for i in range(FRAME_COUNT)
     }
     return StubDetector(per_frame=per_frame)

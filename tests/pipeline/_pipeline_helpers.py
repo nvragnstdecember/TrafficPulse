@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
-import yaml
+from _slice_fixtures import wrong_way_test_scene  # noqa: E402  (tests-tree sibling)
 
 from trafficpulse.contracts import (
     BoundingBox,
@@ -29,9 +29,13 @@ from trafficpulse.ingestion.video import FrameRecord
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENE_PATH = REPO_ROOT / "configs" / "scenes" / "example-scene.yaml"
-SCENE: SceneConfig = SceneConfig.model_validate(
-    yaml.safe_load(SCENE_PATH.read_text(encoding="utf-8"))
-)
+#: The scene these fixtures reason against: the example scene with its northbound
+#: lane patched into the synthetic clip's pixel space. Wrong-way reasoning is
+#: contained to that lane's polygon, and the example scene's own ``zone-lane-north``
+#: is authored for 1920x1080 footage that no fixture here produces -- so reasoning
+#: against it unpatched would (correctly) confirm nothing at all. Every other field
+#: is the example scene verbatim; see ``_slice_fixtures.wrong_way_test_scene``.
+SCENE: SceneConfig = wrong_way_test_scene()
 CAMERA = SCENE.scene.camera_id  # "cam-synthetic-01"
 NORTH_DIRECTION_ID = "dir-north"  # legal direction "north" = (0, -1); moving down is wrong-way
 
@@ -43,6 +47,22 @@ FRAME_INTERVAL_S = 1.0 / 30.0
 # Enough frames to exceed the example scene's 1.0 s wrong_way min_persistence.
 DEFAULT_FRAME_COUNT = 45
 STEP_PX = 5.0  # small step: consecutive boxes overlap (IoU ~0.6 > 0.3 default)
+
+# Wrong-way reasoning is contained to the polygon of the lane whose legal direction
+# governs it, so these synthetic boxes must travel *inside* that lane -- the same
+# requirement ``synth.scenarios`` already states for its own trajectories. ``SCENE``
+# below is the clip-space wrong-way test scene, so the lane is
+# ``_slice_fixtures.LANE_POLYGON`` (x 100..220, y 0..260) and these defaults share
+# it with the real clip's rectangle. Every default keeps the 20x20 box's center
+# >= 18 px clear of the lane's edges for the whole 45-frame run, well outside the
+# boundary-abstain band. Boxes outside the lane produce no heading facts at all,
+# which is the point: a track on another carriageway is not this lane's traffic.
+# (Before containment these sat at x=50, y=50 -- outside any declared lane.)
+LANE_X = 150.0  # box x1; center x = 160, the lane's mid-line
+LANE_X_LEFT = 120.0  # a second, distinguishable in-lane column (center 130)
+LANE_X_RIGHT = 180.0  # ...and a third (center 190)
+LANE_Y0_DOWN = 8.0  # start high, step DOWN the lane = against ``dir-north``
+LANE_Y0_UP = 228.0  # start low, step UP the lane = with ``dir-north``
 
 DETECTOR_CONFIG = DetectorConfig(label_map={"car": ObjectClass.CAR})
 
@@ -80,16 +100,17 @@ def _box(
 def moving_raw(
     frame_index: int,
     *,
-    x: float = 50.0,
+    x: float = LANE_X,
     step: float = STEP_PX,
     direction: int = 1,
-    y0: float = 50.0,
+    y0: float = LANE_Y0_DOWN,
 ) -> RawDetection:
     """A ``RawDetection`` for a car moving ``direction`` * ``step`` px/frame in y.
 
     ``direction=+1`` moves **down** (wrong-way vs legal north); ``-1`` moves up
-    (legal). ``y0`` is the starting top (raise it for upward motion so the box
-    stays in frame). ``label='car'`` maps to ``ObjectClass.CAR``.
+    (legal). ``y0`` is the starting top -- use :data:`LANE_Y0_UP` for upward
+    motion so the box stays inside the lane. ``label='car'`` maps to
+    ``ObjectClass.CAR``.
     """
 
     return RawDetection(
@@ -100,10 +121,10 @@ def moving_raw(
 def moving_detection(
     frame_index: int,
     *,
-    x: float = 50.0,
+    x: float = LANE_X,
     step: float = STEP_PX,
     direction: int = 1,
-    y0: float = 50.0,
+    y0: float = LANE_Y0_DOWN,
     camera_id: str = CAMERA,
 ) -> Detection:
     """A ``Detection`` equivalent to what the pipeline adapts from ``moving_raw``."""
@@ -121,7 +142,11 @@ def moving_detection(
 
 
 def moving_down_detector(
-    frame_count: int = DEFAULT_FRAME_COUNT, *, x: float = 50.0, direction: int = 1, y0: float = 50.0
+    frame_count: int = DEFAULT_FRAME_COUNT,
+    *,
+    x: float = LANE_X,
+    direction: int = 1,
+    y0: float = LANE_Y0_DOWN,
 ) -> StubDetector:
     """A ``StubDetector`` scripted to emit one moving car per frame."""
 

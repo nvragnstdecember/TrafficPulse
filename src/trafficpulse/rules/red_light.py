@@ -75,29 +75,21 @@ from ..contracts import (
     SceneConfig,
     SignalStateObservation,
 )
-from ..contracts.enums import ObjectClass, SignalState, ViolationType
+from ..contracts.enums import SignalState, ViolationType
 from ..contracts.scene import ParameterStatus
 from ..observations.crossing import CrossingDerivation
 from .engine import RuleEngine
 from .temporal import ConfirmationDetails, TemporalRunReasoner
+from .vehicles import VEHICLE_CLASSES as VEHICLE_CLASSES
 
 RULE_ID = "red-light-jumping-v1"
 RULE_VERSION = "0.1.0-provisional"
 
-#: The classes a red-light violation can be committed by. Pedestrians are excluded
-#: deliberately: ``person`` is in the label map because helmet reasoning needs
-#: riders, and a person walking into a junction on red is not this violation.
-#: ``bicycle`` is excluded too -- cycle signalling differs by jurisdiction and the
-#: system has no basis to adjudicate it.
-VEHICLE_CLASSES: frozenset[ObjectClass] = frozenset(
-    {
-        ObjectClass.CAR,
-        ObjectClass.MOTORCYCLE,
-        ObjectClass.BUS,
-        ObjectClass.TRUCK,
-        ObjectClass.AUTO_RICKSHAW,
-    }
-)
+#: ``VEHICLE_CLASSES`` is imported above from :mod:`trafficpulse.rules.vehicles`,
+#: which owns the single definition now shared with wrong-way, and is re-exported
+#: here so this module's existing consumers keep working unchanged. The rationale
+#: -- including why ``person`` and ``bicycle`` are excluded -- lives beside the
+#: constant rather than being restated per rule.
 
 #: The only signal state that confirms. ``AMBER`` is deliberately excluded: in most
 #: jurisdictions it means "stop if it is safe to do so", which is a judgement about

@@ -18,10 +18,13 @@ Parameters (provisional, from configuration)
 --------------------------------------------
 ``wrong_way_parameters(scene)`` reads the ``wrong_way`` rule-parameter block from
 a U5 ``SceneConfig``: ``heading_deviation_max`` (degrees) and ``min_persistence``
-(seconds) are required; ``min_speed`` (m/s) is loaded but **not applied** in this
-uncalibrated synthetic slice -- converting m/s to the pixel space of synthetic
-tracks needs a validated calibration that does not exist yet, so the usable-
-movement gate is the geometric zero-displacement skip in the derivation layer.
+(seconds) are required; ``boundary_abstain_margin`` (pixels) is optional and falls
+back to ``observations.heading.DEFAULT_BOUNDARY_ABSTAIN_MARGIN`` so scenes written
+before lane containment existed stay valid; ``min_speed`` (m/s) is loaded but
+**not applied** in this uncalibrated synthetic slice -- converting m/s to the
+pixel space of synthetic tracks needs a validated calibration that does not exist
+yet, so the usable-movement gate is the geometric zero-displacement skip in the
+derivation layer.
 Every value keeps its configured ``ParameterStatus`` (all ``provisional`` in the
 example scene); nothing is silently promoted to validated.
 
@@ -82,7 +85,7 @@ from ..contracts import (
     SceneConfig,
 )
 from ..contracts.enums import ViolationType
-from ..observations.heading import HeadingDerivation
+from ..observations.heading import DEFAULT_BOUNDARY_ABSTAIN_MARGIN, HeadingDerivation
 from .engine import RuleEngine
 from .temporal import ConfirmationDetails, TemporalRunReasoner
 
@@ -98,6 +101,11 @@ class WrongWayParameters:
     ``min_speed`` is carried for provenance but not applied in this uncalibrated
     synthetic slice (see module docstring). Every ``*_status`` preserves the
     configured provisional/unset marker.
+
+    ``boundary_abstain_margin`` is the clearance (pixels) a track's reference point
+    must keep from the governing lane's boundary before its step may vote, per the
+    architecture review's "abstain near the polygon boundary". It is optional in the
+    scene and defaults to the provisional constant, so it always has a usable value.
     """
 
     deviation_max_degrees: float
@@ -106,6 +114,8 @@ class WrongWayParameters:
     deviation_status: ParameterStatus
     persistence_status: ParameterStatus
     min_speed_status: ParameterStatus
+    boundary_abstain_margin: float = DEFAULT_BOUNDARY_ABSTAIN_MARGIN
+    boundary_abstain_margin_status: ParameterStatus = ParameterStatus.UNSET
 
 
 def wrong_way_parameters(scene: SceneConfig) -> WrongWayParameters:
@@ -126,6 +136,7 @@ def wrong_way_parameters(scene: SceneConfig) -> WrongWayParameters:
     deviation = by_id.get("heading_deviation_max")
     persistence = by_id.get("min_persistence")
     speed = by_id.get("min_speed")
+    margin = by_id.get("boundary_abstain_margin")
     if deviation is None or deviation.value is None:
         raise ValueError("wrong_way heading_deviation_max is unset")
     if persistence is None or persistence.value is None:
@@ -137,6 +148,16 @@ def wrong_way_parameters(scene: SceneConfig) -> WrongWayParameters:
         deviation_status=deviation.status,
         persistence_status=persistence.status,
         min_speed_status=speed.status if speed is not None else ParameterStatus.UNSET,
+        # Optional: a scene authored before lane containment existed simply has no
+        # such parameter, and must keep working rather than fail to load.
+        boundary_abstain_margin=(
+            margin.value
+            if margin is not None and margin.value is not None
+            else DEFAULT_BOUNDARY_ABSTAIN_MARGIN
+        ),
+        boundary_abstain_margin_status=(
+            margin.status if margin is not None else ParameterStatus.UNSET
+        ),
     )
 
 

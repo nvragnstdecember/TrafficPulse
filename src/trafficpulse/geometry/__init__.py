@@ -17,11 +17,12 @@ origin, +y down), the numerical tolerance policy, angle units, zero-vector
 behavior, and point-in-polygon boundary behavior.
 """
 
-from .polygons import point_in_polygon
+from .polygons import distance_to_polygon_boundary, point_in_polygon
 from .segments import (
     CrossingFact,
     orientation,
     point_on_segment,
+    point_to_segment_distance,
     segments_intersect,
     side_of_line,
     stop_line_crossing,
@@ -59,10 +60,12 @@ __all__ = [
     # segments
     "orientation",
     "point_on_segment",
+    "point_to_segment_distance",
     "segments_intersect",
     "side_of_line",
     "CrossingFact",
     "stop_line_crossing",
     # polygons
     "point_in_polygon",
+    "distance_to_polygon_boundary",
 ]

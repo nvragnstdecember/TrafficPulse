@@ -7,7 +7,10 @@ and determinism. Coordinates are image-space (top-left origin, +y down).
 
 import pytest
 
-from trafficpulse.geometry.polygons import point_in_polygon
+from trafficpulse.geometry.polygons import (
+    distance_to_polygon_boundary,
+    point_in_polygon,
+)
 
 # A convex axis-aligned square (ordered ring; closing edge implicit).
 SQUARE = ((0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0))
@@ -109,3 +112,34 @@ def test_invariant_polygon_input_not_mutated() -> None:
     poly = tuple(SQUARE)
     point_in_polygon((2.0, 2.0), poly)
     assert poly == SQUARE
+
+
+# --- distance to the polygon boundary (lane-containment clearance) ------------
+_SQUARE = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]
+
+
+def test_boundary_distance_is_the_nearest_edge_from_inside() -> None:
+    assert distance_to_polygon_boundary((50.0, 50.0), _SQUARE) == pytest.approx(50.0)
+    assert distance_to_polygon_boundary((3.0, 50.0), _SQUARE) == pytest.approx(3.0)
+
+
+def test_boundary_distance_is_unsigned_so_outside_points_report_clearance_too() -> None:
+    # Unsigned by design: callers pair it with point_in_polygon to tell the two
+    # apart, which is exactly what the lane-containment gate does.
+    assert distance_to_polygon_boundary((-7.0, 50.0), _SQUARE) == pytest.approx(7.0)
+    assert not point_in_polygon((-7.0, 50.0), _SQUARE)
+
+
+def test_boundary_distance_is_zero_on_an_edge_and_on_a_vertex() -> None:
+    assert distance_to_polygon_boundary((0.0, 50.0), _SQUARE) == 0.0
+    assert distance_to_polygon_boundary((0.0, 0.0), _SQUARE) == 0.0
+
+
+def test_boundary_distance_accounts_for_the_implicit_closing_edge() -> None:
+    # Nearest edge is the implicit last->first ring closure, not a declared one.
+    assert distance_to_polygon_boundary((50.0, 96.0), _SQUARE) == pytest.approx(4.0)
+
+
+def test_boundary_distance_rejects_a_degenerate_polygon() -> None:
+    with pytest.raises(ValueError, match="at least 3 vertices"):
+        distance_to_polygon_boundary((0.0, 0.0), [(0.0, 0.0), (1.0, 1.0)])

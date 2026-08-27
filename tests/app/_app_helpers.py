@@ -10,11 +10,16 @@ helpers (path-shimmed by this directory's conftest). Uniquely named
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 from _pipeline_helpers import DETECTOR_CONFIG, NORTH_DIRECTION_ID, SCENE
-from _slice_fixtures import scripted_down_detector, write_wrong_way_clip
+from _slice_fixtures import (
+    scripted_down_detector,
+    write_wrong_way_clip,
+    write_wrong_way_scene_file,
+)
 from fastapi.testclient import TestClient
 
 from trafficpulse.app import AppConfig, SynchronousJobExecutor, create_app
@@ -34,10 +39,32 @@ from trafficpulse.engine import (
 )
 from trafficpulse.tracking import IouTracker
 
-# A scene path the app can load: reuse the committed example scene.
+# The committed example scene, for tests that assert on *it* specifically.
 EXAMPLE_SCENE_PATH = (
     Path(__file__).resolve().parents[2] / "configs" / "scenes" / "example-scene.yaml"
 )
+
+
+def _make_wrong_way_scene_path() -> Path:
+    """Write the clip-space wrong-way scene once, and return its path.
+
+    The application is configured with a scene **file**, not a ``SceneConfig``, so
+    the app tests need one on disk. It has to be the clip-space scene rather than
+    the committed example scene because wrong-way reasoning is contained to its
+    governing lane's polygon, and the example scene's lane is authored for
+    1920x1080 footage that the 320x240 fixture clip is not in -- against it these
+    tests would (correctly) confirm nothing, which is not what they are testing.
+
+    Written to a temp dir rather than the repo: tests must not write into the
+    working tree, and this file is derived, not authored.
+    """
+
+    directory = Path(tempfile.mkdtemp(prefix="trafficpulse-wrong-way-scene-"))
+    return write_wrong_way_scene_file(directory / "wrong-way-scene.yaml")
+
+
+#: The scene the app tests are configured with by default (see above).
+WRONG_WAY_SCENE_PATH = _make_wrong_way_scene_path()
 DEFAULT_RULES: tuple[RuleConfig, ...] = (WrongWayRuleConfig(direction_id=NORTH_DIRECTION_ID),)
 
 # A rule set whose run publishes **no overlay metadata**, for the "this run has no
@@ -111,7 +138,7 @@ class StubEngineProvider:
 def make_config(
     storage: Path,
     *,
-    scene_path: Path | None = EXAMPLE_SCENE_PATH,
+    scene_path: Path | None = WRONG_WAY_SCENE_PATH,
     default_rules: tuple[RuleConfig, ...] = DEFAULT_RULES,
     max_upload_bytes: int = 512 * 1024 * 1024,
 ) -> AppConfig:
@@ -261,6 +288,7 @@ __all__ = [
     "make_client",
     "upload_wrong_way_video",
     "EXAMPLE_SCENE_PATH",
+    "WRONG_WAY_SCENE_PATH",
     "DEFAULT_RULES",
     "SCENE",
     "NORTH_DIRECTION_ID",
