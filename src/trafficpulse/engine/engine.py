@@ -53,7 +53,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..classifier.interface import HelmetClassifier
-from ..contracts import ConfirmedEvent, EvidenceManifest, SceneConfig
+from ..contracts import ConfirmedEvent, EvidenceManifest, SceneConfig, TrackState
 from ..detector.config import DetectorConfig
 from ..detector.interface import Detector
 from ..ingestion.video import FrameRecord
@@ -183,6 +183,18 @@ class InferenceEngine:
         """
 
         return self._overlay_captures
+
+    def track_states(self) -> tuple[TrackState, ...]:
+        """Every ``TrackState`` the run has accumulated (read-only, mid-stream safe).
+
+        The third post-run inspection view beside :meth:`frame_observers` and
+        :meth:`overlay_captures`, and the one a caller needs when it wants the
+        *observed motion* rather than any rule's conclusion about it. Scene
+        auto-calibration reads it after a short bounded pass to estimate the clip's
+        dominant traffic flow, without finalizing, persisting, or reasoning at all.
+        """
+
+        return self._core.track_states
 
     # --- lifecycle ------------------------------------------------------------------
     def reset(self) -> None:

@@ -251,6 +251,14 @@ class SceneSummary(_ApiModel):
     has_legal_direction: bool = Field(
         description="Whether a legal travel direction is declared (wrong-way needs one)."
     )
+    derived: bool = Field(
+        default=False,
+        description="True when this scene was derived from the clip's own observed "
+        "motion rather than drawn by an analyst. A derived scene measures the frame "
+        "and estimates the legal direction; it never claims a no-stopping zone, stop "
+        "line or signal timing, because none of those is observable from footage. "
+        "Review it before relying on wrong-way results.",
+    )
     has_no_stopping_zone: bool = Field(
         description="Whether an enabled no-stopping zone is declared "
         "(illegal-stopping needs one)."

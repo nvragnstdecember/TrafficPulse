@@ -308,3 +308,56 @@ describe('SignalScheduleEditor (via the calibrator)', () => {
     expect(await screen.findByText(/non-decreasing time order/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * A scene nobody drew has to announce itself, and has to be honest about which
+ * outcome it was. The regression this guards: the banner used to claim, for every
+ * derived scene, that "the legal direction was estimated from the traffic in this
+ * clip" — which is false whenever derivation abstained, and abstention is the
+ * expected outcome on a two-way road.
+ */
+describe('SceneCalibrator — derived-scene provenance', () => {
+  it('says a legal direction was estimated when one actually was', async () => {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ derived: true, has_legal_direction: true }),
+    );
+
+    render();
+
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent(/derived automatically/i);
+    expect(note).toHaveTextContent(/estimated/i);
+    expect(note).toHaveTextContent(/no no-stopping zone, stop line or signal timing/i);
+  });
+
+  it('says no direction could be established when derivation abstained', async () => {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({
+        derived: true,
+        has_legal_direction: false,
+        supported_violations: ['triple_riding'],
+      }),
+    );
+
+    render();
+
+    const note = await screen.findByRole('note');
+    expect(note).toHaveTextContent(/no legal direction could be established/i);
+    // The false claim the old copy made unconditionally.
+    expect(note).not.toHaveTextContent(/direction estimated from/i);
+    expect(note).toHaveTextContent(/wrong-way detection is therefore unavailable/i);
+  });
+
+  it('shows no provenance note at all for a scene an analyst drew', async () => {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ derived: false, has_legal_direction: true }),
+    );
+
+    render();
+
+    // The saved scene has loaded (its unlocked violations are on screen)…
+    expect(await screen.findByLabelText('Violations unlocked')).toBeInTheDocument();
+    // …and nothing casts doubt on geometry a person actually drew.
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+});

@@ -69,8 +69,8 @@ only. Concretely:
 - **Not started:** speeding (the sixth locked violation), real-footage validation,
   ANPR, and simulated penalties (see [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), **2457 passing backend tests**
-(9 opt-in real-model/GPU tests skipped by default) plus **499 passing frontend
+Quality gates are green: `ruff`, `mypy src` (strict), **2500 passing backend tests**
+(9 opt-in real-model/GPU tests skipped by default) plus **506 passing frontend
 tests**, on the current tree, with single-environment Linux CI and a
 native-Windows verification checklist.
 
@@ -328,7 +328,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 2457 passing; 9 opt-in real-model/GPU tests
+- **Tests:** `pytest -q` (currently 2500 passing; 9 opt-in real-model/GPU tests
   skipped by default). Install the `api` and `overlay` extras so the web layer and
   the overlay renderer are both type-checked and tested — this is exactly what CI
   installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`

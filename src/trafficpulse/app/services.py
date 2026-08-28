@@ -25,7 +25,10 @@ import hashlib
 import logging
 import uuid
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
+from itertools import islice
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -35,13 +38,21 @@ from ..contracts import (
     EvidenceManifest,
     ReviewEntry,
     SceneConfig,
+    TrackState,
     can_transition,
     next_status,
 )
 from ..contracts.enums import ArtifactKind, ReviewAction, ReviewStatus, ViolationType
 from ..contracts.scene import ZoneType, scene_config_hash
 from ..detector.errors import DetectorError
-from ..engine import EngineRunResult, FileFrameSource, InferenceEngine, RuleConfig
+from ..engine import (
+    EngineRunResult,
+    FileFrameSource,
+    InferenceEngine,
+    RuleConfig,
+    TripleRidingRuleConfig,
+    WrongWayRuleConfig,
+)
 from ..engine.errors import (
     EngineConfigurationError,
     RunCancelledError,
@@ -66,7 +77,15 @@ from ..persistence import (
     StoredEvent,
 )
 from ..pipeline.errors import SceneConfigurationError
-from ..scenes import SceneDraft, build_scene
+from ..scenes import (
+    CALIBRATION_SOURCE_AUTO,
+    DirectionDraft,
+    FlowEstimate,
+    SceneDraft,
+    ZoneDraft,
+    build_scene,
+    estimate_dominant_flow,
+)
 from .capabilities import rules_for, supported_violations
 from .config import AppConfig
 from .engine_provider import EngineProvider
@@ -115,7 +134,80 @@ from .registry import (
 
 _logger = logging.getLogger("trafficpulse.app")
 
+#: Identifiers used by every auto-derived scene, so a reviewer can recognise one
+#: at a glance and the UI can name the lane the direction governs.
+DERIVED_LANE_ID = "lane-auto"
+DERIVED_DIRECTION_ID = "dir-auto"
+
+#: The fewest substantial movers a legal direction may be declared from. Below
+#: this the vector is dominated by one or two vehicles, and a wrong-way rule built
+#: on it would be reasoning about an accident of who happened to drive past.
+#: Abstaining costs a rule; guessing costs every lawful vehicle going the other way.
+MIN_FLOW_MOVERS = 5
+
+#: Frames the calibration pass may submit. Bounded because it is pure overhead on
+#: top of the real run: enough motion to estimate flow (several seconds at any
+#: normal frame rate), never the whole clip.
+CALIBRATION_FRAME_BUDGET = 90
+
+
+@dataclass(frozen=True)
+class DerivedScene:
+    """A scene authored from one clip's observed motion, and what it rests on.
+
+    ``flow`` is ``None`` when derivation **abstained** -- the clip was measured but
+    its traffic does not define a single legal direction. That is a successful
+    outcome carrying an honest absence, not a failure, and the scene is bound
+    either way.
+    """
+
+    scene: SceneConfig
+    scene_hash: str
+    flow: FlowEstimate | None
+
+
+class CalibrationOutcome(StrEnum):
+    """How the scene a run is about to use was arrived at.
+
+    Recorded so the reason a run reasoned about the geometry it did is legible in
+    the log and in the tests, rather than being inferable only from which branch
+    happened not to raise.
+    """
+
+    #: The clip's motion supported a legal direction; the derived scene is bound.
+    DERIVED = "derived"
+    #: The clip was measured but its traffic defines no single legal direction.
+    #: A frame-correct scene with no direction is bound; wrong-way stays off.
+    ABSTAINED = "abstained"
+    #: The calibration pass itself failed. Nothing is bound and the run proceeds
+    #: on an unbound, frame-correct, direction-free scene.
+    FAILED = "failed"
+    #: No rule in the resolved set needs a derived legal direction, so no
+    #: detector pass was run at all. Same unbound frame-correct scene.
+    SKIPPED = "skipped"
+
+
 JobIdFactory = Callable[[], str]
+
+
+def needs_derived_geometry(declared: tuple[RuleConfig, ...] | None) -> bool:
+    """Whether running the calibration pass could change what a job does.
+
+    The only thing derivation produces is a **legal direction**, so it is worth
+    paying for only when a rule will read one. A caller that named its rules -- or
+    a deployment that pinned them -- has already decided what runs, so the question
+    is answerable exactly: does that set contain wrong-way? A set of geometry-free
+    rules (no-helmet, triple-riding) reasons identically on a direction-free scene,
+    so the detector pass would be pure cost on the analyst's wait.
+
+    With nothing declared the set is derived *from the scene*, so the answer is yes
+    by construction: without calibration the scene could never offer wrong-way, and
+    the upload would silently lose a violation its footage actually supports.
+    """
+
+    if not declared:
+        return True
+    return any(isinstance(rule, WrongWayRuleConfig) for rule in declared)
 
 
 def _default_job_id() -> str:
@@ -335,6 +427,9 @@ class SceneService:
                 zone.enabled and zone.zone_type is ZoneType.NO_STOPPING
                 for zone in scene.zones
             ),
+            # Read off the scene's own recorded provenance rather than tracked
+            # beside it, so a stored scene still reports truthfully after a restart.
+            derived=scene.calibration.source == CALIBRATION_SOURCE_AUTO,
             supported_violations=self.supported_violations(scene),
         )
 
@@ -346,6 +441,137 @@ class SceneService:
 
         scene = self.for_video(video_id)
         return () if scene is None else self.supported_violations(scene)
+
+    # --- automatic calibration (observable facts only) -------------------------
+    def is_calibrated(self, video_id: str) -> bool:
+        """Whether this video has a scene of **its own**, as opposed to the fallback.
+
+        The question auto-calibration turns on, and deliberately not "did
+        :meth:`for_video` return something" -- that is true for every video once a
+        deployment configures a fallback. An analyst's binding is authoritative and
+        must never be re-derived over.
+        """
+
+        record = self._video_store.get(video_id)
+        return record is not None and record.scene_hash is not None
+
+    def _draft_for(
+        self, video_id: str, *, flow: FlowEstimate | None, name: str
+    ) -> SceneDraft:
+        """A draft carrying the video's real frame and only what was observed.
+
+        One zone spanning the frame, because the roadway's true extent is not
+        observable and a smaller invented polygon would silently exclude traffic.
+        A legal direction is attached **only** when ``flow`` is given; no
+        no-stopping zone, stop line or signal group is ever produced here, because
+        none of them can be read off arbitrary footage.
+        """
+
+        video = self._videos.require(video_id)
+        inset = 1.0  # keep every vertex strictly inside the declared frame
+        width, height = float(video.width), float(video.height)
+        polygon = (
+            (inset, inset),
+            (width - inset, inset),
+            (width - inset, height - inset),
+            (inset, height - inset),
+        )
+        direction = (
+            DirectionDraft(
+                direction_id=DERIVED_DIRECTION_ID,
+                dx=flow.dx,
+                dy=flow.dy,
+                zone_id=DERIVED_LANE_ID,
+                description=(
+                    "Legal travel = this clip's observed dominant traffic flow "
+                    f"({flow.heading_degrees:.1f} deg, {flow.mover_count} moving "
+                    "vehicles). Derived, not surveyed."
+                ),
+            )
+            if flow is not None
+            else None
+        )
+        return SceneDraft(
+            scene_name=name,
+            camera_id=f"cam-{video_id}",
+            site_id="site-auto",
+            description=(
+                "Automatically derived from the clip's own motion. Frame size is "
+                "measured; legal direction is estimated from observed traffic. No "
+                "no-stopping zone, stop line or signal timing is claimed -- none of "
+                "those is observable from footage."
+            ),
+            frame_width=video.width,
+            frame_height=video.height,
+            zones=(
+                ZoneDraft(
+                    zone_id=DERIVED_LANE_ID,
+                    zone_type=ZoneType.LANE,
+                    polygon=polygon,
+                    description="Full frame; the roadway's true extent is not observable.",
+                ),
+            ),
+            direction=direction,
+        )
+
+    def provisional_scene(self, video_id: str) -> SceneConfig:
+        """A frame-correct scene claiming no direction, for the calibration pass.
+
+        Exists so the perception pass runs against the video's own frame rather
+        than an unrelated one. It supports only the geometry-free rules, and is
+        never bound -- it is scaffolding for the pass that produces the real one.
+        """
+
+        return build_scene(
+            self._draft_for(video_id, flow=None, name="auto-provisional"),
+            scene_id=f"scene-{video_id}",
+            calibration_source=CALIBRATION_SOURCE_AUTO,
+        )
+
+    def derive_from_motion(
+        self, video_id: str, states: Sequence[TrackState]
+    ) -> DerivedScene:
+        """Author, store and bind a scene from observed motion. Never invents.
+
+        Returns the bound scene, its hash and the flow it rests on (``flow`` is
+        ``None`` when no legal direction could be justified). Abstention is a real
+        outcome, not a failure: :func:`estimate_dominant_flow` returns ``None`` for
+        a two-way road whose movers cancel, and too few movers is too little
+        evidence to declare a direction from. In both cases the video still gets a
+        frame-correct scene of **its own** -- the geometry-free rules are
+        unaffected -- and wrong-way simply stays unavailable until an analyst draws
+        the lane. The abstaining scene is still bound, because "this clip was
+        measured and its traffic does not define one direction" is a finding worth
+        recording, and it is what keeps the caller off the deployment fallback.
+
+        The scene is returned as well as bound so the caller can run against
+        exactly the revision it stored, without a re-read that could observe a
+        concurrent rebinding.
+        """
+
+        flow = estimate_dominant_flow(states)
+        if flow is not None and flow.mover_count < MIN_FLOW_MOVERS:
+            _logger.info(
+                "video %s: flow estimate rests on %d mover(s) (< %d); declining to "
+                "declare a legal direction",
+                video_id,
+                flow.mover_count,
+                MIN_FLOW_MOVERS,
+            )
+            flow = None
+        draft = self._draft_for(
+            video_id,
+            flow=flow,
+            name="auto-derived" if flow is not None else "auto-derived-no-direction",
+        )
+        scene = build_scene(
+            draft,
+            scene_id=f"scene-{video_id}",
+            calibration_source=CALIBRATION_SOURCE_AUTO,
+        )
+        scene_hash = self._store.put(scene)
+        self._video_store.bind_scene(video_id, scene_hash)
+        return DerivedScene(scene=scene, scene_hash=scene_hash, flow=flow)
 
     def default_rules_for(self, scene: SceneConfig) -> tuple[RuleConfig, ...]:
         """The rule set to run over ``scene`` when the client named none.
@@ -580,9 +806,17 @@ class ProcessingService:
     ) -> JobRecord:
         """Validate the request, create a job, and schedule its execution.
 
-        The scene comes from the **video** (its calibration, else the server's
-        configured fallback), so two videos from different cameras are reasoned
-        over their own geometry in the same process.
+        The scene comes from the **video**, so two videos from different cameras are
+        reasoned over their own geometry in the same process. Where it comes from
+        depends on the video and the deployment:
+
+        * an analyst-calibrated video uses its bound scene;
+        * an uncalibrated one uses a scene derived from its own motion when
+          ``auto_calibrate_uploads`` is on -- and then the configured scene is
+          **not** a fallback for it, because another camera's geometry is not a
+          safe substitute (see :meth:`_scene_for_derived_run`);
+        * otherwise the server's configured scene, the pre-H12 behaviour an
+          operator with one fixed camera still relies on.
 
         Rule resolution, in order:
 
@@ -599,18 +833,52 @@ class ProcessingService:
            keeping the system scene-aware -- it never runs a rule the scene cannot
            support, and never reaches for a violation with no shipped reasoner.
 
-        Validation is eager: the engine is *built* here (so an invalid scene/rule
-        combination or an unavailable backend fails as a clean HTTP error) before
-        the job is scheduled. Only the actual inference runs on the executor.
+        Validation is eager **when the scene is already known**: the engine is built
+        here, so an invalid scene/rule combination or an unavailable backend fails
+        as a clean HTTP error before the job is scheduled.
+
+        A video whose scene must be derived cannot be validated eagerly -- the rules
+        are chosen from a scene that does not exist yet, and producing it costs a
+        detector pass. Doing that here would block a request this endpoint documents
+        as 202-then-poll, so the scene decision, the rule resolution and the engine
+        build all move into the job (:meth:`_run_deriving_scene`), and a problem that
+        would have been a 400/503 arrives instead as that job's ``failed`` status
+        carrying the same message. Only that path is deferred; everything else
+        validates exactly as it always did.
         """
 
         video = self._videos.require(video_id)
+        # H12+: an upload nobody calibrated derives a scene from its own motion, so
+        # the geometry rules reason about *this* camera. That needs a detector pass,
+        # which must not happen on the request thread -- this endpoint's contract is
+        # 202-then-poll -- so the whole scene decision moves inside the job. An
+        # analyst-calibrated video never takes this path (see ``is_calibrated``) and
+        # keeps the eager validation below unchanged.
+        if self._config.auto_calibrate_uploads and not self._scenes.is_calibrated(video_id):
+            job = JobRecord(job_id=self._job_id_factory(), video_id=video_id)
+            self._jobs.add(job)
+            self._executor.submit(lambda: self._run_deriving_scene(job, video, rules))
+            return job
+
         scene = self._scenes.for_video(video_id)
         if scene is None:
             raise InvalidConfigurationError(
                 f"video {video_id!r} has no calibrated scene and the server has no "
                 "default scene configured; calibrate the video before processing it"
             )
+        resolved = self._resolve_rules(video_id, scene, rules)
+
+        engine = self._build_engine(scene, resolved)
+        job = JobRecord(job_id=self._job_id_factory(), video_id=video_id, engine=engine)
+        self._jobs.add(job)
+        self._executor.submit(lambda: self._run(job, video, scene))
+        return job
+
+    def _resolve_rules(
+        self, video_id: str, scene: SceneConfig, rules: tuple[RuleConfig, ...] | None
+    ) -> tuple[RuleConfig, ...]:
+        """Apply the documented rule-resolution order (request, deployment, scene)."""
+
         resolved = rules or self._config.default_rules or self._scenes.default_rules_for(scene)
         if not resolved:
             raise InvalidConfigurationError(
@@ -618,12 +886,156 @@ class ProcessingService:
                 f"the scene resolved for video {video_id!r} supports no shipped "
                 "rule; calibrate the video before processing it"
             )
+        return resolved
 
-        engine = self._build_engine(scene, resolved)
-        job = JobRecord(job_id=self._job_id_factory(), video_id=video_id, engine=engine)
-        self._jobs.add(job)
-        self._executor.submit(lambda: self._run(job, video, scene))
-        return job
+    # --- the calibration phase of a job (never on the request thread) ---------
+    def _run_deriving_scene(
+        self, job: JobRecord, video: VideoRecord, rules: tuple[RuleConfig, ...] | None
+    ) -> None:
+        """Run one job whose scene has to be derived before inference can start.
+
+        The lifecycle is the ordinary one with a bounded phase in front of it:
+        create job -> derive the scene -> build the engine -> :meth:`_run` (which
+        marks running, infers, persists, renders). Everything after derivation is
+        the *same code path* an analyst-calibrated video takes; nothing about
+        inference, persistence, evidence, overlays or run scoping is duplicated
+        here.
+
+        The job stays ``PENDING`` across derivation and only goes ``RUNNING`` when
+        real inference starts, so progress never counts calibration frames as
+        analysis frames. Cancellation is honoured throughout -- the derivation loop
+        polls the same flag the engine does -- and any configuration or backend
+        problem that would have been an eager 4xx/503 becomes this job's ``FAILED``
+        status carrying the identical message, because there is no longer a request
+        open to answer with it.
+        """
+
+        try:
+            if self._jobs.is_cancel_requested(job.job_id):
+                raise RunCancelledError("cancelled before calibration started")
+            scene, outcome = self._scene_for_derived_run(job, video, rules)
+            resolved = self._resolve_rules(video.video_id, scene, rules)
+            engine = self._build_engine(scene, resolved)
+        except RunCancelledError:
+            _logger.info("processing job %s cancelled during calibration", job.job_id)
+            self._jobs.mark_cancelled(job.job_id)
+            return
+        except Exception as exc:  # noqa: BLE001 - a job thread must never crash silently
+            _logger.exception("processing job %s failed before inference", job.job_id)
+            self._jobs.mark_failed(job.job_id, str(exc))
+            return
+        _logger.info(
+            "job %s: scene calibration %s; running %d rule(s) against a %dx%d scene",
+            job.job_id,
+            outcome.value,
+            len(resolved),
+            scene.frame.reference_width,
+            scene.frame.reference_height,
+        )
+        self._jobs.set_engine(job.job_id, engine)
+        self._run(job, video, scene)
+
+    def _needs_derived_geometry(self, rules: tuple[RuleConfig, ...] | None) -> bool:
+        """Whether calibration could change this job, given the rules it declares."""
+
+        return needs_derived_geometry(rules or self._config.default_rules)
+
+    def _scene_for_derived_run(
+        self, job: JobRecord, video: VideoRecord, rules: tuple[RuleConfig, ...] | None
+    ) -> tuple[SceneConfig, CalibrationOutcome]:
+        """The scene an uncalibrated upload is reasoned about, and how it was reached.
+
+        **Never returns the deployment fallback.** That is the whole point: the
+        fallback is another camera's geometry, and running an upload's geometry
+        rules against it is the defect automatic calibration exists to remove --
+        silently, since those rules then run and can only ever confirm nothing.
+        Every branch here yields a scene in *this video's* pixel space:
+
+        * derivation succeeded -- the bound scene, carrying the observed direction;
+        * derivation abstained -- the bound scene, carrying no direction, so
+          wrong-way is simply unavailable;
+        * derivation failed, or was not needed -- the unbound provisional scene:
+          the video's real frame, one full-frame lane, and nothing inferred.
+
+        A failed or skipped derivation binds nothing, so the video stays honestly
+        uncalibrated: ``GET /api/videos/{id}/scene`` still reports 404, a later run
+        retries, and an analyst's own calibration is unaffected. In no branch is a
+        legal direction, a no-stopping zone or a signal schedule invented.
+        """
+
+        if not self._needs_derived_geometry(rules):
+            _logger.info(
+                "job %s: no rule needs a derived legal direction; skipping the "
+                "calibration pass and running against video %s's own frame",
+                job.job_id,
+                video.video_id,
+            )
+            return self._scenes.provisional_scene(video.video_id), CalibrationOutcome.SKIPPED
+
+        # Built before the try: a video whose own frame cannot produce a scene has
+        # nothing safe to fall back *to*, so it must fail the job rather than borrow
+        # geometry from somewhere else.
+        provisional = self._scenes.provisional_scene(video.video_id)
+        try:
+            derived = self._calibrate(job, video, provisional)
+        except RunCancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - never fail a run over calibration
+            _logger.warning(
+                "job %s: calibration failed for video %s (%s); running against the "
+                "video's own frame with no legal direction, and binding no scene",
+                job.job_id,
+                video.video_id,
+                exc,
+            )
+            return provisional, CalibrationOutcome.FAILED
+
+        if derived.flow is None:
+            _logger.info(
+                "job %s: video %s measured, but its traffic defines no single legal "
+                "direction; bound a direction-free scene (wrong-way unavailable)",
+                job.job_id,
+                video.video_id,
+            )
+            return derived.scene, CalibrationOutcome.ABSTAINED
+        _logger.info(
+            "job %s: video %s auto-calibrated as scene %s (legal direction %.1f deg "
+            "from %d mover(s))",
+            job.job_id,
+            video.video_id,
+            derived.scene_hash[:12],
+            derived.flow.heading_degrees,
+            derived.flow.mover_count,
+        )
+        return derived.scene, CalibrationOutcome.DERIVED
+
+    def _calibrate(
+        self, job: JobRecord, video: VideoRecord, provisional: SceneConfig
+    ) -> DerivedScene:
+        """The bounded perception pass, and the scene derived from what it saw.
+
+        Runs the detector and tracker over a bounded prefix of the clip with **no
+        reasoning at all**: this loop submits and drains but deliberately never
+        calls ``finalize``, so no observation is derived, no event can be minted and
+        nothing is persisted. The tracks it accumulates are the only output.
+
+        Bounded on purpose -- it is overhead on top of the real run, and a few
+        seconds of traffic is all a flow estimate needs -- and cancellable, so a
+        client that changes its mind during calibration is not made to wait out the
+        whole budget.
+        """
+
+        # The engine contract requires at least one rule, so the pass carries the
+        # one rule any scene supports without geometry or a classifier.
+        engine = self._provider.create(scene=provisional, rules=(TripleRidingRuleConfig(),))
+        source = FileFrameSource(video.path, camera_id=provisional.scene.camera_id)
+        engine.reset()
+        for record in islice(source.frames(), CALIBRATION_FRAME_BUDGET):
+            if self._jobs.is_cancel_requested(job.job_id):
+                raise RunCancelledError("cancelled during scene calibration")
+            engine.submit(record)
+            engine.drain()
+        return self._scenes.derive_from_motion(video.video_id, engine.track_states())
 
     def _build_engine(
         self, scene: SceneConfig, rules: tuple[RuleConfig, ...]

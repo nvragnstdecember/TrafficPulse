@@ -33,11 +33,12 @@ the video being processed -- every shipped rule that scene can legitimately
 support, run together. Pinning a fixed pair here (as this launcher previously did
 with ``triple_riding`` + ``no_helmet``) meant a calibrated video still ran only the
 two geometry-free motorcycle rules until an analyst manually reprocessed it, which
-is precisely the multi-violation gap. The scene remains the authority: an
-uncalibrated upload falls back to the shipped example scene and gets exactly what
-that scene supports, and a rule whose geometry the scene cannot satisfy is never
-selected. Setting ``default_rules`` here again would re-pin the set and is
-supported for an operator who wants that.
+is precisely the multi-violation gap. The scene remains the authority, and with
+``auto_calibrate_uploads`` on (below) an uncalibrated upload gets a scene derived
+from *its own* motion rather than the shipped example's -- so a rule whose geometry
+the resolved scene cannot satisfy is never selected, and no run ever reasons about
+another camera's road. Setting ``default_rules`` here again would re-pin the set
+and is supported for an operator who wants that.
 
 Checkpoints load offline from the local HuggingFace cache (``local_files_only``),
 so this launcher never reaches the network and never vendors weights.
@@ -105,6 +106,17 @@ def build_config() -> AppConfig:
     return env.model_copy(
         update={
             "scene_path": scene_path,
+            # An upload nobody calibrated is derived from its own motion rather than
+            # reasoned about through the shipped example scene's unrelated geometry.
+            # This is what makes a raw upload an automatic multi-violation run: the
+            # geometry rules get *this* camera's frame and observed traffic
+            # direction. With this on, the scene above is no longer a fallback for
+            # uncalibrated uploads at all -- an upload that cannot be derived runs
+            # against its own frame with nothing inferred, never against this one.
+            # Only observable facts are derived -- no no-stopping zone, no stop
+            # line, no signal schedule -- so illegal-stopping and red-light still
+            # wait for an analyst, and a calibrated video is never touched.
+            "auto_calibrate_uploads": True,
             "inference": InferenceConfig(
                 checkpoint=DETECTOR_CHECKPOINT,
                 label_map=LABEL_MAP,

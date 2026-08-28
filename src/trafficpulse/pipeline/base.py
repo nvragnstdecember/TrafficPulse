@@ -299,6 +299,28 @@ class CompositionPipeline:
             self._history.setdefault((state.camera_id, state.track_id), []).append(state)
         return tuple(states)
 
+    @property
+    def track_states(self) -> tuple[TrackState, ...]:
+        """Every ``TrackState`` accumulated so far, flattened and ordered.
+
+        A read-only view of the same history :meth:`finalize` reasons over, for a
+        caller that needs the *observed motion* without the reasoning -- scene
+        auto-calibration derives a clip's dominant traffic flow from exactly this
+        (see :func:`trafficpulse.scenes.estimate_dominant_flow`).
+
+        Ordered by ``(camera_id, track_id, timestamp, frame_index)`` so the value is
+        a deterministic function of the accumulated history, and returned as a tuple
+        of frozen states so a reader cannot mutate what the run will reason over.
+        """
+
+        return tuple(
+            state
+            for key in sorted(self._history)
+            for state in sorted(
+                self._history[key], key=lambda s: (s.timestamp, s.frame_index or 0)
+            )
+        )
+
     def finalize(self) -> tuple[ConfirmedEvent, ...]:
         """Derive observations + reason over the accumulated history; return events.
 

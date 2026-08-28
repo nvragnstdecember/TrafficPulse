@@ -94,6 +94,29 @@ class AppConfig(BaseModel):
     set here overrides that derivation for every video, which is occasionally what
     an operator wants and is why the knob remains."""
 
+    auto_calibrate_uploads: bool = False
+    """Derive a scene for an uploaded video that has none, from its own motion.
+
+    A **deployment** decision, like :attr:`default_rules`, and off by default so no
+    embedder's behaviour changes by upgrading. When on, a video with no bound scene
+    gets a short bounded perception pass -- inside its processing job, never on the
+    request thread -- whose tracks become a scene carrying the video's real frame
+    size and, only when the observed flow is coherent enough to support one, a legal
+    direction.
+
+    Turning this on also **withdraws :attr:`scene_path` as a fallback for
+    uncalibrated uploads**. That is the point rather than a side effect: reasoning
+    about an upload through another camera's geometry fails silently -- the rules
+    run and simply confirm nothing -- so every path here (derived, abstained, failed
+    or skipped) uses a scene in the video's own pixel space instead. The configured
+    scene remains exactly what it was for a deployment that leaves this off.
+
+    Only observable facts are derived. A no-stopping zone, a stop line and a signal
+    schedule are not observable from arbitrary footage and are never invented, so
+    illegal-stopping and red-light stay unavailable until an analyst supplies them.
+    ``serve.py`` turns this on; a video the analyst has already calibrated is never
+    touched."""
+
     inference: InferenceConfig | None = None
     """The real RT-DETR backend the production engine provider builds. ``None``
     leaves the server able to serve every read endpoint and to run stub-injected

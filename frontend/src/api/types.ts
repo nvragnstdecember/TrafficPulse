@@ -175,6 +175,12 @@ export interface SceneSummary {
   zone_count: number;
   has_legal_direction: boolean;
   has_no_stopping_zone: boolean;
+  /**
+   * True when the scene was derived from the clip's own motion rather than drawn.
+   * A derived scene measures the frame and estimates the legal direction; it never
+   * claims a no-stopping zone, stop line or signal timing.
+   */
+  derived: boolean;
   /** What this scene can actually reason about, probed against the shipped rules. */
   supported_violations: ViolationType[];
 }

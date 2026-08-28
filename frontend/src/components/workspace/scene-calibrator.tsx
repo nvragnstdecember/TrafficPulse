@@ -11,6 +11,7 @@ import {
   buildSceneDraft,
   canSubmit,
   centroid,
+  derivedSceneNotice,
   isPolygonComplete,
   isSegmentComplete,
   perpendicular,
@@ -87,6 +88,9 @@ export function SceneCalibrator({
   const validate = useValidateScene();
 
   const saved = sceneQuery.data ?? null;
+  // A scene nobody drew has to say so, and has to say *which* honest outcome it
+  // was — estimating a direction and abstaining from one are different claims.
+  const derivedNotice = useMemo(() => derivedSceneNotice(saved), [saved]);
   const preview = useMemo(() => previewUnlocked(shapes), [shapes]);
   const validationErrors = validate.data?.valid === false ? validate.data.errors : [];
 
@@ -267,6 +271,16 @@ export function SceneCalibrator({
             {calibrate.isPending ? 'Saving…' : 'Save scene'}
           </Button>
         </div>
+
+        {derivedNotice ? (
+          <div
+            role="note"
+            className="rounded-md border border-warning/40 p-3 text-2xs text-muted-foreground"
+          >
+            <p className="text-xs font-medium text-foreground">{derivedNotice.title}</p>
+            <p className="mt-0.5">{derivedNotice.body}</p>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-1.5" aria-label="Violations unlocked">
           <span className="text-2xs uppercase tracking-wide text-muted-foreground">

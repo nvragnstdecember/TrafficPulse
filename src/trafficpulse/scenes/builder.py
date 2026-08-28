@@ -405,11 +405,32 @@ def _applicable(zone_type: ZoneType, *, governed: bool) -> tuple[ViolationType, 
     return ()
 
 
-def build_scene(draft: SceneDraft, *, scene_id: str) -> SceneConfig:
+#: Provenance for a scene an analyst drew. The default, and what the calibration
+#: surface produces.
+CALIBRATION_SOURCE_ANALYST = "analyst_calibration"
+
+#: Provenance for a scene the system derived from a clip's own observed motion.
+#: Recorded so a derived scene can never be mistaken for a drawn one -- by a
+#: reviewer, by the UI, or by a later audit of an event's ``scene_config_hash``.
+CALIBRATION_SOURCE_AUTO = "auto_calibration"
+
+
+def build_scene(
+    draft: SceneDraft,
+    *,
+    scene_id: str,
+    calibration_source: str = CALIBRATION_SOURCE_ANALYST,
+) -> SceneConfig:
     """Expand a draft into a complete, validated ``SceneConfig``.
 
     ``scene_id`` is the scene's *logical* identity -- stable across edits, unlike
     the content hash that addresses one revision of it.
+
+    ``calibration_source`` records **who** produced the geometry. It is part of the
+    scene content, so it is part of the hash: a derived scene and a hand-drawn scene
+    with identical geometry are deliberately different revisions, and an event's
+    ``scene_config_hash`` therefore resolves to a scene that states its own
+    provenance. It changes no geometry and no rule parameter.
 
     Raises:
         pydantic.ValidationError: the drawn geometry cannot form a valid scene --
@@ -532,7 +553,7 @@ def build_scene(draft: SceneDraft, *, scene_id: str) -> SceneConfig:
             type=CalibrationType.NONE,
             status=CalibrationStatus.ABSENT,
             verification_status=VerificationStatus.UNVERIFIED,
-            source="analyst_calibration",
+            source=calibration_source,
             created_at=_EPOCH,
             world_unit=WorldUnit.METERS,
             quality_metrics=QualityMetrics(

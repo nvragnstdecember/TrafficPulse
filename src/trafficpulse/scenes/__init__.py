@@ -20,6 +20,8 @@ declarative data and estimates one vector.
 from __future__ import annotations
 
 from .builder import (
+    CALIBRATION_SOURCE_ANALYST,
+    CALIBRATION_SOURCE_AUTO,
     DirectionDraft,
     RuleTuning,
     SceneDraft,
@@ -46,6 +48,8 @@ __all__ = [
     "SignalGroupDraft",
     "RuleTuning",
     "build_scene",
+    "CALIBRATION_SOURCE_ANALYST",
+    "CALIBRATION_SOURCE_AUTO",
     "full_frame_polygon",
     # calibration
     "FlowEstimate",

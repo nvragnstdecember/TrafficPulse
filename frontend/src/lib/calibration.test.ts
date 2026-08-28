@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { type SignalPhaseSpec } from '@/api/types';
+import { makeSceneSummary } from '@/test/fixtures';
 
 import {
   type CalibrationShapes,
@@ -9,6 +10,7 @@ import {
   buildSceneDraft,
   canSubmit,
   centroid,
+  derivedSceneNotice,
   isScheduleUsable,
   isSegmentComplete,
   perpendicular,
@@ -316,5 +318,42 @@ describe('rulesForRun', () => {
 
   it('never requests speeding, which has no shipped reasoner', () => {
     expect(rulesForRun(['speeding', 'no_helmet'], [])).toEqual([{ kind: 'no_helmet' }]);
+  });
+});
+
+describe('derivedSceneNotice', () => {
+  it('returns nothing for a scene an analyst drew', () => {
+    expect(derivedSceneNotice(makeSceneSummary({ derived: false }))).toBeNull();
+    expect(derivedSceneNotice(null)).toBeNull();
+    expect(derivedSceneNotice(undefined)).toBeNull();
+  });
+
+  it('describes an estimated direction only when one exists', () => {
+    const notice = derivedSceneNotice(
+      makeSceneSummary({ derived: true, has_legal_direction: true }),
+    );
+    expect(notice?.hasDirection).toBe(true);
+    expect(notice?.body).toMatch(/estimated/i);
+  });
+
+  it('describes abstention without claiming an estimate was made', () => {
+    // The bug: one wording for both outcomes asserted an estimate that, on a
+    // two-way road, was deliberately never made.
+    const notice = derivedSceneNotice(
+      makeSceneSummary({ derived: true, has_legal_direction: false }),
+    );
+    expect(notice?.hasDirection).toBe(false);
+    expect(notice?.title).toMatch(/no legal direction/i);
+    expect(notice?.body).not.toMatch(/direction estimated from/i);
+    expect(notice?.body).toMatch(/unavailable until you draw the lane/i);
+  });
+
+  it('never claims geometry that automatic derivation cannot observe', () => {
+    for (const hasDirection of [true, false]) {
+      const notice = derivedSceneNotice(
+        makeSceneSummary({ derived: true, has_legal_direction: hasDirection }),
+      );
+      expect(notice?.body).toMatch(/no no-stopping zone, stop line or signal timing/i);
+    }
   });
 });

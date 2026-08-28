@@ -378,6 +378,23 @@ class JobStore:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def set_engine(self, job_id: str, engine: InferenceEngine) -> None:
+        """Attach the engine a job will run, once it is known.
+
+        A job whose scene is derived inside its own work function cannot be given
+        an engine at submit time -- the engine is built *from* that scene. The
+        attachment goes through the store, under the lock, for the same reason
+        every other mutation does: ``status`` reads ``job.engine`` for live
+        metrics from a different thread than the one that builds it.
+        """
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.engine = engine
+        # Deliberately no ``on_change``: attaching the engine is wiring, not a
+        # state transition, and the snapshot records nothing that changed here.
+
     def mark_running(self, job_id: str, *, frames_total: int | None) -> None:
         with self._lock:
             record = self._jobs[job_id]

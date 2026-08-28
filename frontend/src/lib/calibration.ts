@@ -1,6 +1,7 @@
 import {
   type SceneDraft,
   type ScenePoint,
+  type SceneSummary,
   type SignalPhaseSpec,
   type SignalState,
   type ViolationType,
@@ -348,4 +349,51 @@ export function rulesForRun(
     rules.push({ kind: violation });
   }
   return rules;
+}
+
+
+/** What to tell the analyst about a scene nobody drew. */
+export interface DerivedSceneNotice {
+  title: string;
+  body: string;
+  /** Whether a legal direction actually came out of the derivation. */
+  hasDirection: boolean;
+}
+
+/**
+ * The caveat a derived scene carries, or `null` for one an analyst drew.
+ *
+ * Automatic derivation has two honest outcomes and they must not be described the
+ * same way. When the clip's traffic is coherent, a legal direction was *estimated*
+ * and wrong-way runs against an estimate the analyst should check. When it is not
+ * — a two-way road whose movers cancel, or too few vehicles to be evidence — the
+ * derivation **abstained**, and saying a direction was estimated would claim
+ * something that did not happen. `has_legal_direction` is the backend's own answer
+ * to which case this is, so it is what decides the wording rather than a second
+ * guess made here.
+ *
+ * Neither outcome ever invents a no-stopping zone, stop line or signal timing, so
+ * both say so: an absent violation is a fact about the footage, not a gap.
+ */
+export function derivedSceneNotice(scene: SceneSummary | null | undefined): DerivedSceneNotice | null {
+  if (!scene?.derived) return null;
+  if (scene.has_legal_direction) {
+    return {
+      hasDirection: true,
+      title: 'Scene derived automatically — check the lane',
+      body:
+        "The frame size was measured and the legal travel direction estimated from this clip's own traffic. " +
+        'Nothing unobservable was assumed: there is no no-stopping zone, stop line or signal timing. ' +
+        'Wrong-way results rest on that estimate — draw the lane yourself before relying on them.',
+    };
+  }
+  return {
+    hasDirection: false,
+    title: 'Scene derived automatically — no legal direction could be established',
+    body:
+      "The frame size was measured, but this clip's traffic does not define a single legal direction " +
+      '(for example a two-way road, or too few moving vehicles to be evidence), so none was inferred. ' +
+      'Wrong-way detection is therefore unavailable until you draw the lane and its direction. ' +
+      'No no-stopping zone, stop line or signal timing was assumed either.',
+  };
 }

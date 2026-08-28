@@ -197,6 +197,8 @@ export function makeSceneSummary(overrides: Partial<SceneSummary> = {}): SceneSu
     zone_count: 1,
     has_legal_direction: false,
     has_no_stopping_zone: false,
+    // Analyst-drawn by default; a derived scene is the exception a test opts into.
+    derived: false,
     supported_violations: ['no_helmet', 'triple_riding'],
     ...overrides,
   };
