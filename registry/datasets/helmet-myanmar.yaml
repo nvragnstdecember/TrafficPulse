@@ -8,7 +8,7 @@ identity:
   intended_use: >
     Pretraining/augmentation for helmet-state classification and rider-count
     estimation; derived head/bike crops feed the CNN-vs-ViT helmet experiment.
-  registry_status: candidate
+  registry_status: approved_for_acquisition
 
 provenance:
   canonical_source_name: HELMET dataset (OSF)
@@ -16,28 +16,45 @@ provenance:
   publisher: Siebert & Lin (associated IEEE Access publication)
   source_type: academic_dataset
   citation: "Siebert & Lin, Helmet Use Detection of Tracked Motorcycles using CNN-based Multi-task Learning; see also arXiv:1910.13232"
-  date_last_verified: "2026-07-07"
+  date_last_verified: "2026-08-29"
 
 access:
-  status: unconfirmed
-  procedure: Hosted on the Open Science Framework (osf.io/4pwj8); download/registration terms not confirmed by the project.
-  registration_required: unknown
-  application_required: unknown
-  access_confirmed_by_project: false
+  status: public_direct
+  procedure: >
+    Public OSF node (osf.io/4pwj8), downloadable directly over HTTPS with no
+    account, registration, or data-use agreement. Files are addressed by stable
+    OSF GUIDs (Readme.txt=pvecy, data_split.csv=q7rmb, annotation.zip=buh57,
+    image/part_1..part_7.zip under folder 5e68b6a10cd06c008f000c45).
+  registration_required: not_required
+  application_required: not_required
+  access_confirmed_by_project: true
   notes: >
-    Verified 2026-07-07 that the dataset is officially hosted on OSF and
-    described by the authors' publications. The OSF licence/access terms could
-    not be retrieved (JS-rendered page); access recorded as unconfirmed.
+    Confirmed 2026-08-29 against the OSF API (GET /v2/nodes/4pwj8/): the node is
+    public and its osfstorage listing is readable unauthenticated. This SUPERSEDES
+    the 2026-07-07 "unconfirmed" record, which was caused by the JS-rendered OSF
+    web page rather than by any actual access restriction; the JSON:API endpoint
+    returns the same metadata without a browser. Contents verified: annotation.zip
+    (3,012,229 B), data_split.csv (21,336 B — the authors' official
+    training/validation/test assignment over 910 video_ids), Readme.txt (791 B),
+    F-measure.zip (1,014,623 B), and image/ as seven zip parts totalling
+    28,860,986,216 B.
 
 licensing:
-  status: unknown
-  identifier: null
-  source: https://osf.io/4pwj8/
-  commercial_use: unknown
-  redistribution: unknown
+  status: verified
+  identifier: CC-BY-4.0
+  source: https://api.osf.io/v2/nodes/4pwj8/?embed=license
+  commercial_use: allowed
+  redistribution: allowed
   notes: >
-    Licence not retrieved from the OSF page; recorded as unknown and NOT assumed
-    permissive. Verify the OSF licence field before any use.
+    Verified 2026-08-29 from the OSF node's own licence relationship: licence
+    object 563c1cf88c5e4a3877f9e96a, "CC-By Attribution 4.0 International",
+    node_license.year 2020. This resolves the 2026-07-07 "unknown" record (the
+    licence field could not be read from the JS-rendered page) and agrees with the
+    independent H1 verification recorded in experiments/helmet_rtdetr/registry.py,
+    which cited the same licence object. ATTRIBUTION IS MANDATORY: any published
+    artifact derived from this dataset must credit Siebert, F.W. & Lin, H., HELMET
+    dataset (OSF, https://osf.io/4pwj8/), CC-BY 4.0. Redistribution is permitted
+    under the same terms, but TrafficPulse still vendors nothing — see integrity.
 
 task_fit:
   trafficpulse_capabilities: [helmet_classification, rider_count]
@@ -48,8 +65,10 @@ task_fit:
   annotation_types: [motorcycle_tracks, rider_helmet_labels]
   strengths: In-purpose helmet + rider-count video labels for pretraining and augmentation.
   domain_gaps: >
-    Myanmar (not Indian) road/appearance domain; turban headwear is not a native
-    label — Indian-context turban crops require custom annotation (ontology U3).
+    Myanmar (not Indian) road/appearance domain, recorded 2016, daytime only.
+    Turban headwear is not a native label and neither is an uncertain/occluded
+    state — Indian-context turban crops require custom annotation (ontology U3),
+    so any experiment on this corpus alone is binary helmet/no_helmet.
   suitability: partially_suitable
   custom_data_still_required: required
 
@@ -58,21 +77,56 @@ split_leakage:
   camera_identity: available
   video_identity: available
   sequence_identity: available
-  official_split_available: unknown
-  preserve_official_split: unknown
+  official_split_available: available
+  preserve_official_split: preserve
   leakage_risks: >
     Adjacent frames of a tracked motorcycle are highly correlated; crops must
-    inherit their source video's split and no track may span splits.
+    inherit their source video's split and no track may span splits. The authors'
+    data_split.csv is video-level (636 training / 92 validation / 182 test over
+    910 clips) and is preserved verbatim. NOTE: the twelve observation sites are
+    SHARED across the three official splits, so the official split measures
+    video-level, not site-level, generalisation; a whole-site holdout would have
+    to discard the official assignment and is therefore reported as per-site test
+    slices instead.
 
 privacy_ethics:
   faces_present: likely
   plates_present: likely
   pii_concerns: Riders' faces and plates are likely visible.
-  handling_notes: Apply redaction expectations; treat derived crops under the same split policy.
+  handling_notes: >
+    Apply redaction expectations; treat derived crops under the same split policy.
+    Derived crops are working artifacts only: neither the source frames nor the
+    crops are committed to this repository or shipped in any release.
 
 integrity:
-  checksum_status: none
-  local_acquisition_status: not_downloaded
-  acquisition_date: pending
-  immutable_source_reference: null
-  notes: Not downloaded; confirm OSF licence and record checksums at authorized acquisition time.
+  checksum_status: recorded
+  local_acquisition_status: downloaded_unverified
+  acquisition_date: "2026-08-29"
+  immutable_source_reference: >
+    OSF node 4pwj8, osfstorage. Files addressed by their stable OSF GUIDs:
+    Readme.txt=pvecy, data_split.csv=q7rmb, annotation.zip=buh57,
+    image/part_1..7.zip = 452nq, muzgb, 9dmw3, 39ynb, v3rch, jyg9s, 6h5ka.
+  notes: >
+    Acquired 2026-08-29 for the P4-U5 CNN-vs-ViT experiment, after the licence and
+    access gates above were resolved. Every file was verified against the byte size
+    the OSF API reports, and all seven image archives open as readable zips holding
+    exactly the 910 clips named by data_split.csv (no clip missing, none extra).
+    Two parts were re-fetched: part_6 came back 55 MB LARGER than the source after a
+    resumed transfer (OSF's redirect target does not reliably honour Range requests),
+    and part_7 was cut short by a reset connection. Both were deleted and re-fetched
+    whole; the size check is what caught them.
+    Status is downloaded_unverified rather than verified because the SHA-256 values
+    below are this project's own record of what it received -- the publisher does not
+    publish checksums to compare them against.
+    SHA-256:
+      Readme.txt      7dd7e33d4f4954590c348b7fd528ee0ab511b4c382045be9fe9313d77669d9c8
+      data_split.csv  d9cdaa6a03c5b34d68f6c500554b0f6b4ef939015f1cfff8aeeff6d98fcfe8f7
+      annotation.zip  6b7f2245dc09e6da3bbe1699c0ce87e4777f32080570b967f4f93c894af9e55c
+      part_1.zip      0bce3211ecf6478fc903fd8d51d10f58b3ea338f65d6f1b9ee6e0854d6c6d65f
+      part_2.zip      1fe4734f7da231a6753c19315fc628828b350dfb5a21f0b65a871e718ce23531
+      part_3.zip      25092cc40046a817341a2c9ee981f0e4e9e5fb3b2e441721a2199a20a605fc8d
+      part_4.zip      6b4d83f800dbde03b5a0e09b29f24b7986a3911ae524702260b035bfa9be32f3
+      part_5.zip      854a73e0a9aea27561880a4ba8760b091552caba62c5dbaf95333543cef480da
+      part_6.zip      93fc5874b9780c88aa8b87f2f099166bd804614db8b12a49d8e6845937132088
+      part_7.zip      eea9f23a72d8eb667f354a00ff2dfc31425eada4f4a81e6eb5743e82357673f1
+    No dataset file, derived crop, or model weight is committed to this repository.

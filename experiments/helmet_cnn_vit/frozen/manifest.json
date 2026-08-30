@@ -1,0 +1,75 @@
+{
+  "generator_version": "p4u5-official-split/1.0.0",
+  "dataset_id": "helmet-myanmar",
+  "dataset_version": "2020.0",
+  "source_file": "data_split.csv",
+  "source_sha256": "d9cdaa6a03c5b34d68f6c500554b0f6b4ef939015f1cfff8aeeff6d98fcfe8f7",
+  "corpus_hash": "ad42119c67be87dd5ec0203096d7a6256380ddf7e1e3ba99d82aa7d75bc11147",
+  "sampling_policy": {
+    "frame_stride": 5,
+    "frame_offset": 1,
+    "max_crops_per_track": 6,
+    "min_box_side_px": 16.0
+  },
+  "counts": {
+    "test": {
+      "videos": 182,
+      "tracks": 1758,
+      "crops": 7406,
+      "crops_per_class": {
+        "helmet": 5315,
+        "no_helmet": 2091
+      },
+      "no_helmet_share": 0.28233864434242506
+    },
+    "train": {
+      "videos": 636,
+      "tracks": 7045,
+      "crops": 28470,
+      "crops_per_class": {
+        "helmet": 20165,
+        "no_helmet": 8305
+      },
+      "no_helmet_share": 0.29171057253249033
+    },
+    "val": {
+      "videos": 92,
+      "tracks": 988,
+      "crops": 4089,
+      "crops_per_class": {
+        "helmet": 2941,
+        "no_helmet": 1148
+      },
+      "no_helmet_share": 0.2807532404010761
+    }
+  },
+  "sites": [
+    "Bago_highway",
+    "Bago_rural",
+    "Bago_urban",
+    "Mandalay_1",
+    "Mandalay_2",
+    "Naypyitaw_1",
+    "Naypyitaw_2",
+    "NyaungU_rural",
+    "NyaungU_urban",
+    "Pakokku_urban",
+    "Pathein_rural",
+    "Yangon_II"
+  ],
+  "test_crops_per_site": {
+    "Bago_highway": 188,
+    "Bago_rural": 189,
+    "Bago_urban": 336,
+    "Mandalay_1": 2110,
+    "Mandalay_2": 2029,
+    "Naypyitaw_1": 168,
+    "Naypyitaw_2": 213,
+    "NyaungU_rural": 326,
+    "NyaungU_urban": 601,
+    "Pakokku_urban": 880,
+    "Pathein_rural": 93,
+    "Yangon_II": 273
+  },
+  "total_crops": 39965
+}

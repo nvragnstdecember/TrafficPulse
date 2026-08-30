@@ -5,6 +5,7 @@ references are validated against the live U2 contracts, so the registry, schema,
 and contracts cannot silently drift apart. No dataset is downloaded or prepared.
 """
 
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -119,10 +120,52 @@ def test_field_values_in_vocabularies(path: Path) -> None:
 
 # --- Acquisition / access honesty --------------------------------------------
 @pytest.mark.parametrize("path", ENTRY_PATHS, ids=_entry_id)
-def test_not_downloaded(path: Path) -> None:
+def test_acquisition_state_is_recorded_honestly(path: Path) -> None:
+    """An acquisition must carry the evidence dataset-policy §14 demands.
+
+    U4 froze every entry at ``not_downloaded`` and this test asserted exactly that.
+    P4-U5 acquired HELMET after its licence and access gates were resolved, so the
+    blanket assertion no longer describes the repository. The invariant it was
+    protecting was never "nothing is ever downloaded" -- dataset-policy §14 always
+    anticipated acquisition and specified what must be recorded when it happens. So
+    the check is now conditional and, for an acquired dataset, strictly stronger
+    than before: a verified licence, confirmed access, recorded checksums, a real
+    ISO date, and an immutable source reference. An entry that is still
+    un-acquired is held to exactly the old assertion.
+    """
+
     entry = _load(path)
-    assert entry["integrity"]["local_acquisition_status"] == "not_downloaded"
-    assert entry["integrity"]["acquisition_date"] in (None, "pending")
+    integrity = entry["integrity"]
+
+    if integrity["local_acquisition_status"] == "not_downloaded":
+        assert integrity["acquisition_date"] in (None, "pending")
+        assert integrity["checksum_status"] == "none"
+        assert integrity["immutable_source_reference"] is None
+        return
+
+    assert entry["licensing"]["status"] == "verified", "acquired under an unverified licence"
+    assert entry["licensing"]["identifier"], "acquired without a licence identifier"
+    assert entry["access"]["access_confirmed_by_project"] is True
+    assert integrity["checksum_status"] in {"recorded", "verified"}, "acquired without checksums"
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(integrity["acquisition_date"])), (
+        f"acquisition_date must be a real ISO date, got {integrity['acquisition_date']!r}"
+    )
+    assert integrity["immutable_source_reference"], "acquired without an immutable source reference"
+
+
+def test_at_most_one_dataset_has_been_acquired() -> None:
+    """A tripwire, not a policy: acquisitions should be deliberate and reviewed.
+
+    Only HELMET has cleared its gates. If a second entry becomes acquired, this
+    test should fail and be updated *consciously* alongside that entry's review.
+    """
+
+    acquired = sorted(
+        _load(p)["identity"]["id"]
+        for p in ENTRY_PATHS
+        if _load(p)["integrity"]["local_acquisition_status"] != "not_downloaded"
+    )
+    assert acquired in ([], ["helmet-myanmar"]), f"unreviewed acquisition: {acquired}"
 
 
 @pytest.mark.parametrize("path", ENTRY_PATHS, ids=_entry_id)

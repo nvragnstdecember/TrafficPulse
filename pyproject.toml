@@ -135,6 +135,27 @@ overlay = [
 # training pipeline (H4B); the runtime inference path is unchanged. Verified
 # needed empirically when the first training forward pass raised ImportError
 # (resolved: scipy 1.16.x).
+# --- CNN-vs-ViT helmet experiment (optional; dev-time only) -------------------
+# The mandatory ViT experiment (P4-U5, architecture-review §12) lives in
+# experiments/helmet_cnn_vit/ and compares ResNet-50 against DeiT-Small. It needs
+# `timm` on top of the `rtdetr` extra's torch/torchvision/pillow.
+#
+# timm is Apache-2.0, as are both pretrained checkpoints the experiment pins
+# (timm/resnet50.a1_in1k and timm/deit_small_patch16_224.fb_in1k) — ADR-001
+# compatible, no AGPL coupling, and no weights vendored here.
+#
+# It is OPTIONAL and NOT installed by CI. Nothing in src/trafficpulse imports it:
+# the experiment is dev-time research code that never ships in the wheel, and its
+# harness tests run torch-free via the same find_spec gating the H4/H5 tests use.
+# In practice it is installed into a SEPARATE virtualenv alongside a CUDA torch
+# build, so the application environment is untouched by the experiment's needs.
+cnnvit = [
+  "timm>=1.0",
+  "torch>=2.0",
+  "torchvision>=0.15",
+  "pillow>=10",
+]
+
 rtdetr = [
   "torch>=2.0",
   "torchvision>=0.15",

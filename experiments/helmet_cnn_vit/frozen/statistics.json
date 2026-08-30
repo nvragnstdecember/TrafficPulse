@@ -1,0 +1,56 @@
+{
+  "total": {
+    "objects": 39965,
+    "images": 14322,
+    "per_class": {
+      "helmet": 28421,
+      "no_helmet": 11544
+    },
+    "per_dataset": {
+      "helmet-myanmar": 39965
+    },
+    "imbalance_ratio": 2.461971586971587,
+    "minority_class": "no_helmet"
+  },
+  "per_split": {
+    "train": {
+      "objects": 28470,
+      "images": 10019,
+      "per_class": {
+        "helmet": 20165,
+        "no_helmet": 8305
+      },
+      "per_dataset": {
+        "helmet-myanmar": 28470
+      },
+      "imbalance_ratio": 2.428055388320289,
+      "minority_class": "no_helmet"
+    },
+    "val": {
+      "objects": 4089,
+      "images": 1439,
+      "per_class": {
+        "helmet": 2941,
+        "no_helmet": 1148
+      },
+      "per_dataset": {
+        "helmet-myanmar": 4089
+      },
+      "imbalance_ratio": 2.5618466898954706,
+      "minority_class": "no_helmet"
+    },
+    "test": {
+      "objects": 7406,
+      "images": 2864,
+      "per_class": {
+        "helmet": 5315,
+        "no_helmet": 2091
+      },
+      "per_dataset": {
+        "helmet-myanmar": 7406
+      },
+      "imbalance_ratio": 2.541846006695361,
+      "minority_class": "no_helmet"
+    }
+  }
+}
