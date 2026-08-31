@@ -423,7 +423,10 @@ reconciled in the plan document. This matters for anyone reading `phase-4-plan.m
 
 **What actually happened:** Phase 4 became a **no-helmet-only vertical slice**.
 Triple riding was pushed out (it shipped later as v1.1-U3). The **mandatory
-CNN-vs-ViT experiment was not executed** and has not been executed since (§9.2).
+CNN-vs-ViT experiment was not executed in that phase** — the unit number P4-U5 was
+reused for no-helmet reasoning instead. It was executed later, on 2026-08-31, once
+the HELMET licence gate resolved; see §9.2 and
+[`cnn-vs-vit-results.md`](cnn-vs-vit-results.md).
 
 **P4-U2 introduced the `FrameObserver` hook** — the first place in the architecture
 where a rule needs *pixels*. This is significant: `finalize` never sees pixels, so
@@ -899,9 +902,11 @@ audit history).
 files), 2061 backend tests passing (9 opt-in skipped), 381 frontend tests passing,
 0 lint errors.
 
-### 9.2 The largest gap against the original specification
+### 9.2 The largest gap against the original specification — now closed (P4-U5, 2026-08-31)
 
-**The mandatory CNN-vs-ViT experiment has not been executed.**
+**The mandatory CNN-vs-ViT experiment has been executed.** This section previously
+recorded it as the project's largest outstanding gap; that is no longer true, and
+the history of why it was open is preserved below.
 
 Master spec §4 requires "genuine, measurable use of Vision Transformer technology"
 via a controlled CNN-versus-ViT comparison, with helmet-state recognition as the
@@ -910,17 +915,66 @@ matrix/latency/throughput/VRAM/model size, robustness slices, class-imbalance
 handling, and honest interpretation of negative results. `architecture-review.md`
 §12 reaffirms it. `phase-4-plan.md` P4-U5 schedules it.
 
-**What exists instead:** `experiments/helmet_rtdetr/` — dataset ingestion,
-annotation conversion, deterministic splitting, model-agnostic training, RT-DETR
-training, and an evaluation framework. All of it *infrastructure for training a
-detector*, none of it the classifier comparison.
+**What was blocking it:** no helmet dataset had been downloaded, because U4 policy
+forbids download before licence review. That gate was resolved — HELMET (Siebert &
+Lin, OSF `4pwj8`) is **CC-BY-4.0**, verified 2026-08-29 from the OSF API — and the
+experiment ran on it.
 
-**The one "ViT" in the runtime is `openai/clip-vit-base-patch32`** — a zero-shot
-CLIP classifier whose backbone happens to be a ViT. **This is not the mandated
-experiment** and must not be presented as one.
+**What was executed.** `experiments/helmet_cnn_vit/` — ResNet-50 vs DeiT-Small on
+binary driver helmet-state classification, 39,965 crops from 10,006 tracks, the
+authors' official video-level split applied verbatim and re-validated for leakage
+with H3's `SplitValidator`. Equal budget per family (3 LRs × 6 epochs, selected on
+validation only), then the selected config retrained at seeds 0/1/2 for 12 epochs.
+The design was frozen and git-tagged (`p4u5-prereg`, commit `3325e51`) **before the
+final seed runs**, and the decision rule was committed in code
+(`helmet_cnn_vit.stats.decide`) before any test-split number existed.
 
-**Blocking dependency:** no helmet dataset has been downloaded, because U4 policy
-forbids download before licence review and that review has not concluded.
+**The result, under the pre-registered rule: ResNet-50 wins the accuracy
+comparison.**
+
+| | DeiT-Small (ViT) | ResNet-50 (CNN) |
+|---|---|---|
+| Mean test macro-F1 (3 seeds) | 0.91975 | **0.92881** |
+| Δ (DeiT − ResNet) | **−0.00906** | |
+| Pooled bootstrap 95% CI | **[−0.01380, −0.00434]** — excludes zero | |
+| Sign-consistent across 3 seeds | **yes** | |
+
+Both frozen conditions held, so a difference is claimed. The margin is ~0.9 macro-F1
+points; the rule has no minimum-effect threshold, so it is reported as the rule
+produced it.
+
+**The cost benchmark points the other way.** On the measured RTX 4060 Laptop,
+DeiT-Small is cheaper on every axis — 21.67 M vs 23.51 M parameters, 82.70 vs 89.98
+MiB checkpoint, and at batch 32, 20.77 vs 29.57 ms median latency (−29.8%) and
+184.5 vs 280.3 MiB peak VRAM (−34.2%). The honest summary is a **trade-off, not a
+sweep**.
+
+**No model was adopted into the runtime.** The experiment trained on
+whole-motorcycle crops (HELMET's native annotation granularity) while the runtime
+classifies derived head crops — so the winner is *measured, not deployed*. The
+helmet path still runs the zero-shot CLIP backend and the scripted stub behind the
+P4-U4 seam. [ADR-005](adr/ADR-005.md) records the outcome and gates adoption on a
+head-crop re-validation.
+
+**The one "ViT" in the runtime remains `openai/clip-vit-base-patch32`** — a
+zero-shot CLIP classifier whose backbone happens to be a ViT. **That is still not
+the mandated experiment** and must not be presented as one. The mandated experiment
+is the one above, and it lives in `experiments/helmet_cnn_vit/`, not in the runtime.
+
+**Anomalies were documented, not repaired.** Six are recorded in
+[`cnn-vs-vit-results.md`](cnn-vs-vit-results.md) §9: both families' selected
+learning rates landed on *opposite boundaries* of the frozen grid (so neither is
+demonstrated tuned to its own optimum, and the claim is bounded to that grid);
+seed-0 McNemar p = 0.0531 misses 0.05 while the other two seeds clear it; a 29-crop
+height-bucket disagreement between the pre-registration prose (≥ 287) and the code
+(`height <= high`); the cost benchmark timed *random-init* models while checkpoint
+sizes came from the real trained checkpoints; `motion_blur` severity 3 could not be
+measured at all (a 9×9 kernel PIL rejects); and training was **not** bitwise
+deterministic across repeated runs, because `torch.use_deterministic_algorithms` is
+never called even though `cudnn.deterministic` is set. Fixing any of them after
+seeing the results would have amended a frozen protocol, so none was fixed.
+
+Full report: [`docs/cnn-vs-vit-results.md`](cnn-vs-vit-results.md).
 
 ### 9.3 Deferred, with the reason
 
@@ -939,11 +993,20 @@ forbids download before licence review and that review has not concluded.
 
 ### 9.4 Known documentation drift
 
-`README.md` is **stale**. It reports 1840 backend / 279 frontend tests (actual:
-2016 / 354), describes the project as complete only through H8, and lists
-"human-review UI" and "simulated-penalty workflow" as unimplemented — the review UI
-now exists. `phase-4-plan.md` describes a unit breakdown that does not match what
-was executed. Neither has been reconciled.
+**Historical (resolved by H16).** `README.md` was **stale**: it reported 1840
+backend / 279 frontend tests (actual at the time: 2016 / 354), described the project
+as complete only through H8, and listed "human-review UI" and "simulated-penalty
+workflow" as unimplemented — the review UI already existed. H16 reconciled it and
+added `tests/docs/test_docs_accuracy.py`, which *derives* the backend count by
+collecting the suite and fails if the README drifts more than 40 tests from reality,
+requires a single stated backend count, and requires the latest milestone to be
+named. The class of drift that produced this entry is now machine-guarded.
+
+**Still open.** `phase-4-plan.md` describes a unit breakdown that does not match
+what was executed — its P4-U5 is the CNN-vs-ViT experiment, while git's P4-U5 was
+no-helmet reasoning (§7 records the full planned-vs-executed mapping). The
+experiment has since been executed under its own pre-registration (§9.2); the plan
+document's numbering has still not been reconciled with git history.
 
 ### 9.5 A structural limitation worth knowing before you touch the API
 
@@ -1017,7 +1080,10 @@ background. The reference clip (`vid-a62fcda4015bd549.mp4`, 301 frames, 898×506
 
 ## 11. Things that exist only in discussion
 
-- **The CNN-vs-ViT experiment design** — specified in three documents, never run.
+- ~~**The CNN-vs-ViT experiment design** — specified in three documents, never run.~~
+  **Run on 2026-08-31** (§9.2, [`cnn-vs-vit-results.md`](cnn-vs-vit-results.md)). It
+  stayed on this list for the whole of Phases 4 and 5 and every H-milestone; the
+  blocker was never design, it was the dataset licence gate.
 - **ByteTrack integration** — planned, blocked, replaced, still nominally "a future
   separately-audited enhancement."
 - **The review-UI-framework ADR** — `architecture-review.md` §27 says "Phase 2 will
@@ -1053,8 +1119,14 @@ background. The reference clip (`vid-a62fcda4015bd549.mp4`, 301 frames, 898×506
 
 **Gated on dataset access:**
 
-7. **The mandatory CNN-vs-ViT experiment** (§9.2) — the largest spec gap.
-8. **Trained helmet classifier** to replace zero-shot CLIP.
+7. ~~**The mandatory CNN-vs-ViT experiment** (§9.2) — the largest spec gap.~~
+   **Done (2026-08-31).** ResNet-50 won the accuracy comparison under the frozen
+   rule; DeiT-Small is the cheaper model. See §9.2 and
+   [`cnn-vs-vit-results.md`](cnn-vs-vit-results.md).
+8. **Trained helmet classifier** to replace zero-shot CLIP. **Still open** — P4-U5
+   measured its candidates on whole-motorcycle crops, not the runtime's derived head
+   crops, so [ADR-005](adr/ADR-005.md) adopts neither and gates adoption on a
+   head-crop re-validation.
 
 **Gated on external activity:**
 

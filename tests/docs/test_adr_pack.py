@@ -19,8 +19,8 @@ ARCHITECTURE_REVIEW = REPO_ROOT / "docs" / "architecture-review.md"
 PHASE0_PLAN = REPO_ROOT / "docs" / "phase-0-plan.md"
 PHASE1_PLAN = REPO_ROOT / "docs" / "phase-1-plan.md"
 
-ADR_IDS = ("ADR-001", "ADR-002", "ADR-003", "ADR-004")
-ACCEPTED_ADRS = ("ADR-002", "ADR-003")
+ADR_IDS = ("ADR-001", "ADR-002", "ADR-003", "ADR-004", "ADR-005")
+ACCEPTED_ADRS = ("ADR-002", "ADR-003", "ADR-005")
 REQUIRED_SECTIONS = ("## Context", "## Decision", "## Consequences")
 
 # Retrospective Phase 1 completed-unit -> commit-hash mapping (Git history through

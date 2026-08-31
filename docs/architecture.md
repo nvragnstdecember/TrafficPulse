@@ -51,6 +51,7 @@ capability analysis there is unchanged).
 | [ADR-002](adr/ADR-002.md) | Storage (SQLite + filesystem artifacts + Parquet logs) | **Accepted** |
 | [ADR-003](adr/ADR-003.md) | Offline-first + labeled near-real-time demo mode | **Accepted** |
 | [ADR-004](adr/ADR-004.md) | Reprocessing / event-identity semantics | **Proposed** |
+| [ADR-005](adr/ADR-005.md) | CNN-vs-ViT helmet-classifier outcome and runtime adoption posture | **Accepted** (2026-08-31) — ResNet-50 won the pre-registered accuracy comparison, DeiT-Small is cheaper; neither adopted into the runtime, adoption gated on head-crop re-validation |
 
 ADR-001 is now **Accepted** (2026-07-08): TrafficPulse adopts a permissive-only
 detector posture — RT-DETR as the primary integration direction (D-FINE an

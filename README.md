@@ -66,10 +66,20 @@ only. Concretely:
   correlation, an env-driven production launcher (`serve.py`), containerisation
   (Dockerfile + compose), readiness reporting, and an evidence render lifecycle
   with a repair path.
+- **Mandatory CNN-vs-ViT experiment (P4-U5): complete** — the master-spec §4
+  requirement, executed on the CC-BY-4.0 HELMET dataset under a pre-registration
+  frozen and git-tagged before the final runs. Under the frozen decision rule
+  **ResNet-50 wins the accuracy comparison** (mean test macro-F1 0.92881 vs 0.91975
+  for DeiT-Small; pooled 95% CI [-0.01380, -0.00434], sign-consistent across three
+  seeds), while **DeiT-Small is the cheaper model** on the measured RTX 4060 Laptop
+  benchmark (-29.8% latency, -34.2% peak VRAM at batch 32). Neither model is adopted
+  into the runtime: it trained on whole-motorcycle crops, not the runtime's derived
+  head crops. See [`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md) and
+  [ADR-005](docs/adr/ADR-005.md).
 - **Not started:** speeding (the sixth locked violation), real-footage validation,
   ANPR, and simulated penalties (see [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), **2717 passing backend tests**
+Quality gates are green: `ruff`, `mypy src` (strict), **2723 passing backend tests**
 (9 opt-in real-model/GPU tests skipped by default) plus **506 passing frontend
 tests**, on the current tree, with single-environment Linux CI and a
 native-Windows verification checklist.
@@ -177,9 +187,13 @@ detections supplied by an injected scripted stub.
 Defined by contract or design, **not yet implemented** (sequenced across Phases 3–5
 per the accepted design review — see the phase plans in [Documentation](#documentation)):
 
-- **Remaining four violations** — red-light jumping (Phase 3), triple riding and
-  no-helmet, the latter hosting the mandatory CNN-vs-ViT experiment (Phase 4), and
-  feasibility-gated speeding (Phase 5). Phases 3–5 also deliver generalized
+- **Remaining violations** — feasibility-gated speeding (Phase 5). Red-light jumping,
+  triple riding, and no-helmet have since shipped, and the mandatory CNN-vs-ViT
+  experiment that no-helmet hosted is **complete** (see
+  [`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md)); a **trained** helmet
+  classifier remains outstanding, because that experiment measured whole-motorcycle
+  crops rather than the runtime's head crops and [ADR-005](docs/adr/ADR-005.md)
+  therefore adopts neither candidate. Phases 3–5 also deliver generalized
   reasoning/pipeline infrastructure (by composition), a dynamic traffic-context stream,
   the observation-log substrate, the event-level evaluation harness, and metric
   calibration.
@@ -328,7 +342,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 2717 passing; 9 opt-in real-model/GPU tests
+- **Tests:** `pytest -q` (currently 2723 passing; 9 opt-in real-model/GPU tests
   skipped by default). Install the `api` and `overlay` extras so the web layer and
   the overlay renderer are both type-checked and tested — this is exactly what CI
   installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`
@@ -412,10 +426,11 @@ detector-stack licence posture — not the project licence.
 - [`docs/phase-1-plan.md`](docs/phase-1-plan.md) — authoritative Phase 1 unit plan (completed P1-U1…P1-U12)
 - [`docs/phase-2-plan.md`](docs/phase-2-plan.md) — authoritative Phase 2 unit plan (evidence integrity + illegal stopping; completed P2-U1…P2-U7)
 - [`docs/phase-3-plan.md`](docs/phase-3-plan.md) — authoritative Phase 3 plan (generalized reasoning/pipeline infrastructure, dynamic traffic context, red-light jumping, observation-log substrate, event-level evaluation harness; planned)
-- [`docs/phase-4-plan.md`](docs/phase-4-plan.md) — authoritative Phase 4 plan (association, quality-weighted confidence aggregation, triple riding, no-helmet + CNN-vs-ViT experiment; planned)
+- [`docs/phase-4-plan.md`](docs/phase-4-plan.md) — authoritative Phase 4 plan (association, quality-weighted confidence aggregation, triple riding, no-helmet + CNN-vs-ViT experiment; the experiment is complete — see docs/cnn-vs-vit-results.md)
 - [`docs/phase-5-plan.md`](docs/phase-5-plan.md) — authoritative Phase 5 plan (metric calibration, feasibility-gated speeding, retro-upgrade of provisional pixel gates; planned)
 - [`docs/ontology.md`](docs/ontology.md) · [`docs/dataset-policy.md`](docs/dataset-policy.md) · [`docs/evaluation-protocol.md`](docs/evaluation-protocol.md) · [`docs/scene-configuration.md`](docs/scene-configuration.md)
-- [`docs/adr/`](docs/adr/) — architecture decision records (ADR-001..004)
+- [`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md) — **CNN-vs-ViT helmet experiment results** (P4-U5): pre-registered outcome, statistics, calibration, robustness, cost benchmark, and limitations
+- [`docs/adr/`](docs/adr/) — architecture decision records (ADR-001..005)
 - [`docs/windows-verification.md`](docs/windows-verification.md) — native-Windows check record
 
 ## Contributing
