@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ..engine import EngineMetrics, EngineRunResult, InferenceEngine
+from ..pipeline.helmet_analysis import HelmetAnalysisReport
 
 
 def _utc_now() -> datetime:
@@ -270,6 +271,14 @@ class JobRecord:
     # source left for its frame counts and FPS.
     restored_metrics: EngineMetrics | None = field(default=None, repr=False)
 
+    # The helmet-analysis fold, computed once when a run that declared an analysis
+    # finishes. In-process only and deliberately **not** part of the run snapshot:
+    # it is a derived view of observations, not a record, and inventing a persisted
+    # form for it would create a second source of truth about a run that the
+    # write-once event store does not govern. A job recovered after a restart
+    # therefore reports no analysis rather than a reconstructed one.
+    helmet_analysis: HelmetAnalysisReport | None = field(default=None, repr=False)
+
     # --- H15 wall-clock lifecycle timing -------------------------------------
     # The *only* wall-clock instants a run records. Everything else in this system
     # is media time anchored at a fixed epoch (deliberately, so replay is
@@ -402,6 +411,21 @@ class JobStore:
             record.frames_total = frames_total
             record.started_at = _utc_now()
         self._notify(job_id)
+
+    def set_helmet_analysis(self, job_id: str, report: HelmetAnalysisReport) -> None:
+        """Attach a finished run's helmet-analysis fold.
+
+        Takes the lock like every other mutation (the endpoint reads it from a
+        request thread, the run writes it from a worker), but deliberately does
+        **not** notify the change observer: the observer persists run snapshots for
+        restart recovery, and this is an in-process derived view rather than part of
+        a run's record. See :attr:`JobRecord.helmet_analysis`.
+        """
+
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if record is not None:
+                record.helmet_analysis = report
 
     def mark_succeeded(self, job_id: str, result: EngineRunResult) -> None:
         """Record a run's outcome, folding the result to one entry per ``event_id``.

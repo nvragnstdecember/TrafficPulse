@@ -16,11 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Request, WebSocket
 
 from .analytics import AnalyticsService
 from .config import AppConfig
 from .engine_provider import EngineProvider
+from .live import LiveSessionManager
 from .services import (
     EventService,
     EvidenceService,
@@ -48,6 +49,7 @@ class AppContext:
     reviews: ReviewService
     metrics: MetricsService
     analytics: AnalyticsService
+    live: LiveSessionManager
 
 
 def get_context(request: Request) -> AppContext:
@@ -101,6 +103,24 @@ def get_analytics_service(request: Request) -> AnalyticsService:
     return get_context(request).analytics
 
 
+def get_live_manager(request: Request) -> LiveSessionManager:
+    return get_context(request).live
+
+
+def get_live_manager_ws(websocket: WebSocket) -> LiveSessionManager:
+    """The live manager for a WebSocket handler.
+
+    A separate accessor because a WebSocket connection is not an HTTP ``Request``
+    and FastAPI will not inject one into a socket route. It reads the very same
+    ``app.state`` context every HTTP dependency reads, so a socket and a request in
+    the same process are looking at one set of services -- there is no second
+    registry a session could get lost in.
+    """
+
+    context: AppContext = websocket.app.state.context
+    return context.live
+
+
 ConfigDep = Annotated[AppConfig, Depends(get_config)]
 ProviderDep = Annotated[EngineProvider, Depends(get_provider)]
 VideoServiceDep = Annotated[VideoService, Depends(get_video_service)]
@@ -112,3 +132,5 @@ EvidenceServiceDep = Annotated[EvidenceService, Depends(get_evidence_service)]
 ReviewServiceDep = Annotated[ReviewService, Depends(get_review_service)]
 MetricsServiceDep = Annotated[MetricsService, Depends(get_metrics_service)]
 AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]
+LiveManagerDep = Annotated[LiveSessionManager, Depends(get_live_manager)]
+LiveManagerWsDep = Annotated[LiveSessionManager, Depends(get_live_manager_ws)]

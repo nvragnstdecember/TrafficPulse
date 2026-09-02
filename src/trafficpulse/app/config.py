@@ -32,8 +32,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..classifier import ZeroShotHelmetConfig
-from ..engine import InferenceConfig, RuleConfig
+from ..classifier import ResNetHelmetConfig, ZeroShotHelmetConfig
+from ..engine import HelmetAnalysisConfig, InferenceConfig, RuleConfig
 
 # Container formats PyAV's bundled FFmpeg decodes on every platform; the upload
 # validator additionally *opens* each file, so this is a fast-fail pre-filter,
@@ -122,14 +122,50 @@ class AppConfig(BaseModel):
     leaves the server able to serve every read endpoint and to run stub-injected
     jobs, while real processing reports the backend as unconfigured."""
 
-    helmet_classifier: ZeroShotHelmetConfig | None = None
-    """The real zero-shot helmet classifier the production engine provider builds
-    for the ``no_helmet`` rule (v1.1 U2). ``None`` leaves helmet reasoning
-    unavailable: a ``no_helmet`` rule then fails fast in the engine's rule
-    registry (a clean 400), exactly as an unconfigured detector does. Constructing
-    this config loads no ML framework -- the classifier's backend is built lazily,
-    only when a ``no_helmet`` job runs. Code-configured, like ``inference``
-    (checkpoint provenance is a per-artifact review, not an env string)."""
+    helmet_classifier: ZeroShotHelmetConfig | ResNetHelmetConfig | None = None
+    """The real helmet classifier the production engine provider builds for the
+    ``no_helmet`` rule. ``None`` leaves helmet reasoning unavailable: a ``no_helmet``
+    rule then fails fast in the engine's rule registry (a clean 400), exactly as an
+    unconfigured detector does. Constructing this config loads no ML framework -- the
+    classifier's backend is built lazily, only when a ``no_helmet`` job runs.
+    Code-configured, like ``inference`` (checkpoint provenance is a per-artifact
+    review, not an env string).
+
+    The backend is chosen by which config object is supplied:
+
+    * :class:`~trafficpulse.classifier.ZeroShotHelmetConfig` -- the CLIP-family
+      zero-shot backend (v1.1 U2). Turban-capable, and the only backend the project
+      has ever run on real footage.
+    * :class:`~trafficpulse.classifier.ResNetHelmetConfig` -- the trained P4-U5
+      ResNet-50 (P4-U6). **Selectable, not default, and not adopted**: ADR-005 gates
+      adoption on evaluating it on derived head crops, and it is binary, so a
+      ``no_helmet`` rule refuses to build on it unless
+      ``acknowledge_turban_blind=True`` records that its turban-blindness was
+      accepted deliberately.
+
+    There is no default backend and no implicit fallback: an unset value disables
+    helmet reasoning rather than quietly selecting one."""
+
+    helmet_analysis: HelmetAnalysisConfig | None = None
+    """Run helmet classification as **analysis** on jobs that are not already running
+    the ``no_helmet`` rule. ``None`` (the default) changes nothing.
+
+    This is the deployment-level half of the rule/analysis split
+    (:class:`~trafficpulse.engine.HelmetAnalysisConfig`). It exists because the two
+    claims came as a package: the only way to see helmet state was to configure a
+    violation rule, so a backend that cannot express the turban exemption forced a
+    choice between enforcing unsafely and seeing nothing at all. With this set, a
+    deployment can classify and report helmet state while the violation rule stays
+    refused by the capability guard -- which is exactly the posture
+    ``docs/helmet-runtime-evaluation.md`` §6 concludes is defensible.
+
+    Never both at once. The processing service adds this only to jobs whose resolved
+    rule set contains no ``no_helmet`` rule: the rule already carries its own helmet
+    observer, so declaring both would run the classifier twice per frame for the same
+    riders and put two different helmet surfaces on one run.
+
+    Requires :attr:`helmet_classifier`; without one the engine's registry fails the
+    analysis fast, the same way it fails a classifier-less rule."""
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -46,9 +46,11 @@ from ..contracts.enums import ArtifactKind, ReviewAction, ReviewStatus, Violatio
 from ..contracts.scene import ZoneType, scene_config_hash
 from ..detector.errors import DetectorError
 from ..engine import (
+    AnalysisConfig,
     EngineRunResult,
     FileFrameSource,
     InferenceEngine,
+    NoHelmetRuleConfig,
     RuleConfig,
     TripleRidingRuleConfig,
     WrongWayRuleConfig,
@@ -77,6 +79,7 @@ from ..persistence import (
     StoredEvent,
 )
 from ..pipeline.errors import SceneConfigurationError
+from ..pipeline.helmet_analysis import HelmetAnalysisObserver, HelmetAnalysisReport
 from ..scenes import (
     CALIBRATION_SOURCE_AUTO,
     DirectionDraft,
@@ -90,6 +93,7 @@ from .capabilities import rules_for, supported_violations
 from .config import AppConfig
 from .engine_provider import EngineProvider
 from .errors import (
+    AnalysisNotAvailableError,
     AppError,
     ArtifactNotFoundError,
     DuplicateVideoError,
@@ -338,13 +342,13 @@ class SceneService:
         videos: VideoService,
         video_store: VideoStore,
         *,
-        classifier_available: bool = False,
+        no_helmet_available: bool = False,
         fallback: SceneConfig | None = None,
     ) -> None:
         self._store = store
         self._videos = videos
         self._video_store = video_store
-        self._classifier_available = classifier_available
+        self._no_helmet_available = no_helmet_available
         # The server's configured scene, used only for videos nobody has
         # calibrated. Retained so an operator with one fixed camera keeps working
         # exactly as before H12; it is a default, no longer the only answer.
@@ -434,7 +438,7 @@ class SceneService:
         )
 
     def supported_violations(self, scene: SceneConfig) -> tuple[ViolationType, ...]:
-        return supported_violations(scene, classifier_available=self._classifier_available)
+        return supported_violations(scene, no_helmet_available=self._no_helmet_available)
 
     def violations_for_video(self, video_id: str) -> tuple[ViolationType, ...]:
         """What can be run for a video, given whichever scene resolves for it."""
@@ -583,7 +587,7 @@ class SceneService:
         classifier availability, which is exactly what this service already holds.
         """
 
-        return rules_for(scene, classifier_available=self._classifier_available)
+        return rules_for(scene, no_helmet_available=self._no_helmet_available)
 
     # --- writing -------------------------------------------------------------
     def calibrate(self, video_id: str, draft: SceneDraft) -> SceneSummary:
@@ -868,7 +872,7 @@ class ProcessingService:
             )
         resolved = self._resolve_rules(video_id, scene, rules)
 
-        engine = self._build_engine(scene, resolved)
+        engine = self._build_engine(scene, resolved, self._resolve_analysis(resolved))
         job = JobRecord(job_id=self._job_id_factory(), video_id=video_id, engine=engine)
         self._jobs.add(job)
         self._executor.submit(lambda: self._run(job, video, scene))
@@ -887,6 +891,29 @@ class ProcessingService:
                 "rule; calibrate the video before processing it"
             )
         return resolved
+
+    def _resolve_analysis(
+        self, resolved: tuple[RuleConfig, ...]
+    ) -> tuple[AnalysisConfig, ...]:
+        """The perception-only declarations to run beside ``resolved``.
+
+        One rule, stated once: a job runs the configured helmet **analysis** only when
+        it is not already running the ``no_helmet`` **rule**. The rule builds its own
+        helmet observer, so declaring both would classify every rider twice per frame
+        -- doubling the most expensive stage in the pipeline -- and would put two
+        helmet surfaces on one run that could disagree about the same rider.
+
+        Nothing is derived from the scene here, because an analysis needs nothing from
+        one: it resolves no parameter block and has no persistence window. That is why
+        it can run on an uncalibrated upload whose geometry supports no rule at all.
+        """
+
+        declared = self._config.helmet_analysis
+        if declared is None:
+            return ()
+        if any(isinstance(rule, NoHelmetRuleConfig) for rule in resolved):
+            return ()
+        return (declared,)
 
     # --- the calibration phase of a job (never on the request thread) ---------
     def _run_deriving_scene(
@@ -915,7 +942,7 @@ class ProcessingService:
                 raise RunCancelledError("cancelled before calibration started")
             scene, outcome = self._scene_for_derived_run(job, video, rules)
             resolved = self._resolve_rules(video.video_id, scene, rules)
-            engine = self._build_engine(scene, resolved)
+            engine = self._build_engine(scene, resolved, self._resolve_analysis(resolved))
         except RunCancelledError:
             _logger.info("processing job %s cancelled during calibration", job.job_id)
             self._jobs.mark_cancelled(job.job_id)
@@ -1038,10 +1065,13 @@ class ProcessingService:
         return self._scenes.derive_from_motion(video.video_id, engine.track_states())
 
     def _build_engine(
-        self, scene: SceneConfig, rules: tuple[RuleConfig, ...]
+        self,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
     ) -> InferenceEngine:
         try:
-            return self._provider.create(scene=scene, rules=rules)
+            return self._provider.create(scene=scene, rules=rules, analysis=analysis)
         except (
             SceneConfigurationError,
             EngineConfigurationError,
@@ -1080,6 +1110,7 @@ class ProcessingService:
             # listening and the workspace plays the raw upload forever.
             self._jobs.mark_overlay_pending(job.job_id)
             self._jobs.mark_succeeded(job.job_id, result)
+            self._record_helmet_analysis(job)
             # Evidence stills first: they are what the review surface shows, they
             # decode only up to the last evidence frame, and they must not wait
             # behind a full-clip re-encode.
@@ -1091,6 +1122,62 @@ class ProcessingService:
         except Exception as exc:  # noqa: BLE001 - a job thread must never crash silently
             _logger.exception("processing job %s failed", job.job_id)
             self._jobs.mark_failed(job.job_id, str(exc))
+
+    def _record_helmet_analysis(self, job: JobRecord) -> None:
+        """Fold this run's helmet analysis, if it ran one (best-effort, never fatal).
+
+        Reads the observer the engine already surfaces and runs a pure aggregation over
+        observations that are in memory anyway: no model re-runs, no frame is decoded,
+        and nothing is written to the event store -- an analysis mints no event, so
+        there is nothing for it to persist. A job that declared no analysis has no such
+        observer and records nothing.
+
+        Wrapped like the render steps because it is the same class of work: a
+        presentation/reporting aid computed after the run's durable output is already
+        safe. Losing it costs a panel, never a record.
+        """
+
+        assert job.engine is not None
+        try:
+            observer = next(
+                (
+                    candidate
+                    for candidate in job.engine.frame_observers()
+                    if isinstance(candidate, HelmetAnalysisObserver)
+                ),
+                None,
+            )
+            if observer is None:
+                return
+            self._jobs.set_helmet_analysis(job.job_id, observer.report())
+        except Exception:  # noqa: BLE001 - reporting must never fail a finished run
+            _logger.exception(
+                "helmet analysis fold failed for job %s; the run itself is unaffected",
+                job.job_id,
+            )
+
+    def helmet_analysis(self, job_id: str) -> HelmetAnalysisReport:
+        """One job's helmet-analysis fold.
+
+        Raises:
+            JobNotFoundError: unknown job id.
+            AnalysisNotAvailableError: the job exists but has no analysis -- it did not
+                declare one, has not finished, or was recovered from disk after a
+                restart (the fold is in-process by design; see
+                :attr:`~trafficpulse.app.registry.JobRecord.helmet_analysis`). The three
+                are distinguished in the message rather than guessed at by the client.
+        """
+
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise JobNotFoundError(f"no processing job with id {job_id!r}")
+        if job.helmet_analysis is None:
+            raise AnalysisNotAvailableError(
+                f"job {job_id!r} has no helmet analysis: it is {job.status.value}, and "
+                "an analysis is available only for a finished run that declared one in "
+                "this process (a run recovered after a restart reports none)"
+            )
+        return job.helmet_analysis
 
     def _render_evidence_artifacts(
         self,

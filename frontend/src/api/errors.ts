@@ -71,5 +71,9 @@ export function parseErrorBody(body: unknown): ApiErrorBody['error'] | null {
 export function toErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
+  // A caller that already has the sentence it wants shown (live mode composes its
+  // own recovery advice per failure) should not have to wrap it in an Error just
+  // to get it past this function.
+  if (typeof error === 'string' && error.trim()) return error;
   return 'An unexpected error occurred.';
 }

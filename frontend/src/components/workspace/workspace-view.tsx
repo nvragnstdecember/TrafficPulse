@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { type ReviewAction, type SignalPhaseSpec, type ViolationType } from '@/api/types';
+import { enforcementNote } from '@/lib/analysis';
 import { rulesForRun } from '@/lib/calibration';
 import { PLAYER_SHORTCUTS, usePlayerShortcuts } from '@/hooks/use-player-shortcuts';
 import { type ProcessingController } from '@/hooks/use-processing';
 import { useDecideReview, useReview } from '@/hooks/use-review';
-import { useMetrics } from '@/hooks/use-system';
+import { useMetrics, usePosture } from '@/hooks/use-system';
+import { useHelmetAnalysis } from '@/hooks/use-analysis';
 import { useWorkspaceEvents } from '@/hooks/use-workspace-events';
 import { type WorkflowStage, isActivePhase } from '@/lib/job';
 import {
@@ -33,11 +35,13 @@ import { ErrorBanner } from '../common/error-banner';
 import { type ExportFormat, EventList } from './event-list';
 import { EventDetail } from './event-detail';
 import { EvidenceViewer } from './evidence-viewer';
+import { HelmetAnalysisPanel } from './helmet-analysis-panel';
 import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
 import { ReviewPanel } from './review-panel';
 import { ReviewSummary } from './review-summary';
 import { SceneCalibrator } from './scene-calibrator';
+import { SystemPostureStrip } from './system-posture';
 import { Timeline } from './timeline';
 import { VideoPlayer } from './video-player';
 import { WorkflowNav } from './workflow-nav';
@@ -113,6 +117,15 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
   // The engine's own snapshot for the latest run, reused verbatim for statistics.
   const metricsQuery = useMetrics();
   const metrics = metricsQuery.data?.latest ?? null;
+
+  // What this deployment can honestly claim, and what this run's classifier actually
+  // saw. The analysis is only asked for once the run has finished: the fold is written
+  // when the run completes, so asking earlier can only 404.
+  const posture = usePosture();
+  const helmetAnalysis = useHelmetAnalysis(
+    processing.job?.job_id ?? null,
+    processing.phase === 'completed',
+  );
 
   // Review is server state: the case + its append-only history come from the API
   // and there is deliberately no client store mirroring them.
@@ -308,6 +321,13 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           models={runModels}
           complete={processing.phase === 'completed'}
         />
+        {/* Perception without enforcement. Renders nothing unless the run actually
+            declared an analysis, so a deployment that did not configure one is
+            unchanged rather than shown an empty panel. */}
+        <HelmetAnalysisPanel analysis={helmetAnalysis.data} />
+        {/* Beneath the run, not in a settings page: the strip exists to be read
+            next to the output it qualifies. */}
+        <SystemPostureStrip posture={posture.data} />
         <dl className="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted-foreground">
           {PLAYER_SHORTCUTS.map((shortcut) => (
             <div key={shortcut.keys} className="flex items-center gap-1.5">
@@ -327,6 +347,8 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
           onSelect={selectAndReview}
           thumbnailSrc={objectUrl}
           isProcessing={active}
+          // An absence is only a finding when every family was allowed to run.
+          enforcementNote={enforcementNote(posture.data)}
           filters={filters}
           onFiltersChange={setFilters}
           sort={sort}

@@ -43,9 +43,14 @@ from trafficpulse.pipeline.triple_riding import TripleRidingOverlayFrame
 from trafficpulse.pipeline.wrong_way import WrongWayOverlayCapture, WrongWayTrackFrame
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
-_ALL_KINDS = frozenset(
+_ALL_VIOLATION_KINDS = frozenset(
     {"wrong_way", "illegal_stopping", "no_helmet", "triple_riding", "red_light_jumping"}
 )
+#: Registered kinds that describe no violation. ``helmet_analysis`` is perception
+#: without enforcement, so it has a provider but must never be counted as a shipped
+#: violation -- keeping the two sets apart is what makes the assertion below still say
+#: "one provider per shipped rule" rather than merely "some providers exist".
+_NON_VIOLATION_KINDS = frozenset({"helmet_analysis"})
 
 
 def _frame_ref(index: int, seconds: float) -> OverlayFrameRef:
@@ -88,7 +93,9 @@ def test_every_shipped_violation_has_a_registered_provider(
 ) -> None:
     """The R6 gap, closed: five shipped rules, five providers."""
 
-    assert registry.known_kinds() == _ALL_KINDS
+    assert registry.known_kinds() == _ALL_VIOLATION_KINDS | _NON_VIOLATION_KINDS
+    # Every shipped violation is covered, and nothing extra masquerades as one.
+    assert registry.known_kinds() - _NON_VIOLATION_KINDS == _ALL_VIOLATION_KINDS
     # `speeding` has no shipped reasoner, so it must have no provider either.
     assert "speeding" not in registry.known_kinds()
 

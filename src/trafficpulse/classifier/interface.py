@@ -72,6 +72,32 @@ from .raw import RawHelmetPrediction
 class HelmetClassifier(ABC):
     """Abstract, framework-neutral, stateless helmet-state classifier."""
 
+    @property
+    def supported_labels(self) -> frozenset[str] | None:
+        """The native labels this backend can ever emit, or ``None`` if undeclared.
+
+        A **capability declaration**, not a contract change: the seam still fixes no
+        vocabulary (each backend owns its own, per
+        :class:`~trafficpulse.classifier.raw.RawHelmetPrediction`). This only lets a
+        backend *state* what it is able to say, so a composition root can refuse a
+        configuration whose policy depends on evidence the backend cannot produce.
+
+        The motivating case is real. The rule layer exempts a rider whose predominant
+        observation is ``turban`` (``rules.no_helmet.exempt_riders``). A binary
+        helmet/no_helmet backend cannot emit ``turban`` at all, so that exemption would
+        silently become dead code and turban-wearing riders would be confirmed as
+        violations -- a discriminatory false-positive class arising from a *missing*
+        label rather than a wrong one. Silence is the danger; this property is what
+        makes it loud.
+
+        ``None`` means "undeclared" and is the default, so existing backends and any
+        third-party implementation keep working unchanged. Declaring a vocabulary is
+        opt-in and is a promise: a backend that declares a set must never emit a label
+        outside it.
+        """
+
+        return None
+
     @abstractmethod
     def classify(self, crops: Sequence[Crop]) -> Sequence[RawHelmetPrediction]:
         """Classify each crop; return one prediction per crop, in input order.

@@ -36,6 +36,16 @@ from .helmet import (
     observation_id,
     rider_slot,
 )
+from .helmet_stability import (
+    UNCERTAIN_LABEL,
+    HelmetSample,
+    HelmetStabilizationConfig,
+    HelmetTrackSummary,
+    StabilizedSample,
+    stabilize,
+    stabilized_index,
+    summarise_tracks,
+)
 from .rider_count import (
     DEFAULT_RIDER_COUNT_PRODUCER,
     RiderCountDerivation,
@@ -87,6 +97,15 @@ __all__ = [
     "laplacian_variance",
     "observation_id",
     "rider_slot",
+    # temporal stabilization (presentation only; never an accuracy claim)
+    "UNCERTAIN_LABEL",
+    "HelmetSample",
+    "HelmetStabilizationConfig",
+    "HelmetTrackSummary",
+    "StabilizedSample",
+    "stabilize",
+    "stabilized_index",
+    "summarise_tracks",
     "DEFAULT_RIDER_COUNT_PRODUCER",
     "RiderCountDerivation",
     "derive_rider_count_observations",

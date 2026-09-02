@@ -30,6 +30,7 @@ from trafficpulse.contracts import SceneConfig
 from trafficpulse.detector import DetectorConfig
 from trafficpulse.detector.interface import Detector
 from trafficpulse.engine import (
+    AnalysisConfig,
     EngineConfig,
     EngineMetrics,
     InferenceEngine,
@@ -119,7 +120,13 @@ class StubEngineProvider:
         self._classifier = classifier
         self._readiness = readiness
 
-    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
+    def create(
+        self,
+        *,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
+    ) -> InferenceEngine:
         # The classifier is injected only when supplied; a no_helmet rule without
         # one fails fast in the engine's rule registry (same as the real backend).
         return InferenceEngine(
@@ -127,8 +134,11 @@ class StubEngineProvider:
             detector=self._detector_factory(),
             tracker=IouTracker(),
             detector_config=self._detector_config,
-            config=EngineConfig(rules=rules),
+            config=EngineConfig(rules=rules, analysis=analysis),
             classifier=self._classifier,
+            # Matches the production provider, which always captures: the overlay and
+            # the analysis fold both read what the observers recorded.
+            capture_overlay=True,
         )
 
     def describe(self) -> str:
@@ -250,7 +260,7 @@ class RaisingDetector(Detector):
 class RaisingEngineProvider:
     """A provider whose ``create`` raises an unexpected error (500 path)."""
 
-    def create(self, *, scene: object, rules: object) -> InferenceEngine:
+    def create(self, *, scene: object, rules: object, analysis: object = ()) -> InferenceEngine:
         raise RuntimeError("boom: unexpected provider failure")
 
     def describe(self) -> str:
@@ -266,7 +276,7 @@ class UnavailableEngineProvider:
     package's import-isolation invariant is preserved.
     """
 
-    def create(self, *, scene: object, rules: object) -> InferenceEngine:
+    def create(self, *, scene: object, rules: object, analysis: object = ()) -> InferenceEngine:
         from trafficpulse.detector.errors import DetectorError
 
         raise DetectorError("the inference backend is down")

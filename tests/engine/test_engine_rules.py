@@ -9,6 +9,7 @@ from _engine_helpers import DETECTOR_CONFIG, NORTH_DIRECTION_ID, SCENE, frame_re
 from _helmet_fixtures import scripted_helmet_classifier
 from _pipeline_helpers import moving_down_detector
 
+from trafficpulse.classifier import Crop, HelmetClassifier, RawHelmetPrediction
 from trafficpulse.contracts import TrackState
 from trafficpulse.contracts.enums import ViolationType
 from trafficpulse.detector.frame import Frame
@@ -54,6 +55,48 @@ def test_build_rules_realises_all_three_shipped_rules() -> None:
 def test_no_helmet_without_classifier_fails_fast() -> None:
     with pytest.raises(EngineConfigurationError, match="HelmetClassifier"):
         build_rules((NoHelmetRuleConfig(),), scene=SCENE, classifier=None)
+
+
+# --- turban capability (P4-U6) ---------------------------------------------------
+# A binary backend cannot emit `turban`, so the rule's exemption would silently
+# become dead code and turban-wearing riders would be confirmed as violations. The
+# registry refuses that combination beside its missing-classifier check.
+class _TurbanBlindClassifier(HelmetClassifier):
+    """Declares a binary vocabulary, like the trained P4-U5 ResNet-50."""
+
+    @property
+    def supported_labels(self) -> frozenset[str]:
+        return frozenset({"helmet", "no_helmet"})
+
+    def classify(self, crops: Sequence[Crop]) -> Sequence[RawHelmetPrediction]:
+        return tuple(RawHelmetPrediction(label="no_helmet", score=1.0) for _ in crops)
+
+
+def test_no_helmet_on_a_turban_blind_backend_fails_fast() -> None:
+    with pytest.raises(EngineConfigurationError, match="turban"):
+        build_rules(
+            (NoHelmetRuleConfig(),), scene=SCENE, classifier=_TurbanBlindClassifier()
+        )
+
+
+def test_an_acknowledged_turban_blind_backend_builds() -> None:
+    """Acknowledgement records the accepted consequence; it does not remove it."""
+
+    built = build_rules(
+        (NoHelmetRuleConfig(acknowledge_turban_blind=True),),
+        scene=SCENE,
+        classifier=_TurbanBlindClassifier(),
+    )
+    assert [rule.violation for rule in built] == [ViolationType.NO_HELMET]
+
+
+def test_an_undeclared_backend_is_unaffected() -> None:
+    """The shipped zero-shot backend and the stub declare nothing, and keep working."""
+
+    built = build_rules(
+        (NoHelmetRuleConfig(),), scene=SCENE, classifier=scripted_helmet_classifier()
+    )
+    assert [rule.violation for rule in built] == [ViolationType.NO_HELMET]
 
 
 def test_scene_resolution_failures_propagate_unchanged() -> None:

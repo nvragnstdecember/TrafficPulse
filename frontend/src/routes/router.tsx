@@ -10,6 +10,7 @@ import { ROUTES } from './paths';
 // Suspense boundary renders the page loader while a chunk resolves.
 const DashboardPage = lazy(() => import('@/pages/dashboard-page'));
 const VideosPage = lazy(() => import('@/pages/videos-page'));
+const LivePage = lazy(() => import('@/pages/live-page'));
 const EvidencePage = lazy(() => import('@/pages/evidence-page'));
 const AnalyticsPage = lazy(() => import('@/pages/analytics-page'));
 const SettingsPage = lazy(() => import('@/pages/settings-page'));
@@ -29,6 +30,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <DashboardPage />, errorElement: <RouteError /> },
       { path: 'videos', element: <VideosPage />, errorElement: <RouteError /> },
+      { path: 'live', element: <LivePage />, errorElement: <RouteError /> },
       { path: 'evidence', element: <EvidencePage />, errorElement: <RouteError /> },
       { path: 'analytics', element: <AnalyticsPage />, errorElement: <RouteError /> },
       { path: 'settings', element: <SettingsPage />, errorElement: <RouteError /> },

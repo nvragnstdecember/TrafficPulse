@@ -34,15 +34,19 @@ from .config import AppConfig, load_scene
 from .dependencies import AppContext
 from .engine_provider import EngineProvider, RealEngineProvider
 from .errors import AppError
+from .live import LiveConfig, LiveSessionManager
 from .logging_config import RequestIdMiddleware, configure_logging
 from .models import ErrorDetail, ErrorResponse
+from .posture import no_helmet_rule_available
 from .recovery import RepositoryRecovery
 from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
 from .routers import (
+    analysis,
     analytics,
     events,
     evidence,
     health,
+    live,
     metrics,
     process,
     scenes,
@@ -134,6 +138,7 @@ def _build_context(
     *,
     provider: EngineProvider,
     executor: JobExecutor,
+    live_config: LiveConfig | None = None,
 ) -> AppContext:
     from ..contracts import SceneConfig
     from ..evidence import ArtifactStore
@@ -173,10 +178,12 @@ def _build_context(
         SceneStore(config.storage_dir),
         video_service,
         video_store,
-        # AppConfig is the production authority on whether a helmet classifier
-        # exists: RealEngineProvider builds one from exactly this field, so a
-        # deployment without it cannot run no_helmet whatever a scene declares.
-        classifier_available=config.helmet_classifier is not None,
+        # AppConfig is the production authority on whether the no-helmet *rule* can
+        # run: RealEngineProvider builds the classifier from exactly this config, so a
+        # deployment without one -- or with a turban-blind one the capability guard
+        # refuses -- cannot run no_helmet whatever a scene declares. Asking the guard
+        # here is what keeps the derived rule set runnable rather than merely offered.
+        no_helmet_available=no_helmet_rule_available(config),
         fallback=scene,
     )
     processing = ProcessingService(
@@ -206,6 +213,17 @@ def _build_context(
         metrics=MetricsService(job_store),
         # The single aggregation layer (H15). It composes the same registries every
         # other service reads -- it owns no storage and duplicates no scan.
+        # Live camera monitoring (in-memory, ephemeral). It composes the *same*
+        # engine provider and scene service the processing service composes, which
+        # is what makes a live frame and an uploaded frame reason identically -- and
+        # it owns no storage at all, because no camera frame and no live event is
+        # ever written to disk.
+        live=LiveSessionManager(
+            config=config,
+            live_config=live_config if live_config is not None else LiveConfig(),
+            provider=provider,
+            scenes=scene_service,
+        ),
         analytics=AnalyticsService(
             videos=video_store,
             jobs=job_store,
@@ -223,6 +241,7 @@ def create_app(
     *,
     engine_provider: EngineProvider | None = None,
     executor: JobExecutor | None = None,
+    live_config: LiveConfig | None = None,
     configure_logs: bool = True,
 ) -> FastAPI:
     """Build a fully-wired FastAPI application for ``config``.
@@ -252,6 +271,7 @@ def create_app(
         config,
         provider=provider,
         executor=executor if executor is not None else ThreadJobExecutor(),
+        live_config=live_config,
     )
     _register_error_handlers(app)
 
@@ -280,6 +300,8 @@ def create_app(
         evidence,
         metrics,
         analytics,
+        analysis,
+        live,
     ):
         app.include_router(router.router)
 

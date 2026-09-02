@@ -76,11 +76,21 @@ only. Concretely:
   into the runtime: it trained on whole-motorcycle crops, not the runtime's derived
   head crops. See [`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md) and
   [ADR-005](docs/adr/ADR-005.md).
+- **Live camera monitoring: complete** — a browser camera streamed into a
+  persistent backend session that runs the **same** pipeline an uploaded video runs
+  (same engine provider, same detector threshold, same tracker, association, helmet
+  classifier and violation reasoners; no live-only rule anywhere). One WebSocket
+  carries the session; back-pressure keeps exactly one frame pending server-side and
+  two in flight client-side, so latency and memory cannot accumulate. Measured on
+  this machine's CPU: **~1 fps of AI inference and ~1.6 s end-to-end delay** — the
+  camera preview stays smooth because it is deliberately not analysed
+  frame-for-frame. No camera frame or live event is written to disk. See
+  [`docs/live-camera.md`](docs/live-camera.md).
 - **Not started:** speeding (the sixth locked violation), real-footage validation,
   ANPR, and simulated penalties (see [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), **2723 passing backend tests**
-(9 opt-in real-model/GPU tests skipped by default) plus **506 passing frontend
+Quality gates are green: `ruff`, `mypy src` (strict), **2957 passing backend tests**
+(10 opt-in real-model/GPU tests skipped by default) plus **587 passing frontend
 tests**, on the current tree, with single-environment Linux CI and a
 native-Windows verification checklist.
 
@@ -308,6 +318,34 @@ troubleshooting are in the **[Deployment & Operations guide](docs/deployment.md)
 The frontend architecture and scripts are in
 [`frontend/README.md`](frontend/README.md).
 
+### Monitor a live camera
+
+With both processes running, open **Live camera** in the app, press **Start
+camera**, grant access, then press **Start monitoring**. Turning the camera on never
+starts analysis by itself; monitoring is always an explicit second act. Camera
+access needs a secure context, so use `http://localhost` or HTTPS. Architecture, the
+WebSocket protocol, measured throughput on this hardware, and the limitations are in
+**[`docs/live-camera.md`](docs/live-camera.md)**.
+
+### Run the demonstration composition
+
+`serve_demo.py` is a second, explicitly-labelled composition for demonstrating helmet
+perception: it selects the trained P4-U5 ResNet-50 (by far the strongest classifier on
+runtime crops) and declares helmet **analysis** rather than the helmet violation rule.
+
+```bash
+uvicorn serve_demo:app --host 127.0.0.1 --port 8000
+```
+
+It is **not** a production adoption and does not change the default: `serve.py` still
+composes the zero-shot backend, and ADR-005 still adopts none. The trained model is
+binary and cannot emit `turban`, so the classifier capability guard refuses to build a
+no-helmet rule around it — and this launcher does not bypass that guard. It classifies
+and reports; it confirms no helmet violation. What may and may not be claimed from it is
+written down in the **[Demonstration guide](docs/demo-guide.md)**; the evidence behind
+those limits is in
+[`docs/helmet-runtime-evaluation.md`](docs/helmet-runtime-evaluation.md).
+
 ## Vertical-slice demos (offline)
 
 Two offline, deterministic commands run the violation slices end to end — one
@@ -357,7 +395,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 2723 passing; 9 opt-in real-model/GPU tests
+- **Tests:** `pytest -q` (currently 2957 passing; 10 opt-in real-model/GPU tests
   skipped by default). Install the `api` and `overlay` extras so the web layer and
   the overlay renderer are both type-checked and tested — this is exactly what CI
   installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`
@@ -366,7 +404,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 **Frontend** (from `frontend/`)
 
 - **Types:** `npm run typecheck` · **Lint:** `npm run lint` · **Build:**
-  `npm run build` · **Tests:** `npm run test` (279 passing, jsdom, mocked API — no
+  `npm run build` · **Tests:** `npm run test` (587 passing, jsdom, mocked API — no
   backend). Coverage via `npm run coverage`.
 
 - **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the backend
@@ -426,6 +464,18 @@ detector-stack licence posture — not the project licence.
   targets non-congested, single-vehicle synthetic scenes and does not re-associate a
   long-stationary vehicle across a tracker ID switch (both explicit deferrals); its
   `motion_threshold` is recorded for provenance but not applied (uncalibrated slice).
+- **Live camera monitoring runs at ~1 fps of AI inference on this machine's CPU**,
+  with ~1.6 s between the road and the screen (measured; see
+  [`docs/live-camera.md`](docs/live-camera.md) §6). It is not real-time. Its
+  analysis window resets tracker state every 600 processed frames to bound memory,
+  so track ids restart there and a violation straddling that boundary is not
+  confirmed. Live events are not persisted and do not enter the repository, the
+  analytics or the review workflow.
+- **The browser camera path has not been exercised against real hardware.** The
+  live session was validated end to end against the real RT-DETR and helmet
+  backends over a real WebSocket, and the browser capture/teardown path is covered
+  by tests against recording doubles — but the development machine exposes no
+  physical camera, so `getUserMedia` → canvas → socket has never run against one.
 - Deployment assumptions stay bounded by the current project scope; speeding in
   particular is feasibility-gated and excluded from any penalty simulation until
   a calibrated-scene evaluation justifies it (`docs/evaluation-protocol.md` §11).
@@ -434,6 +484,8 @@ detector-stack licence posture — not the project licence.
 
 - [`TRAFFICPULSE_MASTER_SPEC.md`](TRAFFICPULSE_MASTER_SPEC.md) — product/research specification
 - [`docs/deployment.md`](docs/deployment.md) — **deployment & operations guide** (setup, run, env, CORS/static, health, demo, troubleshooting)
+- [`docs/demo-guide.md`](docs/demo-guide.md) — **demonstration guide**: what `serve_demo.py` shows, and exactly what may and may not be claimed from it
+- [`docs/live-camera.md`](docs/live-camera.md) — **live camera monitoring**: architecture, session lifecycle, frame transport, back-pressure, measured performance, and limitations
 - [`frontend/README.md`](frontend/README.md) — frontend architecture, workspace, live processing, review workflow, keyboard shortcuts
 - [`docs/architecture-review.md`](docs/architecture-review.md) — **canonical** architecture & feasibility reference
 - [`docs/architecture.md`](docs/architecture.md) — entry point + ADR index

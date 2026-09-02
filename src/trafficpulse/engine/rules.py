@@ -31,17 +31,21 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ..classifier.capabilities import ClassifierCapabilityError, require_turban_capability
 from ..classifier.interface import HelmetClassifier
 from ..contracts import ConfirmedEvent, ModelRef, SceneConfig, TrackState
 from ..contracts.enums import ViolationType
 from ..detector.frame import Frame
 from ..pipeline.base import FinalizeStrategy, FrameObserver
+from ..pipeline.helmet_analysis import HelmetAnalysisObserver
 from ..pipeline.illegal_stopping import illegal_stopping_finalize_strategy
 from ..pipeline.no_helmet import no_helmet_finalize_strategy
 from ..pipeline.red_light import phases_from_offsets, red_light_finalize_strategy
 from ..pipeline.triple_riding import triple_riding_finalize_strategy
 from ..pipeline.wrong_way import wrong_way_finalize_strategy
 from .config import (
+    AnalysisConfig,
+    HelmetAnalysisConfig,
     IllegalStoppingRuleConfig,
     NoHelmetRuleConfig,
     RedLightRuleConfig,
@@ -135,6 +139,18 @@ def build_rules(
                     "a no_helmet rule is configured but no HelmetClassifier was "
                     "injected; pass classifier= when building the engine"
                 )
+            # The rule's turban exemption is only as good as its evidence. A backend
+            # that has *declared* it cannot emit `turban` would leave `exempt_riders`
+            # permanently empty -- turban-wearing riders confirmed as violations, with
+            # nothing raising anywhere. That is a configuration error, so it is caught
+            # here, beside the missing-classifier check, rather than discovered in the
+            # field. An undeclared backend is left alone: unknown is not incapable.
+            try:
+                require_turban_capability(
+                    classifier, acknowledged=config.acknowledge_turban_blind
+                )
+            except ClassifierCapabilityError as exc:
+                raise EngineConfigurationError(str(exc)) from exc
             strategy, observer = no_helmet_finalize_strategy(
                 scene, classifier=classifier, capture_overlay=capture_overlay
             )
@@ -183,6 +199,67 @@ def build_rules(
                     observer=tr_observer,
                 )
             )
+    return tuple(built)
+
+
+@dataclass(frozen=True)
+class BuiltAnalysis:
+    """One configured analysis, realised: perception with no reasoning attached.
+
+    The deliberate contrast with :class:`BuiltRule` is that there is **no**
+    ``strategy`` field. An analysis contributes a frame observer and nothing else, so
+    there is no place for it to produce a ``ConfirmedEvent`` even by accident -- the
+    absence is structural rather than a convention someone has to remember.
+    """
+
+    kind: str
+    observer: FrameObserver
+
+
+def build_analyses(
+    configs: Sequence[AnalysisConfig],
+    *,
+    classifier: HelmetClassifier | None = None,
+    capture_overlay: bool = False,
+) -> tuple[BuiltAnalysis, ...]:
+    """Realise the configured analyses (perception only; emits no events).
+
+    Deliberately **not** routed through :func:`build_rules`: an analysis has no
+    reasoner, resolves no scene parameters, and mints no event, so giving it a
+    ``FinalizeStrategy`` -- even a null one -- would put it one edit away from being
+    able to confirm something.
+
+    The turban capability guard is **not** consulted here, and that is the point.
+    The guard exists because the no-helmet *rule* silently loses its exemption on a
+    turban-blind backend; an analysis asserts no violation and grants no exemption,
+    so there is nothing for a missing label to silently disable. A binary backend can
+    therefore classify honestly while the rule that would need ``turban`` stays
+    refused -- which is the whole reason this declaration exists.
+
+    Raises:
+        EngineConfigurationError: a helmet analysis is configured but no
+            ``HelmetClassifier`` was injected -- the same fail-fast the rule gets,
+            never a silent no-op.
+    """
+
+    built: list[BuiltAnalysis] = []
+    for config in configs:
+        assert isinstance(config, HelmetAnalysisConfig)  # closed discriminated union
+        if classifier is None:
+            raise EngineConfigurationError(
+                "a helmet_analysis is configured but no HelmetClassifier was "
+                "injected; pass classifier= when building the engine"
+            )
+        built.append(
+            BuiltAnalysis(
+                kind="helmet_analysis",
+                observer=HelmetAnalysisObserver(
+                    classifier=classifier,
+                    capture_overlay=capture_overlay,
+                    stabilization=config.stabilization,
+                ),
+            )
+        )
     return tuple(built)
 
 

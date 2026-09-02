@@ -20,6 +20,18 @@ framework. Its prompt vocabulary travels in ``RawHelmetPrediction.label`` and it
 pixels arrive through the existing ``Crop.image`` slot -- no API change to the
 seam.
 
+:class:`ResNetHelmetClassifier` (P4-U6) is the second real backend: the trained
+P4-U5 ResNet-50, run through ``torchvision`` rather than ``timm``, behind the same
+seam. It is **selectable, never default** -- ADR-005 adopts no backend, and gates
+adoption on evaluating a candidate on the *derived head crops* the runtime actually
+produces rather than on the whole-motorcycle crops P4-U5 measured.
+
+Because that backend is **binary**, it cannot emit ``turban``, which the no-helmet
+rule's exemption depends on. :mod:`~trafficpulse.classifier.capabilities` turns that
+from a silent behaviour change into a composition-time error: a backend declares what
+it can say via ``HelmetClassifier.supported_labels``, and a turban-dependent policy
+refuses to build on a backend that has declared it cannot produce the evidence.
+
 Scope boundary (what this package does NOT do)
 ----------------------------------------------
 It defines no head-crop geometry, rider-slot attribution, quality gate, label map,
@@ -29,10 +41,29 @@ call a classifier: models produce observations, and the reasoning layer decides
 violations.
 """
 
+from .capabilities import (
+    TURBAN_LABEL,
+    ClassifierCapabilityError,
+    missing_labels,
+    require_turban_capability,
+)
 from .crop import Crop
 from .errors import HelmetClassifierError
 from .interface import HelmetClassifier
 from .raw import RawHelmetPrediction
+from .resnet import (
+    CheckpointUnavailableError,
+    MalformedCheckpointError,
+    MalformedResNetOutputError,
+    ResNetBackendError,
+    ResNetDependencyError,
+    ResNetHelmetClassifier,
+    ResNetHelmetConfig,
+    ResNetInferenceEngine,
+    ResNetInferenceError,
+    ResNetInvalidDeviceError,
+    ResNetMissingCropImageError,
+)
 from .stub import UNCERTAIN, StubHelmetClassifier
 from .zeroshot import (
     DEFAULT_HELMET_PROMPTS,
@@ -53,18 +84,35 @@ __all__ = [
     "HelmetClassifier",
     "StubHelmetClassifier",
     "ZeroShotHelmetClassifier",
+    "ResNetHelmetClassifier",
     # boundary types
     "Crop",
     "RawHelmetPrediction",
     # configuration
     "ZeroShotHelmetConfig",
+    "ResNetHelmetConfig",
     "DEFAULT_HELMET_PROMPTS",
-    # internal engine seam (fakeable; no framework type crosses it)
+    # internal engine seams (fakeable; no framework type crosses them)
     "ZeroShotInferenceEngine",
+    "ResNetInferenceEngine",
     # stub conveniences
     "UNCERTAIN",
+    # backend capability declaration (turban-blindness is loud, never silent)
+    "ClassifierCapabilityError",
+    "TURBAN_LABEL",
+    "missing_labels",
+    "require_turban_capability",
     # errors
     "HelmetClassifierError",
+    # resnet backend errors
+    "ResNetBackendError",
+    "ResNetDependencyError",
+    "CheckpointUnavailableError",
+    "MalformedCheckpointError",
+    "ResNetInvalidDeviceError",
+    "ResNetMissingCropImageError",
+    "MalformedResNetOutputError",
+    "ResNetInferenceError",
     # zero-shot backend errors
     "ZeroShotBackendError",
     "BackendDependencyError",

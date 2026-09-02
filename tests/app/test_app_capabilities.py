@@ -107,7 +107,7 @@ def test_a_multi_direction_scene_supports_wrong_way() -> None:
     assert capabilities.wrong_way is True
     # The *first declared* direction, so the answer is deterministic.
     assert capabilities.wrong_way_direction_id == scene.legal_directions[0].direction_id
-    assert ViolationType.WRONG_WAY in supported_violations(scene, classifier_available=False)
+    assert ViolationType.WRONG_WAY in supported_violations(scene, no_helmet_available=False)
 
 
 def test_a_multi_junction_scene_supports_red_light() -> None:
@@ -129,7 +129,7 @@ def test_a_multi_junction_scene_supports_red_light() -> None:
     assert stop_line_id in {line.stop_line_id for line in scene.stop_lines}
     assert zone_id in {zone.zone_id for zone in junctions}
     assert ViolationType.RED_LIGHT_JUMPING in supported_violations(
-        scene, classifier_available=False
+        scene, no_helmet_available=False
     )
 
 
@@ -158,9 +158,9 @@ def test_a_scene_without_the_geometry_is_still_unsupported(
     else:
         scene = _authored_scene(stop_lines=(), signal_groups=())
 
-    assert unsupported not in supported_violations(scene, classifier_available=True)
+    assert unsupported not in supported_violations(scene, no_helmet_available=True)
     assert unsupported not in {
-        _violation_of(rule) for rule in rules_for(scene, classifier_available=True)
+        _violation_of(rule) for rule in rules_for(scene, no_helmet_available=True)
     }
 
 
@@ -175,8 +175,8 @@ def test_a_scene_with_geometry_but_no_parameter_block_is_unsupported() -> None:
     assert capabilities.illegal_stopping is False
     assert capabilities.no_helmet is False
     assert capabilities.triple_riding is False
-    assert supported_violations(scene, classifier_available=True) == ()
-    assert rules_for(scene, classifier_available=True) == ()
+    assert supported_violations(scene, no_helmet_available=True) == ()
+    assert rules_for(scene, no_helmet_available=True) == ()
 
 
 # --- R4: the shipped example scene --------------------------------------------------
@@ -211,12 +211,12 @@ def _violation_of(rule: Any) -> ViolationType:
 
 def test_derived_rules_are_shipped_scene_supported_and_deterministic() -> None:
     scene = _example_scene()
-    derived = rules_for(scene, classifier_available=True)
+    derived = rules_for(scene, no_helmet_available=True)
 
     kinds = [rule.kind for rule in derived]
     assert kinds == ["wrong_way", "illegal_stopping", "no_helmet", "triple_riding"]
     # Deterministic: the same scene derives the same set, in the same order.
-    assert rules_for(scene, classifier_available=True) == derived
+    assert rules_for(scene, no_helmet_available=True) == derived
     # `speeding` has no shipped reasoner and can never be derived.
     assert "speeding" not in kinds
 
@@ -226,9 +226,9 @@ def test_derived_rules_omit_no_helmet_without_a_classifier() -> None:
 
     scene = _example_scene()
     assert "no_helmet" not in [
-        rule.kind for rule in rules_for(scene, classifier_available=False)
+        rule.kind for rule in rules_for(scene, no_helmet_available=False)
     ]
-    assert "no_helmet" in [rule.kind for rule in rules_for(scene, classifier_available=True)]
+    assert "no_helmet" in [rule.kind for rule in rules_for(scene, no_helmet_available=True)]
 
 
 def test_derived_rules_omit_red_light_because_its_schedule_is_per_run() -> None:
@@ -236,10 +236,10 @@ def test_derived_rules_omit_red_light_because_its_schedule_is_per_run() -> None:
 
     scene = _example_scene()
     assert ViolationType.RED_LIGHT_JUMPING in supported_violations(
-        scene, classifier_available=True
+        scene, no_helmet_available=True
     )
     assert "red_light_jumping" not in [
-        rule.kind for rule in rules_for(scene, classifier_available=True)
+        rule.kind for rule in rules_for(scene, no_helmet_available=True)
     ]
 
 
@@ -253,7 +253,7 @@ def test_derived_rules_actually_build_through_the_engine_registry() -> None:
     """
 
     scene = _example_scene()
-    derived = rules_for(scene, classifier_available=False)
+    derived = rules_for(scene, no_helmet_available=False)
     built = build_rules(derived, scene=scene)
 
     assert [rule.violation for rule in built] == [

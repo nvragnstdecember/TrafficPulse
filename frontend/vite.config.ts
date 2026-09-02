@@ -21,6 +21,9 @@ export default defineConfig({
       '/api': {
         target: API_PROXY_TARGET,
         changeOrigin: true,
+        // Live camera monitoring runs over a WebSocket on the same /api prefix, so
+        // the dev proxy has to forward the upgrade as well as ordinary requests.
+        ws: true,
       },
     },
   },

@@ -68,7 +68,7 @@ from .errors import RunCancelledError
 from .evidence import FrameStamp, build_engine_manifest, media_seconds
 from .logs import EngineLogEvent, EngineLogEventKind, EngineLogSink, EventData, NullLogSink
 from .metrics import EngineMetrics, LatencyKind, MetricsRecorder
-from .rules import CompositeFrameObserver, MultiRuleFinalize, build_rules
+from .rules import CompositeFrameObserver, MultiRuleFinalize, build_analyses, build_rules
 from .runner import DetectorRunner, InstrumentedTracker, build_detector, detector_adapter_config
 from .scheduler import FrameScheduler, ScheduleDecision
 from .sources import FrameSource
@@ -127,7 +127,16 @@ class InferenceEngine:
         rules = build_rules(
             config.rules, scene=scene, classifier=classifier, capture_overlay=capture_overlay
         )
-        observers = tuple(rule.observer for rule in rules if rule.observer is not None)
+        # Analyses observe beside the rules and reason about nothing: their observers
+        # join the pixel side-channel, but they contribute no finalize strategy, so
+        # no analysis can put an event into the run (see ``build_analyses``).
+        analyses = build_analyses(
+            config.analysis, classifier=classifier, capture_overlay=capture_overlay
+        )
+        observers = (
+            *(rule.observer for rule in rules if rule.observer is not None),
+            *(analysis.observer for analysis in analyses),
+        )
         # Held so the composition root can retrieve per-rule pixel observers after a
         # run (e.g. the overlay framework reads the no-helmet observer's captured
         # metadata to redraw inference -- see frame_observers()).

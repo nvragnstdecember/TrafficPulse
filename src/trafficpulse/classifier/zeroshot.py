@@ -193,6 +193,31 @@ class ZeroShotHelmetConfig(BaseModel):
             raise ValueError("checkpoint must be a non-empty model id or local path")
         return value
 
+    @property
+    def declared_labels(self) -> frozenset[str]:
+        """The native vocabulary a backend built from this config can emit.
+
+        For a zero-shot backend the prompt set **is** the vocabulary: the classifier
+        scores exactly these labels and can return no other, so this is a derivation
+        rather than a restatement. It exists so a composition root can ask what a
+        backend *would* say without constructing one (which loads transformers), the
+        same question :attr:`ResNetHelmetConfig.declared_labels` answers.
+
+        Whether ``turban`` is present depends on the configured prompts -- a caller
+        that removes that prompt genuinely removes the capability, and the rule
+        layer's turban exemption should then be refused exactly as it is for a binary
+        backend.
+
+        Note this is deliberately **not** wired to
+        :attr:`ZeroShotHelmetClassifier.supported_labels`, which stays ``None``
+        (undeclared). Declaring a vocabulary at the seam is a promise the *backend*
+        makes about its own outputs; leaving it undeclared preserves the existing
+        runtime behaviour exactly, while the application still gets the configuration
+        fact it needs here.
+        """
+
+        return frozenset(self.prompts)
+
     @field_validator("prompts")
     @classmethod
     def _validate_prompts(cls, value: dict[str, str]) -> dict[str, str]:

@@ -33,9 +33,13 @@ export const queryKeys = {
   health: ['health'] as const,
   metrics: ['metrics'] as const,
   analytics: ['analytics'] as const,
+  posture: ['posture'] as const,
   jobs: {
     all: ['jobs'] as const,
     detail: (jobId: string) => ['jobs', jobId] as const,
+  },
+  helmetAnalysis: {
+    forJob: (jobId: string) => ['helmet-analysis', jobId] as const,
   },
   videos: {
     all: ['videos'] as const,

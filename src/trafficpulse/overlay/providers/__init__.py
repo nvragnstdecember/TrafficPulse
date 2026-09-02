@@ -5,7 +5,7 @@ Each module here maps one violation's inference metadata to the generic
 *only* overlay code that knows a violation exists; the metadata model, theme,
 layout, and renderer stay violation-agnostic.
 
-Five shipped providers, drawing their metadata from two different places:
+Five violation providers, drawing their metadata from two different places:
 ``no_helmet`` and ``triple_riding`` read a **frame observer's** capture (helmet
 reasoning needs the decoded image; rider counting needs every track in a frame at
 once), while ``wrong_way``, ``illegal_stopping`` and ``red_light_jumping`` read a
@@ -33,6 +33,10 @@ from ...contracts import ConfirmedEvent
 from ...pipeline.helmet_observer import HelmetFrameObserver
 from ...pipeline.triple_riding import RiderCountFrameObserver
 from ..registry import OverlayProvider, OverlayProviderRegistry
+from .helmet_analysis import (
+    HelmetAnalysisOverlayProvider,
+    register_helmet_analysis_overlay,
+)
 from .illegal_stopping import (
     IllegalStoppingOverlayProvider,
     register_illegal_stopping_overlay,
@@ -47,12 +51,14 @@ from .wrong_way import WrongWayOverlayProvider, register_wrong_way_overlay
 # wiring below registers their observer adapters instead.
 
 __all__ = [
+    "HelmetAnalysisOverlayProvider",
     "IllegalStoppingOverlayProvider",
     "NoHelmetOverlayProvider",
     "RedLightOverlayProvider",
     "TripleRidingOverlayProvider",
     "WrongWayOverlayProvider",
     "register_defaults",
+    "register_helmet_analysis_overlay",
     "register_illegal_stopping_overlay",
     "register_no_helmet_overlay",
     "register_red_light_overlay",
@@ -81,7 +87,7 @@ def register_defaults(registry: OverlayProviderRegistry) -> None:
     """Register every shipped provider, indexed by kind and by capture type.
 
     Registration order fixes nothing: the compositor sorts providers by kind and the
-    renderer paints by layer, so this is simply where the five are enumerated.
+    renderer paints by layer, so this is simply where they are enumerated.
 
     Calling this twice on one registry raises -- deliberately, since a silent
     re-registration would hide a double-wiring bug. A caller that needs a fresh set
@@ -105,3 +111,8 @@ def register_defaults(registry: OverlayProviderRegistry) -> None:
         _triple_riding_from_observer,
         source_type=RiderCountFrameObserver,
     )
+    # Perception without enforcement. Registered against its own observer type, which
+    # is deliberately *not* a ``HelmetFrameObserver`` subclass: ``kind_for`` resolves by
+    # ``isinstance``, so a subclass would silently draw an analysis run as if the
+    # no-helmet rule had confirmed something.
+    register_helmet_analysis_overlay(registry)

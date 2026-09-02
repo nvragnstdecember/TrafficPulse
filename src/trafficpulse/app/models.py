@@ -23,6 +23,8 @@ from ..contracts import ConfidenceBreakdown, ReviewCase, ReviewEntry
 from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
 from ..contracts.scene import CalibrationStatus, SceneStatus
 from ..engine import EngineMetrics, RuleConfig
+from ..pipeline.helmet_analysis import HelmetAnalysisReport, RiderEnforcementStatus
+from .posture import PostureState, SystemPosture
 from .registry import EvidenceStatus, JobStatus, OverlayStatus, VideoRecord
 
 
@@ -652,6 +654,236 @@ class AnalyticsSummary(_ApiModel):
     latest_run: EngineMetrics | None = Field(
         default=None, description="The most recent run's H6 EngineMetrics, verbatim."
     )
+
+
+# --- helmet analysis + deployment posture --------------------------------------
+class PostureComponentModel(_ApiModel):
+    """One capability, how far it can be relied on, and why -- in plain words.
+
+    ``detail`` is a complete sentence rather than a metric, because the audience for
+    this endpoint is a person deciding what they may claim, not a dashboard computing
+    an average. See :mod:`trafficpulse.app.posture`.
+    """
+
+    component_id: str = Field(description="Stable slug, e.g. 'helmet_enforcement'.")
+    label: str = Field(description="Short human label for the status strip.")
+    state: PostureState = Field(description="How far this capability can be relied on.")
+    detail: str = Field(description="Why it is in that state, stated plainly.")
+
+
+class SystemPostureResponse(_ApiModel):
+    """What this deployment can honestly claim.
+
+    Deliberately separate from ``/api/health``: health answers "is the service
+    working", this answers "what does its configuration entitle anyone to say". A
+    service can be perfectly healthy and still be unable to enforce a helmet violation.
+    """
+
+    components: tuple[PostureComponentModel, ...] = Field(
+        description="The status strip, in display order."
+    )
+    helmet_backend: str | None = Field(
+        default=None,
+        description="Configured helmet backend config class, or null when none is set.",
+    )
+    helmet_backend_labels: tuple[str, ...] = Field(
+        default=(),
+        description="Exactly what the configured backend declares it can emit. Empty "
+        "when none is configured or the backend declares no vocabulary (undeclared is "
+        "not the same as incapable).",
+    )
+    turban_capable: bool = Field(
+        default=False,
+        description="Whether the configured backend declares it can emit 'turban'. "
+        "False means the capability guard refuses a no-helmet violation rule on it.",
+    )
+    helmet_enforcement: PostureState = Field(
+        description="The enforcement component's state, lifted out so a client can "
+        "branch on it without matching component ids. Never 'active'."
+    )
+
+    @classmethod
+    def from_posture(cls, posture: SystemPosture) -> SystemPostureResponse:
+        """Present the computed posture as the API payload."""
+
+        return cls(
+            components=tuple(
+                PostureComponentModel(
+                    component_id=component.component_id,
+                    label=component.label,
+                    state=component.state,
+                    detail=component.detail,
+                )
+                for component in posture.components
+            ),
+            helmet_backend=posture.helmet_backend,
+            helmet_backend_labels=posture.helmet_backend_labels,
+            turban_capable=posture.turban_capable,
+            helmet_enforcement=posture.helmet_enforcement,
+        )
+
+
+class RiderAnalysisModel(_ApiModel):
+    """One rider track's helmet analysis. Carries no violation and implies none.
+
+    The classification fields and ``enforcement`` are independent: a rider can hold a
+    confident ``no_helmet`` reading *and* ``multi_rider_unresolved``, which is the
+    normal case in dense traffic and is exactly the combination that must not be
+    collapsed into an accusation.
+    """
+
+    rider_track_id: str = Field(description="Tracker id of the rider.")
+    motorcycle_track_id: str | None = Field(
+        default=None,
+        description="Tracker id of the motorcycle the rider was linked to.",
+    )
+    rider_count: int = Field(
+        description="Most riders seen sharing this rider's motorcycle on one frame."
+    )
+    multi_rider: bool = Field(description="Whether that count ever exceeded one.")
+    samples: int = Field(description="Frames on which this rider was classified.")
+    first_frame: int = Field(description="First observed frame (rank within the run).")
+    last_frame: int = Field(description="Last observed frame (rank within the run).")
+    helmet_state: str = Field(
+        description="The stabilized label in the frozen ontology's spelling: helmet, "
+        "no_helmet, turban or uncertain. Smoothed for display over a short per-track "
+        "window; this is not a validated accuracy improvement."
+    )
+    confidence: float | None = Field(
+        default=None,
+        description="Mean classifier score of the window entries supporting the label, "
+        "or null when none of them was scored. Never fabricated as 0.",
+    )
+    agreement: float = Field(
+        description="Fraction of the smoothing window agreeing with the label."
+    )
+    settled: bool = Field(
+        description="Whether enough samples backed the window vote to call it settled."
+    )
+    raw_label_flips: int = Field(
+        description="Times the unsmoothed label changed between consecutive samples -- "
+        "the observed per-frame instability, measured on this run."
+    )
+    stabilized_label_flips: int = Field(
+        description="The same count after smoothing. A legibility figure, not accuracy."
+    )
+    median_head_height_px: float | None = Field(
+        default=None,
+        description="Median head-crop height. Below ~30px both trained backends "
+        "degrade sharply, so this says which regime the reading came from.",
+    )
+    enforcement: RiderEnforcementStatus = Field(
+        description="Whether anything about this rider could be acted on, and if not, "
+        "which documented blocker applies. Never a violation outcome."
+    )
+
+
+class LabelCountModel(_ApiModel):
+    """One label or status slug, and how many rider tracks ended on it."""
+
+    label: str = Field(description="Label or status slug.")
+    riders: int = Field(description="Number of rider tracks.")
+
+
+class HelmetAnalysisResponse(_ApiModel):
+    """A finished run's helmet analysis: perception, aggregated, with its limits.
+
+    **No field here is a violation count.** An analysis mints no ``ConfirmedEvent``;
+    ``/api/events`` remains the only source of confirmed violations, and a helmet
+    violation never appears there while this deployment is in analysis mode.
+    """
+
+    job_id: str = Field(description="The job this analysis describes.")
+    enforcement: PostureState = Field(
+        description="The deployment's helmet-enforcement posture at read time. "
+        "Repeated here so a client rendering this payload cannot show it without it."
+    )
+    frames_observed: int = Field(
+        description="Frames on which at least one rider was associated and observed."
+    )
+    riders_observed: int = Field(description="Distinct rider tracks classified.")
+    motorcycles_associated: int = Field(
+        description="Distinct motorcycle tracks that carried at least one associated "
+        "rider. Not every motorcycle the detector saw."
+    )
+    multi_rider_riders: int = Field(description="Rider tracks on a shared motorcycle.")
+    multi_rider_motorcycles: int = Field(
+        description="Motorcycles seen carrying more than one rider."
+    )
+    eligible_riders: int = Field(
+        description="Riders with no known blocker: single-rider, settled, not abstained."
+    )
+    unresolved_riders: int = Field(description="Riders whose driver role is unresolved.")
+    abstained_riders: int = Field(
+        description="Riders whose stabilized reading is uncertain."
+    )
+    unstable_riders: int = Field(description="Riders with too few samples to settle.")
+    gate_abstentions: int = Field(
+        description="Crops rejected by the quality gate before any inference ran."
+    )
+    label_counts: tuple[LabelCountModel, ...] = Field(
+        default=(), description="Rider tracks by final stabilized label."
+    )
+    enforcement_counts: tuple[LabelCountModel, ...] = Field(
+        default=(), description="Rider tracks by enforcement status."
+    )
+    riders: tuple[RiderAnalysisModel, ...] = Field(
+        default=(), description="Per-rider detail, ordered by track id."
+    )
+
+    @classmethod
+    def from_report(
+        cls, job_id: str, report: HelmetAnalysisReport, *, enforcement: PostureState
+    ) -> HelmetAnalysisResponse:
+        """Present a run's fold as the API payload.
+
+        ``enforcement`` is required rather than defaulted: the deployment's posture is
+        not derivable from the report, and a payload that omitted it would let a client
+        render helmet readings with no statement of what may be concluded from them.
+        """
+
+        return cls(
+            job_id=job_id,
+            enforcement=enforcement,
+            frames_observed=report.frames_observed,
+            riders_observed=report.riders_observed,
+            motorcycles_associated=report.motorcycles_associated,
+            multi_rider_riders=report.multi_rider_riders,
+            multi_rider_motorcycles=report.multi_rider_motorcycles,
+            eligible_riders=report.eligible_riders,
+            unresolved_riders=report.unresolved_riders,
+            abstained_riders=report.abstained_riders,
+            unstable_riders=report.unstable_riders,
+            gate_abstentions=report.gate_abstentions,
+            label_counts=tuple(
+                LabelCountModel(label=label, riders=count)
+                for label, count in report.label_counts
+            ),
+            enforcement_counts=tuple(
+                LabelCountModel(label=label, riders=count)
+                for label, count in report.enforcement_counts
+            ),
+            riders=tuple(
+                RiderAnalysisModel(
+                    rider_track_id=rider.rider_track_id,
+                    motorcycle_track_id=rider.motorcycle_track_id,
+                    rider_count=rider.rider_count,
+                    multi_rider=rider.multi_rider,
+                    samples=rider.samples,
+                    first_frame=rider.first_frame,
+                    last_frame=rider.last_frame,
+                    helmet_state=rider.label,
+                    confidence=rider.confidence,
+                    agreement=rider.agreement,
+                    settled=rider.settled,
+                    raw_label_flips=rider.raw_flips,
+                    stabilized_label_flips=rider.stabilized_flips,
+                    median_head_height_px=rider.median_head_height_px,
+                    enforcement=rider.enforcement,
+                )
+                for rider in report.riders
+            ),
+        )
 
 
 # --- errors --------------------------------------------------------------------

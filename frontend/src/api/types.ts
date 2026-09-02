@@ -577,3 +577,249 @@ export interface ApiErrorBody {
     video_id?: string;
   };
 }
+
+/**
+ * How far a capability can be relied on (`/api/system/posture`).
+ *
+ * `limited` and `experimental` are deliberately different: `limited` works inside a
+ * stated boundary, `experimental` runs but is not something the evidence supports
+ * acting on. A surface that collapsed them would let unvalidated output read as
+ * merely-caveated output.
+ */
+export type PostureState =
+  | 'active'
+  | 'limited'
+  | 'experimental'
+  | 'disabled'
+  | 'unavailable';
+
+export interface PostureComponent {
+  component_id: string;
+  label: string;
+  state: PostureState;
+  /** A complete sentence, not a metric — this is what a person must read before claiming anything. */
+  detail: string;
+}
+
+/**
+ * What the deployment can honestly claim. Distinct from health: a perfectly healthy
+ * service can still be unable to enforce a helmet violation.
+ */
+export interface SystemPosture {
+  components: PostureComponent[];
+  helmet_backend: string | null;
+  /** Exactly what the configured backend declares it can emit; empty when undeclared. */
+  helmet_backend_labels: string[];
+  turban_capable: boolean;
+  /** Never `active`: no configuration of this system currently earns that word. */
+  helmet_enforcement: PostureState;
+}
+
+/** Why a rider's helmet reading is, or is not, something a violation rule could act on. */
+export type RiderEnforcementStatus =
+  | 'eligible'
+  | 'multi_rider_unresolved'
+  | 'classification_abstained'
+  | 'unstable';
+
+export interface RiderAnalysis {
+  rider_track_id: string;
+  motorcycle_track_id: string | null;
+  rider_count: number;
+  multi_rider: boolean;
+  samples: number;
+  first_frame: number;
+  last_frame: number;
+  /** The stabilized label: helmet | no_helmet | turban | uncertain. Never a violation. */
+  helmet_state: string;
+  /** `null` means "not measured" — never coerce it to 0. */
+  confidence: number | null;
+  agreement: number;
+  settled: boolean;
+  /** Observed per-frame instability on this run, before smoothing. */
+  raw_label_flips: number;
+  stabilized_label_flips: number;
+  median_head_height_px: number | null;
+  enforcement: RiderEnforcementStatus;
+}
+
+export interface AnalysisLabelCount {
+  label: string;
+  riders: number;
+}
+
+/**
+ * A finished run's helmet analysis. **No field here is a violation count** — an
+ * analysis mints no event, and `/api/events` remains the only source of confirmed
+ * violations.
+ */
+export interface HelmetAnalysis {
+  job_id: string;
+  enforcement: PostureState;
+  frames_observed: number;
+  riders_observed: number;
+  motorcycles_associated: number;
+  multi_rider_riders: number;
+  multi_rider_motorcycles: number;
+  eligible_riders: number;
+  unresolved_riders: number;
+  abstained_riders: number;
+  unstable_riders: number;
+  gate_abstentions: number;
+  label_counts: AnalysisLabelCount[];
+  enforcement_counts: AnalysisLabelCount[];
+  riders: RiderAnalysis[];
+}
+
+// --- live camera monitoring -------------------------------------------------
+/**
+ * Whether this deployment can monitor a live camera, asked *before* the browser
+ * requests camera permission — so a deployment that cannot monitor live says so
+ * instead of failing after a person has granted access to their camera.
+ */
+export interface LiveReadiness {
+  ready: boolean;
+  detail: string;
+  active_sessions: number;
+  max_sessions: number;
+  inference_configured: boolean;
+  drawing_backend_available: boolean;
+  helmet_classifier_configured: boolean;
+}
+
+export interface LiveSessionSummary {
+  session_id: string;
+  camera_id: string;
+  width: number;
+  height: number;
+  scene_calibrated: boolean;
+  frames_processed: number;
+  uptime_seconds: number;
+}
+
+export interface LiveSessionListResponse {
+  sessions: LiveSessionSummary[];
+  max_sessions: number;
+}
+
+export interface LiveUnavailableViolation {
+  violation_type: ViolationType;
+  /** A complete sentence naming the missing evidence. Shown verbatim. */
+  reason: string;
+}
+
+/** Sent once when a live session opens, before any frame. */
+export interface LiveSessionMessage {
+  type: 'session';
+  session_id: string;
+  camera_id: string;
+  width: number;
+  height: number;
+  scene_hash: string | null;
+  scene_calibrated: boolean;
+  running_violations: ViolationType[];
+  unavailable_violations: LiveUnavailableViolation[];
+  window_frames: number;
+}
+
+export interface LiveTrack {
+  track_id: string;
+  object_class: string;
+  status: string;
+  /** `[x1, y1, x2, y2]` in the camera's own pixel space. */
+  bbox: [number, number, number, number];
+  confidence: number | null;
+}
+
+export interface LiveMotorcycle {
+  motorcycle_track_id: string;
+  rider_count: number;
+  /**
+   * False whenever the motorcycle carries more than one rider. The tracker
+   * supplies no velocity, so no layer of this system can say which rider is
+   * driving — and none of them guesses.
+   */
+  driver_resolved: boolean;
+}
+
+export interface LiveRider {
+  rider_track_id: string;
+  motorcycle_track_id: string;
+  rider_count: number;
+  driver_resolved: boolean;
+  helmet_label: string | null;
+  helmet_confidence: number | null;
+  /** The crop was refused by the quality gate, so nothing was classified. */
+  helmet_gated: boolean;
+}
+
+/** Every value here is counted or timed by the server. None is estimated. */
+export interface LiveStats {
+  frames_received: number;
+  frames_dropped: number;
+  frames_processed: number;
+  frames_rejected: number;
+  frames_out_of_order: number;
+  active_tracks: number;
+  events_emitted: number;
+  windows_completed: number;
+  window_frames_processed: number;
+  uptime_seconds: number;
+  /**
+   * Throughput: frames completed per wall second. Deliberately not `1 / latency` —
+   * two frames may be in flight, so inverting latency would report about half the
+   * frames per second the server genuinely completes.
+   */
+  inference_fps: number | null;
+  /** What one frame costs inside the pipeline, excluding any wait behind another. */
+  processing_ms_mean: number | null;
+  /** End-to-end, including that wait: what a viewer perceives as the delay. */
+  latency_ms_mean: number | null;
+  latency_ms_last: number | null;
+}
+
+export interface LiveResultMessage {
+  type: 'result';
+  frame_index: number;
+  sequence: number;
+  capture_seconds: number;
+  tracks: LiveTrack[];
+  motorcycles: LiveMotorcycle[];
+  riders: LiveRider[];
+  /** Base64 JPEG of the annotated frame, or null when there was nothing to draw. */
+  annotated: string | null;
+  window_rolled_over: boolean;
+  stats: LiveStats;
+}
+
+export interface LiveEventsMessage {
+  type: 'events';
+  /** The very `ConfirmedEvent`s the rules minted — not a reduced live shape. */
+  events: ConfirmedEvent[];
+}
+
+export interface LiveWarningMessage {
+  type: 'warning';
+  code: string;
+  message: string;
+}
+
+export interface LiveErrorMessage {
+  type: 'error';
+  code: string;
+  message: string;
+}
+
+export interface LiveStoppedMessage {
+  type: 'stopped';
+  session_id: string;
+  stats: LiveStats;
+}
+
+export type LiveServerMessage =
+  | LiveSessionMessage
+  | LiveResultMessage
+  | LiveEventsMessage
+  | LiveWarningMessage
+  | LiveErrorMessage
+  | LiveStoppedMessage;

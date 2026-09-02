@@ -72,7 +72,15 @@ def _run(client: TestClient, tmp_path: Path) -> tuple[str, str]:
 
 
 def test_the_registry_backs_the_application_driver() -> None:
-    """The registry is the dispatch mechanism, not dead code."""
+    """The registry is the dispatch mechanism, not dead code.
+
+    ``helmet_analysis`` is in this set but is **not** a violation: it is the
+    perception-only overlay, registered against its own observer type so an analysis
+    run can never be drawn through the no-helmet provider. It is asserted here for the
+    same reason the five violations are -- the set is the registry's contract, and a
+    kind appearing or vanishing from it silently is exactly what this test exists to
+    catch.
+    """
 
     assert OVERLAY_REGISTRY.known_kinds() == {
         "wrong_way",
@@ -80,6 +88,7 @@ def test_the_registry_backs_the_application_driver() -> None:
         "no_helmet",
         "triple_riding",
         "red_light_jumping",
+        "helmet_analysis",
     }
 
 

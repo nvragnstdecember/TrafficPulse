@@ -24,6 +24,11 @@ export const endpoints = {
   job: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}`,
   cancelJob: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/cancel`,
   jobOverlay: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/overlay`,
+  /** A finished run's helmet analysis (perception only; never a violation). */
+  helmetAnalysis: (jobId: string) =>
+    `/api/process/${encodeURIComponent(jobId)}/helmet-analysis`,
+  /** What this deployment can honestly claim, per capability. */
+  posture: '/api/system/posture',
   events: '/api/events',
   event: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}`,
   evidence: (eventId: string) => `/api/evidence/${encodeURIComponent(eventId)}`,
@@ -34,4 +39,14 @@ export const endpoints = {
   evidencePackage: (eventId: string) =>
     `/api/evidence/${encodeURIComponent(eventId)}/package`,
   review: (eventId: string) => `/api/events/${encodeURIComponent(eventId)}/review`,
+  /** Whether this deployment can monitor a live camera at all (pre-flight). */
+  liveStatus: '/api/live/status',
+  /** Live sessions currently running in the server process. */
+  liveSessions: '/api/live/sessions',
+  /**
+   * The live monitoring socket. A path, like every other entry: the ws:// or
+   * wss:// origin is resolved at connect time from the page, so nothing here is
+   * hardcoded to a host.
+   */
+  liveSocket: '/api/live/ws',
 } as const;

@@ -55,6 +55,17 @@ export interface EventListProps {
   thumbnailSrc?: string | null;
   /** True while the run is still going — an empty list is not yet a verdict. */
   isProcessing?: boolean;
+  /**
+   * Why an empty list may understate what was checked, when that is the case.
+   *
+   * "No violations detected" is a *conclusion*, and it is only honest when every
+   * violation family the scene supports was actually allowed to run. In a deployment
+   * where helmet enforcement is disabled, a clip full of bare-headed riders produces
+   * an empty list because the rule was never run — not because the system looked and
+   * found nothing. Passing a note here appends that fact; omitting it leaves the
+   * original wording exactly as it was.
+   */
+  enforcementNote?: string | null;
 }
 
 const ROW_HEIGHT = 76;
@@ -90,6 +101,7 @@ export function EventList({
   onExport,
   thumbnailSrc = null,
   isProcessing = false,
+  enforcementNote = null,
 }: EventListProps) {
   const activeIndex = useMemo(
     () => events.findIndex((event) => event.id === selectedEventId),
@@ -214,10 +226,17 @@ export function EventList({
           description="Confirmed violations will appear here as the run finds them."
         />
       ) : totalCount === 0 ? (
+        // "Detected" would be a conclusion. It is the right word only when every
+        // violation family the scene supports actually ran; where one is switched
+        // off, the note says so rather than letting an absence read as a finding.
         <EmptyState
           icon={ShieldCheck}
-          title="No violations detected"
-          description="Processing found no confirmed violations in this video."
+          title={enforcementNote ? 'No violations confirmed' : 'No violations detected'}
+          description={
+            enforcementNote
+              ? `Processing confirmed no violations. ${enforcementNote}`
+              : 'Processing found no confirmed violations in this video.'
+          }
         />
       ) : events.length === 0 ? (
         <EmptyState

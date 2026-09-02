@@ -107,4 +107,3 @@ scratch_frames/
 trafficpulse-data/runs/*
 !trafficpulse-data/runs/.gitkeep
 trafficpulse-data/logs/
-

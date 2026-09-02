@@ -4,6 +4,7 @@ import {
   type AnalyticsSummary,
   type HealthResponse,
   type MetricsResponse,
+  type SystemPosture,
 } from '@/api/types';
 
 /**
@@ -22,5 +23,14 @@ export const systemService = {
   /** The whole dashboard in one request (H15) — no per-widget round-trips. */
   getAnalytics(signal?: AbortSignal): Promise<AnalyticsSummary> {
     return apiClient.get<AnalyticsSummary>(endpoints.analyticsSummary, { signal });
+  },
+  /**
+   * What the deployment can honestly claim, per capability.
+   *
+   * Separate from health on purpose: health says the service is working, this says
+   * what its configuration entitles anyone to conclude from the output.
+   */
+  getPosture(signal?: AbortSignal): Promise<SystemPosture> {
+    return apiClient.get<SystemPosture>(endpoints.posture, { signal });
   },
 };

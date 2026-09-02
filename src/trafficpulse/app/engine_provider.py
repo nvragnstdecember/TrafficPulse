@@ -26,6 +26,7 @@ from typing import Protocol
 
 from ..contracts import SceneConfig
 from ..engine import (
+    AnalysisConfig,
     EngineConfig,
     EngineLogSink,
     InferenceEngine,
@@ -43,8 +44,21 @@ _logger = logging.getLogger("trafficpulse.engine")
 class EngineProvider(Protocol):
     """Creates a configured H6 engine for one job; the injectable backend seam."""
 
-    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
-        """Build an engine for ``scene`` running ``rules``.
+    def create(
+        self,
+        *,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
+    ) -> InferenceEngine:
+        """Build an engine for ``scene`` running ``rules``, plus any ``analysis``.
+
+        ``analysis`` is kept a separate parameter rather than merged into ``rules``
+        for the same reason :class:`~trafficpulse.engine.EngineConfig` keeps the two
+        lists apart: everything in ``rules`` can mint a ``ConfirmedEvent`` and nothing
+        in ``analysis`` ever can, and a caller must not be able to lose that
+        distinction by appending to the wrong tuple. It defaults to empty, so an
+        existing provider implementation and every existing call site are unaffected.
 
         May raise the composed layers' typed errors (scene/rule validation, or a
         backend/checkpoint failure); the caller translates them to HTTP errors.
@@ -62,16 +76,25 @@ class RealEngineProvider:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
 
-    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
+    def create(
+        self,
+        *,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
+    ) -> InferenceEngine:
         if self._config.inference is None:
             raise EngineUnavailableError(
                 "no inference backend is configured; set AppConfig.inference to "
                 "process video with the real RT-DETR engine"
             )
-        return self._build_real_engine(scene, rules)  # pragma: no cover - needs RT-DETR
+        return self._build_real_engine(scene, rules, analysis)  # pragma: no cover
 
     def _build_real_engine(  # pragma: no cover - requires the optional RT-DETR backend
-        self, scene: SceneConfig, rules: tuple[RuleConfig, ...]
+        self,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
     ) -> InferenceEngine:
         """Build the real RT-DETR engine via H6 (loads torch; excluded from the
         framework-free test suite, whose provider is a stub -- see the module
@@ -86,14 +109,30 @@ class RealEngineProvider:
         ``no_helmet`` rule fast -- a clean configuration error, never a silent
         miss."""
 
-        from ..classifier import ZeroShotHelmetClassifier
-
-        engine_config = EngineConfig(rules=rules, inference=self._config.inference)
-        classifier = (
-            ZeroShotHelmetClassifier(self._config.helmet_classifier)
-            if self._config.helmet_classifier is not None
-            else None
+        from ..classifier import (
+            HelmetClassifier,
+            ResNetHelmetClassifier,
+            ResNetHelmetConfig,
+            ZeroShotHelmetClassifier,
+            ZeroShotHelmetConfig,
         )
+
+        engine_config = EngineConfig(
+            rules=rules, analysis=analysis, inference=self._config.inference
+        )
+        # Dispatch on which config object the operator supplied. No default backend
+        # and no fallback: an unrecognised config is a programming error here, not a
+        # reason to quietly pick one.
+        helmet_config = self._config.helmet_classifier
+        classifier: HelmetClassifier | None
+        if helmet_config is None:
+            classifier = None
+        elif isinstance(helmet_config, ZeroShotHelmetConfig):
+            classifier = ZeroShotHelmetClassifier(helmet_config)
+        elif isinstance(helmet_config, ResNetHelmetConfig):
+            classifier = ResNetHelmetClassifier(helmet_config)
+        else:  # pragma: no cover - unreachable while the union is exhaustive
+            raise TypeError(f"unsupported helmet_classifier config: {type(helmet_config).__name__}")
         sink = self._log_sink()
         # build_engine also mints an EventStore; the processing service owns
         # persistence (one store rooted at runs_dir), so only the engine is kept.

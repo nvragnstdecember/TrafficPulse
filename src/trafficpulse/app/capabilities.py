@@ -40,11 +40,20 @@ carried into the rule config the processing path runs -- so "supported" and
 
 Not purely a scene question
 ----------------------------
-No-helmet additionally needs a configured :class:`HelmetClassifier`, which is a
-deployment fact rather than a scene fact (the engine's rule registry refuses a
-``no_helmet`` rule without one). That is why this lives in the application layer
-and takes ``classifier_available`` alongside the scene, instead of sitting in
+No-helmet additionally needs a deployment that can actually build the rule, which is
+not a scene fact at all. That is why this lives in the application layer and takes
+``no_helmet_available`` alongside the scene, instead of sitting in
 :mod:`trafficpulse.scenes` where it would have to guess.
+
+Two independent things can make that false, and the caller resolves both (see
+:func:`trafficpulse.app.posture.no_helmet_rule_available`): no ``HelmetClassifier`` is
+configured, or one is configured that has **declared it cannot emit** ``turban``, in
+which case the classifier capability guard refuses the rule. The second case matters
+here for a concrete reason: the derived rule set is what an uncalibrated upload runs,
+so offering ``no_helmet`` on a turban-blind backend would put a rule in every job that
+the engine then refuses at build time -- turning a deliberate safety guard into a
+crash on every upload. Asking the guard is the same discipline as asking the scene
+factories: one authority, consulted, never restated.
 """
 
 from __future__ import annotations
@@ -202,7 +211,7 @@ def probe_scene(scene: SceneConfig) -> SceneCapabilities:
 
 
 def supported_violations(
-    scene: SceneConfig, *, classifier_available: bool
+    scene: SceneConfig, *, no_helmet_available: bool
 ) -> tuple[ViolationType, ...]:
     """The violations this scene (and deployment) can reason about, in a fixed order.
 
@@ -218,14 +227,14 @@ def supported_violations(
         supported.append(ViolationType.ILLEGAL_STOPPING)
     if capabilities.red_light:
         supported.append(ViolationType.RED_LIGHT_JUMPING)
-    if classifier_available and capabilities.no_helmet:
+    if no_helmet_available and capabilities.no_helmet:
         supported.append(ViolationType.NO_HELMET)
     if capabilities.triple_riding:
         supported.append(ViolationType.TRIPLE_RIDING)
     return tuple(supported)
 
 
-def rules_for(scene: SceneConfig, *, classifier_available: bool) -> tuple[RuleConfig, ...]:
+def rules_for(scene: SceneConfig, *, no_helmet_available: bool) -> tuple[RuleConfig, ...]:
     """The default rule declarations for a scene: every rule it can legitimately run.
 
     This is the server's answer to "process this video" when the client named no
@@ -255,7 +264,7 @@ def rules_for(scene: SceneConfig, *, classifier_available: bool) -> tuple[RuleCo
         rules.append(WrongWayRuleConfig(direction_id=capabilities.wrong_way_direction_id))
     if capabilities.illegal_stopping:
         rules.append(IllegalStoppingRuleConfig())
-    if classifier_available and capabilities.no_helmet:
+    if no_helmet_available and capabilities.no_helmet:
         rules.append(NoHelmetRuleConfig())
     if capabilities.triple_riding:
         rules.append(TripleRidingRuleConfig())

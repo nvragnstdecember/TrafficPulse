@@ -35,3 +35,18 @@ export function useAnalytics() {
     refetchInterval: 30_000,
   });
 }
+
+/**
+ * What this deployment can honestly claim, per capability (`/api/system/posture`).
+ *
+ * Cached hard and polled rarely: the posture is a function of configuration, so it can
+ * only change when the server is restarted with a different composition. Fetching it
+ * loads no model and reads no checkpoint, but there is still no reason to ask twice.
+ */
+export function usePosture() {
+  return useQuery({
+    queryKey: queryKeys.posture,
+    queryFn: ({ signal }) => systemService.getPosture(signal),
+    staleTime: 5 * 60_000,
+  });
+}

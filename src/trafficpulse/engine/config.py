@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ..contracts import ModelRef, ObjectClass
 from ..contracts.enums import SignalState
 from ..contracts.primitives import Confidence
+from ..observations.helmet_stability import HelmetStabilizationConfig
 from ..observations.stationary import STATIONARY_EPSILON_PX, STATIONARY_WINDOW
 from ..tracking.iou_tracker import IouTrackerConfig
 from .errors import EngineConfigurationError
@@ -141,6 +142,22 @@ class NoHelmetRuleConfig(_EngineModel):
 
     kind: Literal["no_helmet"] = "no_helmet"
 
+    acknowledge_turban_blind: bool = False
+    """Permit building this rule on a backend that has **declared** it cannot emit
+    ``turban``.
+
+    The rule exempts a rider whose predominant observation is ``turban``
+    (``rules.no_helmet.exempt_riders``). A binary backend never produces one, so the
+    exemption silently becomes dead code and turban-wearing riders are confirmed as
+    violations -- a systematic false-positive class against a religious group, and a
+    reversal of the H8 real-footage fix. Nothing raises on its own, which is exactly
+    why the rule registry refuses the combination by default.
+
+    Setting this to ``True`` does **not** make the consequence go away; it records
+    that an operator accepted it deliberately, so the choice is auditable rather than
+    accidental. Leave it ``False`` unless you have read
+    :mod:`trafficpulse.classifier.capabilities` and mean it."""
+
 
 class TripleRidingRuleConfig(_EngineModel):
     """Run the triple-riding slice (v1.1 U3).
@@ -214,6 +231,55 @@ RuleConfig: TypeAlias = Annotated[
 ]
 
 
+# --- analyses (perception without enforcement) ------------------------------------
+class HelmetAnalysisConfig(_EngineModel):
+    """Run helmet classification as **analysis only**: perception, never enforcement.
+
+    Why this is not a rule
+    ----------------------
+    Helmet *classification* and the no-helmet *violation decision* are different
+    claims, and until now the only way to obtain the first was to configure the
+    second. That coupling is what makes a turban-blind backend an all-or-nothing
+    choice: either run a violation rule whose exemption can never fire, or see no
+    helmet state at all.
+
+    An analysis produces **no** ``ConfirmedEvent``, has no reasoner, reads no rule
+    parameters from the scene, and is invisible to the event store and the evidence
+    manifest. It registers the existing P4-U4 :class:`HelmetFrameObserver`, so the
+    classifier runs and its per-rider output is available for inspection and for the
+    overlay framework -- and nothing downstream can mistake a label for a violation,
+    because no violation is ever minted.
+
+    That distinction is exactly what the P4-U9/P4-U10 evidence requires
+    (``docs/helmet-runtime-evaluation.md``): the classifier is measurable and
+    demonstrable on runtime crops, while the violation rule is not currently safe to
+    run on a backend that cannot express the turban exemption. This declaration lets
+    a deployment say "classify, do not enforce" **without** touching the turban
+    capability guard, which continues to refuse the rule.
+
+    Scene-independent by construction: a scene needs no ``no_helmet`` parameter block
+    to support analysis, because there is no persistence window to resolve.
+    """
+
+    kind: Literal["helmet_analysis"] = "helmet_analysis"
+
+    stabilization: HelmetStabilizationConfig = HelmetStabilizationConfig()
+    """Temporal smoothing policy for the labels this analysis *reports*.
+
+    Presentation only, and deliberately scoped to an analysis rather than offered to
+    the ``no_helmet`` rule: the rule's temporal-run semantics are its own and have
+    never been evaluated against smoothed input, so feeding it smoothed labels would
+    silently change a reasoner nobody has re-validated. See
+    :mod:`trafficpulse.observations.helmet_stability` -- the window is a legibility
+    choice, not a tuned parameter, and no accuracy claim rests on it."""
+
+
+AnalysisConfig: TypeAlias = Annotated[
+    HelmetAnalysisConfig,
+    Field(discriminator="kind"),
+]
+
+
 # --- evidence ---------------------------------------------------------------------
 class EvidenceConfig(_EngineModel):
     """Before/after context margins (media-seconds) for evidence frame picking."""
@@ -236,6 +302,13 @@ class EngineConfig(_EngineModel):
     """
 
     rules: tuple[RuleConfig, ...]
+    analysis: tuple[AnalysisConfig, ...] = ()
+    """Perception-only declarations that run beside the rules and emit no events.
+
+    Separate from ``rules`` deliberately: everything in ``rules`` can mint a
+    ``ConfirmedEvent``, and nothing in ``analysis`` ever can. Keeping them in one
+    list would put that difference in a comment instead of in the type."""
+
     scheduler: SchedulerConfig = SchedulerConfig()
     evidence: EvidenceConfig = EvidenceConfig()
     batch_size: int = Field(default=1, ge=1)
@@ -244,8 +317,11 @@ class EngineConfig(_EngineModel):
 
     @model_validator(mode="after")
     def _at_least_one_rule(self) -> Self:
-        if not self.rules:
+        # An analysis-only engine is legitimate: it observes and classifies without
+        # asserting any violation. What is refused is an engine asked to do nothing
+        # at all, which is a configuration mistake either way.
+        if not self.rules and not self.analysis:
             raise EngineConfigurationError(
-                "an engine must be configured with at least one rule"
+                "an engine must be configured with at least one rule or analysis"
             )
         return self

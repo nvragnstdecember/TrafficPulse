@@ -65,9 +65,18 @@ dev = [
 # multipart/form-data video upload. No ASGI server is declared here -- the app is
 # exposed as an ASGI application (trafficpulse.app.asgi:app) for the operator's
 # server of choice (uvicorn/hypercorn), and host/port travel in AppConfig.
+#
+# websockets is the WebSocket protocol implementation live camera monitoring needs
+# (src/trafficpulse/app/live). It is declared here rather than left to the ASGI
+# server's own extras because the *application* is what requires it: without a
+# WebSocket implementation the server rejects the upgrade before the app is ever
+# reached, so `/api/live/ws` fails at the handshake with no log and no clue. It is
+# BSD-3-Clause, ADR-001-compatible, and pulls in nothing else. Starlette's in-process
+# TestClient does not need it, which is why the live tests pass without it.
 api = [
   "fastapi>=0.115",
   "python-multipart>=0.0.9",
+  "websockets>=12",
 ]
 
 # --- Overlay rendering backend (optional) -------------------------------------

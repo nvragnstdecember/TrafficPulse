@@ -136,5 +136,20 @@ def build_config() -> AppConfig:
     )
 
 
-config = build_config()
-app = create_app(config)
+def __getattr__(name: str) -> object:
+    """Build ``config`` / ``app`` on first access rather than at import (PEP 562).
+
+    ``uvicorn serve:app`` still works unchanged -- it resolves the attribute, which
+    builds the application exactly as before, once. What changes is that *importing*
+    this module no longer does: reading ``LABEL_MAP`` or calling ``build_config()``
+    from another launcher (``serve_demo.py``) or from a test used to construct a whole
+    second application as a side effect, complete with storage recovery, that nobody
+    then served. The composition here is meant to be reusable; making it reusable
+    without that cost is the point.
+    """
+
+    if name == "config":
+        return build_config()
+    if name == "app":
+        return create_app(build_config())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

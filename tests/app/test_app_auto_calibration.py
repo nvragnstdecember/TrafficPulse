@@ -59,6 +59,7 @@ from trafficpulse.contracts import SceneConfig
 from trafficpulse.contracts.enums import ObjectClass
 from trafficpulse.detector import DetectorConfig, RawDetection, StubDetector
 from trafficpulse.engine import (
+    AnalysisConfig,
     InferenceEngine,
     NoHelmetRuleConfig,
     RuleConfig,
@@ -147,10 +148,14 @@ class RecordingEngineProvider:
         self.calls: list[tuple[SceneConfig, tuple[RuleConfig, ...]]] = []
 
     def create(
-        self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]
+        self,
+        *,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
     ) -> InferenceEngine:
         self.calls.append((scene, rules))
-        return self._inner.create(scene=scene, rules=rules)
+        return self._inner.create(scene=scene, rules=rules, analysis=analysis)
 
     def describe(self) -> str:
         return self._inner.describe()
@@ -177,7 +182,13 @@ class RecordingEngineProvider:
 class _UnavailableProvider:
     """Every engine build fails the way an absent backend does."""
 
-    def create(self, *, scene: SceneConfig, rules: tuple[RuleConfig, ...]) -> InferenceEngine:
+    def create(
+        self,
+        *,
+        scene: SceneConfig,
+        rules: tuple[RuleConfig, ...],
+        analysis: tuple[AnalysisConfig, ...] = (),
+    ) -> InferenceEngine:
         raise EngineUnavailableError("no inference backend is configured")
 
     def describe(self) -> str:

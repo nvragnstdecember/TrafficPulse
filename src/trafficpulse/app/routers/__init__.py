@@ -6,9 +6,11 @@ response model. No business logic, persistence, or engine access lives here.
 """
 
 from . import (
+    analysis,
     events,
     evidence,
     health,
+    live,
     metrics,
     process,
     scenes,
@@ -17,9 +19,11 @@ from . import (
 )
 
 __all__ = [
+    "analysis",
     "evidence",
     "events",
     "health",
+    "live",
     "metrics",
     "process",
     "scenes",

@@ -113,6 +113,21 @@ class OverlayNotFoundError(AppError):
     error_type = "overlay_not_found"
 
 
+class AnalysisNotAvailableError(AppError):
+    """No helmet analysis exists for the requested job (404).
+
+    A job may legitimately have none: it declared no analysis (the deployment did not
+    configure one, or the run was already enforcing the ``no_helmet`` rule and carries
+    its own helmet surface), it has not finished, or it was recovered from disk after a
+    restart -- the fold is derived in-process and is deliberately not part of a run's
+    persisted record. The message says which; the status is the same 404 either way,
+    because from a client's point of view the resource does not exist.
+    """
+
+    status_code = 404
+    error_type = "analysis_not_available"
+
+
 class ArtifactNotFoundError(AppError):
     """No rendered evidence artifact of the requested kind exists (H14).
 

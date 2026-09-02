@@ -18,9 +18,11 @@ clocks/probes.
 """
 
 from .config import (
+    AnalysisConfig,
     EngineConfig,
     EngineTrackerConfig,
     EvidenceConfig,
+    HelmetAnalysisConfig,
     IllegalStoppingRuleConfig,
     InferenceConfig,
     NoHelmetRuleConfig,
@@ -56,9 +58,11 @@ from .metrics import (
     torch_cuda_memory_probe,
 )
 from .rules import (
+    BuiltAnalysis,
     BuiltRule,
     CompositeFrameObserver,
     MultiRuleFinalize,
+    build_analyses,
     build_rules,
     require_shipped,
 )
@@ -91,6 +95,8 @@ __all__ = [
     "EngineTrackerConfig",
     "EvidenceConfig",
     "RuleConfig",
+    "AnalysisConfig",
+    "HelmetAnalysisConfig",
     "WrongWayRuleConfig",
     "IllegalStoppingRuleConfig",
     "NoHelmetRuleConfig",
@@ -115,6 +121,8 @@ __all__ = [
     "resolve_device",
     # rules
     "BuiltRule",
+    "BuiltAnalysis",
+    "build_analyses",
     "build_rules",
     "require_shipped",
     "MultiRuleFinalize",
