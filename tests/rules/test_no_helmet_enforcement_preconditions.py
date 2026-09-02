@@ -44,6 +44,7 @@ from trafficpulse.rules.no_helmet import NoHelmetReasoner, no_helmet_parameters
 _SCENE_PATH = Path(__file__).resolve().parents[2] / "configs" / "scenes" / "example-scene.yaml"
 _BASE = datetime(1970, 1, 1, tzinfo=UTC)
 _PRODUCER = Producer(name="test-helmet", version="0", kind=ProducerKind.MODEL)
+_RIDER_TRACK_ID = "rider-1"
 
 
 @pytest.fixture(scope="module")
@@ -54,15 +55,20 @@ def scene() -> SceneConfig:
 
 
 def _observations(
-    scene: SceneConfig, *, slot: RiderSlot, state: HelmetState, count: int = 30
+    scene: SceneConfig, *, slot: RiderSlot | None, state: HelmetState, count: int = 30
 ) -> list[HelmetStateObservation]:
-    """A sustained, unambiguous track: ``count`` frames at 10fps, well past 1.0s."""
+    """A sustained, unambiguous track: ``count`` frames at 10fps, well past 1.0s.
 
+    ``slot`` may be ``None``: the contract makes ``rider_slot`` optional, so an
+    underived slot is a real input the gate has to handle.
+    """
+
+    label = slot.value if slot is not None else "noslot"
     return [
         HelmetStateObservation(
-            observation_id=f"hlm-{slot.value}-{state.value}-{index:03d}",
+            observation_id=f"hlm-{label}-{state.value}-{index:03d}",
             camera_id=scene.scene.camera_id,
-            track_id="rider-1",
+            track_id=_RIDER_TRACK_ID,
             timestamp=_BASE + timedelta(seconds=index * 0.1),
             confidence=0.95,
             producer=_PRODUCER,
@@ -89,8 +95,12 @@ def _associations(scene: SceneConfig, *, count: int = 30) -> list[Association]:
     ]
 
 
+def _reasoner(scene: SceneConfig) -> NoHelmetReasoner:
+    return NoHelmetReasoner(RuleEngine(), no_helmet_parameters(scene))
+
+
 def _confirm(scene: SceneConfig, observations: list[HelmetStateObservation]) -> int:
-    reasoner = NoHelmetReasoner(RuleEngine(), no_helmet_parameters(scene))
+    reasoner = _reasoner(scene)
     return len(
         reasoner.run(observations, associations=_associations(scene, count=len(observations)))
     )
@@ -126,35 +136,67 @@ def test_an_uncertain_track_abstains_rather_than_confirming(scene: SceneConfig) 
     assert _confirm(scene, observations) == 0
 
 
-# --- precondition 1: driver attribution (OPEN) --------------------------------------
-@pytest.mark.parametrize("slot", [RiderSlot.UNKNOWN, RiderSlot.PILLION])
-def test_the_rule_does_not_yet_require_the_rider_to_be_the_driver(
+# --- precondition 1: driver attribution (CLOSED) ------------------------------------
+@pytest.mark.parametrize("slot", [RiderSlot.UNKNOWN, RiderSlot.PILLION, RiderSlot.THIRD])
+def test_a_rider_who_is_not_the_driver_abstains_rather_than_confirming(
     scene: SceneConfig, slot: RiderSlot
 ) -> None:
-    """**Known gap.** A rider whose role is not ``DRIVER`` still confirms.
+    """**Closed gap** (was: a non-``DRIVER`` rider confirmed like a lone driver).
 
     ``rider_slot`` is derived (``observations.helmet.rider_slot``) and travels on every
-    observation, but the reasoner never reads it -- so a **pillion passenger**, or a
-    rider on a shared motorcycle whose role is ``UNKNOWN``, is confirmed and named on
-    the event exactly as a lone driver would be.
+    observation. The reasoner now reads it and confirms only for ``DRIVER`` -- the sole
+    slot that says *which* rider the bare head belongs to, assigned only when exactly
+    one rider is associated with the motorcycle.
 
-    That is a second, independent blocker to enabling enforcement, and it is *not* the
-    one the project's records emphasise. Turning the rule on today -- even on a
-    turban-capable backend -- would attribute a helmet violation to passengers, on the
-    42.4% of the frozen corpus and the 81% of a real congestion clip that are
-    multi-rider.
+    Before the gate, a **pillion passenger** -- or any rider on a shared motorcycle
+    whose role is ``UNKNOWN`` -- was confirmed and named on the event exactly as a lone
+    driver would be, on the 42.4% of the frozen corpus and the 81% of a real congestion
+    clip that are multi-rider. Persistence never fixed that: it measures how long the
+    evidence held, never whose it was.
 
-    This test asserts the gap rather than the fix. Closing it means the reasoner must
-    refuse a non-``DRIVER`` slot (abstain, never guess), at which point this test
-    should be inverted deliberately and with its own review.
+    This assertion was inverted deliberately (see the module docstring). It is now the
+    executable statement of an enforced safety contract: if someone removes the driver
+    gate, this fails.
     """
 
     confirmed = _confirm(scene, _observations(scene, slot=slot, state=HelmetState.NO_HELMET))
 
-    assert confirmed == 1, (
-        "the driver-attribution gap has changed; if a driver gate was added this "
-        "assertion must be inverted deliberately, not adjusted to pass"
+    assert confirmed == 0, (
+        "a non-DRIVER rider was confirmed: the driver-attribution gate has been "
+        "removed or weakened. Helmet evidence that cannot be attributed to the driver "
+        "must abstain, never guess."
     )
+
+
+def test_an_underived_rider_slot_also_abstains(scene: SceneConfig) -> None:
+    """``None`` is not a slot. An observation carrying no slot cannot be attributed.
+
+    ``rider_slot`` is optional on the contract, so a derivation that never set it must
+    not fall through the gate as though it had said ``DRIVER``.
+    """
+
+    confirmed = _confirm(scene, _observations(scene, slot=None, state=HelmetState.NO_HELMET))
+
+    assert confirmed == 0
+
+
+def test_the_withheld_rider_is_recorded_rather_than_silently_dropped(
+    scene: SceneConfig,
+) -> None:
+    """Abstention must be reportable: "no event" and "we declined" are different.
+
+    A bare head the system saw but could not attribute is a limitation an operator has
+    to be able to surface. It is recorded on the reasoner rather than dropped.
+    """
+
+    reasoner = _reasoner(scene)
+    observations = _observations(scene, slot=RiderSlot.PILLION, state=HelmetState.NO_HELMET)
+    events = reasoner.run(
+        observations, associations=_associations(scene, count=len(observations))
+    )
+
+    assert events == ()
+    assert reasoner.attribution_abstained_track_ids == frozenset({_RIDER_TRACK_ID})
 
 
 # --- precondition 2: turban exemption (OPEN) -----------------------------------------

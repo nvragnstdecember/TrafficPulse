@@ -203,16 +203,20 @@ strict = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 
-# torch / transformers are the optional 'rtdetr' extra, imported lazily inside the
-# RT-DETR backend. They ship no/only-partial type information. Treat them as untyped
-# regardless of whether they are installed: `ignore_missing_imports` covers the
-# base/CI case (extra not installed) and `follow_imports = skip` covers the case
-# where they ARE installed (e.g. the P1-U7 verification env) so their untyped
-# from_pretrained/etc. calls do not trip strict `disallow_untyped_calls`. This
-# narrows only those third-party modules to Any; it does NOT relax strictness for
-# any TrafficPulse module.
+# torch / torchvision / transformers are the optional 'rtdetr' extra, imported
+# lazily inside the RT-DETR and ResNet backends. They ship no/only-partial type
+# information. Treat them as untyped regardless of whether they are installed:
+# `ignore_missing_imports` covers the base/CI case (extra not installed, where the
+# import would otherwise be `import-not-found`) and `follow_imports = skip` covers
+# the case where they ARE installed (e.g. the P1-U7 verification env, where
+# torchvision ships no py.typed and would otherwise be `import-untyped`) so their
+# untyped from_pretrained/etc. calls do not trip strict `disallow_untyped_calls`.
+# Handling both here is what keeps a single inline `type: ignore` from being
+# correct in one environment and either wrong or unused in the other. This narrows
+# only those third-party modules to Any; it does NOT relax strictness for any
+# TrafficPulse module.
 [[tool.mypy.overrides]]
-module = ["torch.*", "transformers.*"]
+module = ["torch.*", "torchvision.*", "transformers.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

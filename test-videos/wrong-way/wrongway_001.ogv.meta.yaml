@@ -8,11 +8,11 @@ title: Contraflow traffic through roundabout on North Beach Road
 license: CC0
 attribution: Public-domain dedication (CC0); no attribution required.
 url: https://commons.wikimedia.org/wiki/File:Contraflow_traffic_through_roundabout_on_North_Beach_Road.ogv
-duration: null
-resolution: null
+duration: 57.49
+resolution: 1920x1080
 fps: null
-codec: null
-size_bytes: null
+codec: theora
+size_bytes: 51381888
 camera_type: fixed_elevated
 country: Australia
 primary_violation: wrong_way
@@ -28,5 +28,5 @@ expected_behavior: 'Signed contraflow: traffic is *lawfully* routed against the 
   as detecting illegality.'
 notes: '.ogv — transcode before use. The expected count is deliberately unset: the number
   of contraflow vehicles has not been counted frame by frame.'
-media_status: not-downloaded
-measured: false
+media_status: needs-transcode
+measured: true

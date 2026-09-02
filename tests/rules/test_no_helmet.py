@@ -23,6 +23,7 @@ from trafficpulse.contracts.enums import (
     AssociationType,
     HelmetState,
     ProducerKind,
+    RiderSlot,
     ViolationType,
 )
 from trafficpulse.contracts.scene import ParameterStatus
@@ -57,7 +58,20 @@ def obs(
     track_id: str = "rider-1",
     confidence: float | None = 0.9,
     crop_height_px: float | None = 40.0,
+    rider_slot: RiderSlot | None = RiderSlot.DRIVER,
 ) -> HelmetStateObservation:
+    """One helmet observation for a **lone** rider unless told otherwise.
+
+    ``rider_slot`` defaults to ``DRIVER`` because that is what every scenario in this
+    module already means: a single rider (``rider-1``) associated with a single
+    motorcycle (``bike-9``), which is exactly the case
+    ``observations.helmet.rider_slot`` derives ``DRIVER`` for. The default is stated
+    rather than left underived because the reasoner now requires attribution before it
+    will confirm -- see the driver-attribution contract in ``rules.no_helmet`` and the
+    dedicated tests in ``test_no_helmet_enforcement_preconditions.py``. Pass an explicit
+    slot to exercise the abstaining path.
+    """
+
     return HelmetStateObservation(
         observation_id=f"hlm-{track_id}-{second}",
         camera_id="cam-1",
@@ -67,6 +81,7 @@ def obs(
         producer=PRODUCER,
         helmet_state=state,
         crop_height_px=crop_height_px,
+        rider_slot=rider_slot,
     )
 
 

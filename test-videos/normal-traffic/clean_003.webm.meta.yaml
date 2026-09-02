@@ -8,11 +8,11 @@ title: Conflict multi-lane roundabout
 license: CC BY-SA 4.0
 attribution: See file page; CC BY-SA 4.0.
 url: https://commons.wikimedia.org/wiki/File:Conflict-mutli-lane-roundabout.webm
-duration: null
-resolution: null
-fps: null
-codec: null
-size_bytes: null
+duration: 7.14
+resolution: 3840x2160
+fps: 30.0
+codec: vp9
+size_bytes: 16089370
 camera_type: fixed_elevated
 country: unknown
 primary_violation: none
@@ -26,5 +26,5 @@ expected_behavior: '4K overhead roundabout. A deliberate stress case for wrong-w
   be authored here. Correct behaviour is that calibration is declined or restricted to one
   approach arm.'
 notes: null
-media_status: not-downloaded
-measured: false
+media_status: ok
+measured: true

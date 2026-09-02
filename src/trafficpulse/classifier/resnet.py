@@ -275,7 +275,7 @@ class _TorchResNetEngine:
 
         try:
             import torch
-            from torchvision.models import resnet50  # type: ignore[import-untyped]
+            from torchvision.models import resnet50
         except ImportError as exc:
             raise ResNetDependencyError(
                 "the ResNet helmet backend needs the optional 'rtdetr' dependencies "

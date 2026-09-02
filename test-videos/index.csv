@@ -1,10 +1,10 @@
 filename,category,source,duration_seconds,resolution,fps,expected_violations,licence,country,camera_type,difficulty,status,url
-congestion_001.webm,edge-cases/congestion,Wikimedia Commons,,,,none,CC BY-SA 4.0,India,handheld,hard,not-downloaded,"https://commons.wikimedia.org/wiki/File:Traffic_Congestion,_6th_Mile,_Gangtok.webm"
+congestion_001.webm,edge-cases/congestion,Wikimedia Commons,45.2,1080x1920,30.0,none,CC BY-SA 4.0,India,handheld,hard,ok,"https://commons.wikimedia.org/wiki/File:Traffic_Congestion,_6th_Mile,_Gangtok.webm"
 congestion_002.webm,edge-cases/congestion,Wikimedia Commons,13.29,1920x1080,30.0,none,CC BY-SA 4.0,India,handheld,hard,ok,"https://commons.wikimedia.org/wiki/File:A_train_stuck_in_traffic_at_a_railway_crossing_in_Raxaul,_Bihar_in_2018.webm"
-lowres_001.ogv,edge-cases/low-resolution,Wikimedia Commons,,,,none,CC BY 3.0,India,handheld,hard,not-downloaded,https://commons.wikimedia.org/wiki/File:John_Burdon_Sanderson_Haldane_Avenue_-_Kolkata_2011-04-30_00033.ogv
+lowres_001.ogv,edge-cases/low-resolution,Wikimedia Commons,68.8,176x144,15.0,none,CC BY 3.0,India,handheld,hard,needs-transcode,https://commons.wikimedia.org/wiki/File:John_Burdon_Sanderson_Haldane_Avenue_-_Kolkata_2011-04-30_00033.ogv
 night_001.webm,edge-cases/night,Wikimedia Commons,,,,none,CC BY 4.0,United States,fixed_elevated,hard,not-downloaded,"https://commons.wikimedia.org/wiki/File:Night_Views_of_Caton_Farm_Road_in_Crest_Hill,_Illinois_01.webm"
 clean_001.ogv,normal-traffic,Wikimedia Commons,14.48,1920x1080,29.97,none,CC BY-SA 4.0,Thailand,handheld_elevated,medium,needs-transcode,"https://commons.wikimedia.org/wiki/File:A_intersection_with_traffic_in_Chiang_Mai,_Thailand.ogv"
-clean_002.webm,normal-traffic,Wikimedia Commons,,,,none,CC BY-SA 4.0,Canada,fixed_elevated,easy,not-downloaded,https://commons.wikimedia.org/wiki/File:Intersection_Pie-IX-Sherbrooke.webm
-clean_003.webm,normal-traffic,Wikimedia Commons,,,,none,CC BY-SA 4.0,unknown,fixed_elevated,medium,not-downloaded,https://commons.wikimedia.org/wiki/File:Conflict-mutli-lane-roundabout.webm
+clean_002.webm,normal-traffic,Wikimedia Commons,60.6,1920x1080,30000.0,none,CC BY-SA 4.0,Canada,fixed_elevated,easy,ok,https://commons.wikimedia.org/wiki/File:Intersection_Pie-IX-Sherbrooke.webm
+clean_003.webm,normal-traffic,Wikimedia Commons,7.14,3840x2160,30.0,none,CC BY-SA 4.0,unknown,fixed_elevated,medium,ok,https://commons.wikimedia.org/wiki/File:Conflict-mutli-lane-roundabout.webm
 clean_004.webm,normal-traffic,Wikimedia Commons,,,,none,CC BY-SA 4.0,India,handheld,medium,not-downloaded,https://commons.wikimedia.org/wiki/File:Traffic_in_Hyderabad.webm
-wrongway_001.ogv,wrong-way,Wikimedia Commons,,,,wrong_way,CC0,Australia,fixed_elevated,hard,not-downloaded,https://commons.wikimedia.org/wiki/File:Contraflow_traffic_through_roundabout_on_North_Beach_Road.ogv
+wrongway_001.ogv,wrong-way,Wikimedia Commons,57.49,1920x1080,,wrong_way,CC0,Australia,fixed_elevated,hard,needs-transcode,https://commons.wikimedia.org/wiki/File:Contraflow_traffic_through_roundabout_on_North_Beach_Road.ogv

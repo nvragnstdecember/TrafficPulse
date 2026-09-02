@@ -8,11 +8,11 @@ title: Intersection Pie-IX-Sherbrooke
 license: CC BY-SA 4.0
 attribution: See file page; CC BY-SA 4.0.
 url: https://commons.wikimedia.org/wiki/File:Intersection_Pie-IX-Sherbrooke.webm
-duration: null
-resolution: null
-fps: null
-codec: null
-size_bytes: null
+duration: 60.6
+resolution: 1920x1080
+fps: 30000.0
+codec: vp8
+size_bytes: 82213022
 camera_type: fixed_elevated
 country: Canada
 primary_violation: none
@@ -25,5 +25,5 @@ expected_behavior: 'Orderly signalised intersection, near-static viewpoint. The 
   for false positives: a calibrated scene should confirm zero wrong-way and zero illegal-stopping
   events here.'
 notes: null
-media_status: not-downloaded
-measured: false
+media_status: ok
+measured: true

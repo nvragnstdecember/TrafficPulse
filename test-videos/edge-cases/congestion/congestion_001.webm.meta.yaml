@@ -8,11 +8,11 @@ title: Traffic Congestion, 6th Mile, Gangtok
 license: CC BY-SA 4.0
 attribution: See file page; CC BY-SA 4.0.
 url: https://commons.wikimedia.org/wiki/File:Traffic_Congestion,_6th_Mile,_Gangtok.webm
-duration: null
-resolution: null
-fps: null
-codec: null
-size_bytes: null
+duration: 45.2
+resolution: 1080x1920
+fps: 30.0
+codec: vp9
+size_bytes: 90859920
 camera_type: handheld
 country: India
 primary_violation: none
@@ -27,5 +27,5 @@ expected_behavior: Real Indian congestion. Heavy mutual occlusion and near-zero 
   in congestion is not stopping in a no-stopping zone). Portrait orientation additionally
   exercises non-16:9 handling.
 notes: null
-media_status: not-downloaded
-measured: false
+media_status: ok
+measured: true

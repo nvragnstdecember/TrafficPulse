@@ -33,6 +33,34 @@ violation; that is this layer's job (phase-4 plan D4). The mapping:
 * ``turban``    -> **exempts** (see below).
 * ``uncertain`` -> **abstains**: neither supports nor contradicts (see below).
 
+Who may be confirmed: the driver, and only the driver
+-----------------------------------------------------
+Helmet state is a fact about *a rider*. It becomes a *violation* only once the
+system can say **which** rider it belongs to, and the only slot that carries that
+claim is ``DRIVER`` -- which ``observations.helmet.rider_slot`` assigns solely when
+exactly one rider is associated with the motorcycle (there is no pillion without a
+driver). Every other value -- ``PILLION``, ``THIRD``, ``UNKNOWN``, or an underived
+``None`` -- means the evidence cannot be attributed to a specific rider's duty.
+
+So a supporting observation whose slot is not ``DRIVER`` is **withheld**, exactly
+as ``uncertain`` is: it neither confirms nor contradicts, and the run bridges it.
+Without this gate the reasoner confirmed and named a bare-headed **pillion
+passenger** exactly as it would a lone driver -- on the 42.4% of the frozen corpus
+and the 81% of a real congestion clip that carry more than one rider. That is a
+systematic mis-attribution to the person who, in most jurisdictions, is not the
+one the duty falls on, and no amount of temporal persistence makes it correct:
+persistence measures *how long* the evidence held, never *whose* it was.
+
+Withholding is deliberately asymmetric in the safe direction. A genuine lone
+bare-headed driver is unaffected. A multi-rider motorcycle simply produces no
+no-helmet event, which is the honest outcome: the system saw a bare head and could
+not say whose duty it was. The withheld riders are recorded on
+:attr:`NoHelmetReasoner.attribution_abstained_track_ids` rather than dropped, so
+the abstention is reportable instead of looking like an absence of evidence.
+
+Closing this gate does **not** make helmet enforcement safe on its own -- the
+turban-capability blocker (below) is independent and still open.
+
 Uncertainty is a gap, not a contradiction (the core temporal decision)
 ----------------------------------------------------------------------
 The shared base takes a *boolean* per-step signal: active extends a run, inactive
@@ -148,7 +176,7 @@ from ..contracts import (
     ParameterStatus,
     SceneConfig,
 )
-from ..contracts.enums import AssociationType, HelmetState, ViolationType
+from ..contracts.enums import AssociationType, HelmetState, RiderSlot, ViolationType
 from ..observations.helmet import HelmetDerivation
 from .engine import RuleEngine
 from .temporal import ConfirmationDetails, EpisodeExtras, TemporalRunReasoner
@@ -289,6 +317,7 @@ class NoHelmetReasoner:
         self._by_rider: dict[str, list[HelmetStateObservation]] = {}
         self._bikes_by_rider: dict[str, list[Association]] = {}
         self._exempt: set[str] = set()
+        self._attribution_abstained: set[str] = set()
         self._machine = TemporalRunReasoner(
             engine,
             violation_type=ViolationType.NO_HELMET,
@@ -317,6 +346,24 @@ class NoHelmetReasoner:
 
         return frozenset(self._exempt)
 
+    @property
+    def attribution_abstained_track_ids(self) -> frozenset[str]:
+        """Riders seen bare-headed whose evidence could not be attributed to a driver.
+
+        Distinct from :attr:`exempt_track_ids`, and the distinction matters: an exempt
+        rider is one the policy decided *not* to penalise, whereas these are riders the
+        policy could not *reach* -- the observation supported a violation but no slot
+        said the rider was the driver, so it was withheld. Recording them keeps the
+        abstention visible: "no event" and "an event we declined to attribute" are
+        different findings, and only one of them is a limitation worth reporting.
+
+        A track appears here whenever at least one ``NO_HELMET`` observation was
+        withheld for attribution. It may also appear in the confirmed events if other
+        frames of the same track *were* attributable.
+        """
+
+        return frozenset(self._attribution_abstained)
+
     def run(
         self,
         observations: Iterable[HelmetStateObservation],
@@ -341,6 +388,25 @@ class NoHelmetReasoner:
             if track_id is None or track_id in self._exempt:
                 continue  # untracked facts and exempt riders never reason
             state = observation.helmet_state
+            if observation.rider_slot is not RiderSlot.DRIVER:
+                # Attribution abstain (see "Who may be confirmed" above). Helmet state
+                # is a fact about *a* rider; only ``DRIVER`` says *which* rider, and
+                # ``rider_slot`` is ``DRIVER`` only when exactly one rider is associated
+                # with the motorcycle. Every other slot -- ``PILLION``, ``THIRD``,
+                # ``UNKNOWN``, or an underived ``None`` -- means the evidence cannot be
+                # attributed, so it is withheld rather than guessed.
+                #
+                # Withheld, not contradicting: an unattributable frame is uncertainty,
+                # not proof of compliance, so it must not end an open run either. This
+                # is the same treatment ``UNCERTAIN`` already receives below.
+                if state is HelmetState.NO_HELMET:
+                    # Recorded, never silent: a bare head we could not attribute is
+                    # exactly what an operator must be able to see us decline.
+                    self._attribution_abstained.add(track_id)
+                if observation.observation_id in restarts:
+                    # Preserve the taint discontinuity even while abstaining.
+                    steps.append((observation, False))
+                continue
             if state is HelmetState.NO_HELMET:
                 steps.append((observation, True))  # supports
             elif state is HelmetState.HELMET:

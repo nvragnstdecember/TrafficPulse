@@ -8,11 +8,11 @@ title: John Burdon Sanderson Haldane Avenue - Kolkata 2011
 license: CC BY 3.0
 attribution: See file page; CC BY 3.0 — attribution required.
 url: https://commons.wikimedia.org/wiki/File:John_Burdon_Sanderson_Haldane_Avenue_-_Kolkata_2011-04-30_00033.ogv
-duration: null
-resolution: null
-fps: null
-codec: null
-size_bytes: null
+duration: 68.8
+resolution: 176x144
+fps: 15.0
+codec: theora
+size_bytes: 4359013
 camera_type: handheld
 country: India
 primary_violation: none
@@ -27,5 +27,5 @@ expected_behavior: 176x144 Indian street traffic. Far below any sane detector in
   classification at this scale is meaningless and the run should not be read as evidence about
   helmets either way.
 notes: .ogv — transcode before use.
-media_status: not-downloaded
-measured: false
+media_status: needs-transcode
+measured: true
