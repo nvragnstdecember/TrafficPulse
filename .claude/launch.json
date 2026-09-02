@@ -2,9 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "viewer",
+      "name": "api",
       "runtimeExecutable": "./.venv/Scripts/python.exe",
-      "runtimeArgs": ["viewer/app.py", "--no-browser", "--port", "8000"],
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "serve:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000"
+      ],
       "port": 8000
     }
   ]

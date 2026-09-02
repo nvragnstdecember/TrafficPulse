@@ -29,7 +29,7 @@ licence-cleared data.
 Example:
     TRAFFICPULSE_E2E_MODEL=PekingU/rtdetr_r50vd \\
     TRAFFICPULSE_HELMET_E2E_MODEL=openai/clip-vit-base-patch32 \\
-    TRAFFICPULSE_HELMET_E2E_CLIP=runs/viewer/_uploads/<clip>.webm \\
+    TRAFFICPULSE_HELMET_E2E_CLIP=trafficpulse-data/videos/<clip>.mp4 \\
     ./.venv/Scripts/python.exe -m pytest tests/pipeline/test_no_helmet_e2e_real.py -q
 """
 

@@ -155,8 +155,7 @@ def test_only_sanctioned_runtime_packages() -> None:
     # application-wide ``SceneConfig``: it expands a minimal analyst-authorable
     # draft into a complete validated scene (deterministically, so identical
     # drawings hash identically) and estimates the one calibration fact a clip can
-    # actually show -- its dominant traffic-flow direction, an algorithm *promoted*
-    # from viewer/calibration.py rather than reimplemented. It computes no geometry
+    # actually show -- its dominant traffic-flow direction. It computes no geometry
     # of its own (point-in-polygon, crossing, and heading comparison stay in
     # ``geometry``/``observations``), runs no detector or tracker, imports no ML
     # framework, and performs no I/O -- it authors declarative data and returns a

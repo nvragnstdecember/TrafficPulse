@@ -399,9 +399,12 @@ measurement payload are all injected.
 **Commits:** `121f15d`, `6d81857`, `6e40fdf`, `ef21b53`
 
 A standalone `viewer/` application (Flask-ish `app.py` + `index.html`, launched by
-`launch.py` in a pywebview window) was built for a demonstration. It is **not** the
-current frontend and is now effectively superseded by the React SPA — but it is
-still in the tree and still runs.
+`launch.py` in a pywebview window) was built for a demonstration. It was superseded
+by the React SPA and **has since been removed from the tree** (see §7): its one
+piece of load-bearing logic — dominant-flow estimation — was promoted into
+`trafficpulse.scenes.calibration` at H12, and its four configuration guards now sit
+against the canonical composition in `tests/scenes/` and `tests/app/`. It survives
+in git history only.
 
 This detour produced the project's **first real debugging investigation** (§8.1).
 
@@ -725,7 +728,7 @@ is Linux.
 
 1. **P1-U12 / P2-U6** — CLI slice runners (`python -m trafficpulse.pipeline`).
 2. **Viewer (2026-07-14)** — `launch.py` + pywebview desktop window on port 8000.
-   **Superseded.**
+   **Superseded and removed** (2026-09-02); `frontend/` is the sole UI.
 3. **H7A** — ASGI app (`trafficpulse.app.asgi:app`), no server declared; host/port
    travel in `AppConfig`.
 4. **H8** — `serve.py` operator composition root with real backends; opt-in CORS;
@@ -748,7 +751,9 @@ their own frame size and road orientation, so the reasoner **correctly** never
 confirmed. Notably it was **not** a lane-polygon gate — the wrong-way slice derives
 headings from full tracks and ignores zone membership.
 
-**Fix (viewer layer only, backend untouched):** one real RT-DETR pass records
+**Fix (viewer layer only, backend untouched — the viewer has since been removed,
+but the derivation it introduced lives on in `ProcessingService`):** one real
+RT-DETR pass records
 per-frame detections and derives dominant flow; `build_calibrated_scene()` authors a
 validated `SceneConfig` in the clip's own pixel space with legal direction = observed
 flow; `RTDetrCapturedReplay` replays the recorded detections into the unchanged

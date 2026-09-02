@@ -7,8 +7,8 @@ Every later Phase 4 unit (helmet classifier seam, rider association, helmet
 observations) rests on two *unverified* assumptions:
 
 1. RT-DETR actually detects ``motorcycle`` and ``person`` on real uploaded
-   traffic footage -- the viewer's upload path has only ever mapped ``car``
-   (``viewer/calibration.py``), so no motorcycle or rider has ever been detected
+   traffic footage -- the upload path had only ever mapped ``car``, so no
+   motorcycle or rider had ever been detected
    by this repository on real pixels;
 2. the resulting rider **head crops** are large enough for any downstream helmet
    classifier to be meaningful.
@@ -52,7 +52,7 @@ Usage
 -----
     ./.venv/Scripts/python.exe demo/gate0_rtdetr_validation.py --clip <path>
     ./.venv/Scripts/python.exe demo/gate0_rtdetr_validation.py \\
-        --clip runs/viewer/_uploads/<clip>.webm --stride 6 --max-frames 120
+        --clip trafficpulse-data/videos/<clip>.mp4 --stride 6 --max-frames 120
 
 Requires the optional real-detector extra (``pip install -e ".[rtdetr]"``) and a
 locally cached checkpoint (offline by default; nothing is downloaded). Writes only

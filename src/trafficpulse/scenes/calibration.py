@@ -5,25 +5,24 @@ a fact you can measure -- it is where the traffic actually goes -- so it can be
 derived from a clip rather than typed in by hand. This module owns that
 derivation and nothing else.
 
-Promoted, not reimplemented
----------------------------
-The algorithm and its thresholds are the ones ``viewer/calibration.py`` has been
-using on real CCTV footage since the upload auto-calibration work: the flow is the
-**vector sum of the net displacement of every substantial vehicle track**, where
-"substantial" means alive at least :data:`MIN_TRACK_LIFETIME_SECONDS` and displaced
-at least :data:`MIN_NET_DISPLACEMENT_PX`. H12 moves it into the runtime and leaves
-the viewer as a *consumer* of it, so there is exactly one implementation.
+The algorithm
+-------------
+The flow is the **vector sum of the net displacement of every substantial vehicle
+track**, where "substantial" means alive at least
+:data:`MIN_TRACK_LIFETIME_SECONDS` and displaced at least
+:data:`MIN_NET_DISPLACEMENT_PX`. These thresholds are not new: they are the ones
+validated on real CCTV footage by the upload auto-calibration work that preceded
+H12, promoted into the runtime rather than reimplemented, so there is exactly one
+implementation.
 
-What was deliberately left behind in the viewer
------------------------------------------------
-The viewer's ``calibrate_and_capture`` also decodes the clip, drives a real
-RT-DETR pass, and records the raw detections so a second pass can replay them
-(``RTDetrCapturedReplay``). That is a *demo-script optimisation* -- a way to avoid
-paying two multi-minute CPU inference passes in a standalone tool. It is I/O and
-model orchestration, not calibration, and the application has a job engine for
-that. So this module takes ``TrackState``s and returns a vector: **pure, no
-decoding, no detector, no tracker, no ML import**, and unit-testable without a
-video.
+Calibration only -- no I/O, no model
+------------------------------------
+Deciding *which* tracks to measure requires decoding a clip and running a detector,
+but that is I/O and model orchestration, not calibration, and the application has a
+job engine for it (``ProcessingService`` runs the pass and hands the resulting
+``TrackState``s here). So this module takes ``TrackState``s and returns a vector:
+**pure, no decoding, no detector, no tracker, no ML import**, and unit-testable
+without a video.
 
 What cannot be derived, and is therefore not attempted
 -------------------------------------------------------

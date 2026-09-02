@@ -6,7 +6,7 @@ separate because one is measured and the other is declared:
 
 * :mod:`~trafficpulse.scenes.calibration` derives the facts a clip can *show* --
   currently the dominant traffic-flow direction, estimated from observed vehicle
-  tracks. Promoted from ``viewer/calibration.py``, which now consumes it.
+  tracks.
 * :mod:`~trafficpulse.scenes.builder` expands a :class:`SceneDraft` -- the minimal
   analyst-authorable vocabulary -- into a complete validated ``SceneConfig``,
   deterministically, so the same drawing always yields the same scene hash.

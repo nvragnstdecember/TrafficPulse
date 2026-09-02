@@ -72,6 +72,18 @@ def test_the_label_map_covers_every_class_the_rules_need(serve_module: Any) -> N
     assert "motorcycle" not in label_map, "this checkpoint does not use that label"
 
 
+def test_the_detection_threshold_is_the_validated_one(serve_module: Any) -> None:
+    """The score floor Gate 0 validated on real footage, not a tuned-by-feel value.
+
+    RT-DETR was verified to detect car/motorcycle/person reliably at >= 0.5 on real
+    Delhi traffic footage. Raising it drops riders (helmet and triple-riding
+    reasoning then see nothing); lowering it admits false vehicles that a wrong-way
+    or illegal-stopping rule will happily confirm. Neither failure raises.
+    """
+
+    assert serve_module.build_config().inference.score_threshold == 0.5
+
+
 def test_deployment_knobs_come_from_the_environment(
     monkeypatch: pytest.MonkeyPatch, serve_module: Any, tmp_path: Path
 ) -> None:

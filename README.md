@@ -276,16 +276,31 @@ Native-Windows verification steps are recorded in
 
 ### Run the web application
 
-Start the API (a scene is required before processing) and the SPA dev server:
+`frontend/` is the single user-facing TrafficPulse UI. There are two launch paths
+and no others: **development** (Vite dev server in front of the API) and
+**built** (the API serves the compiled SPA from one process).
 
 ```bash
-# API — terminal 1
-export TRAFFICPULSE_APP_SCENE=configs/scenes/example-scene.yaml
-uvicorn trafficpulse.app.asgi:app --reload --port 8000
+# Development — terminal 1: API
+uvicorn serve:app --reload --port 8000
 
-# SPA — terminal 2 (proxies /api to the API)
+# Development — terminal 2: SPA (proxies /api to the API)
 cd frontend && npm install && npm run dev      # http://localhost:5173
 ```
+
+```bash
+# Built / demo — one process, one port
+cd frontend && npm run build && cd ..          # → frontend/dist
+TRAFFICPULSE_APP_STATIC_DIR=frontend/dist uvicorn serve:app --port 8000
+```
+
+`serve:app` is the canonical entrypoint for both: it is `AppConfig.from_env()` plus
+the code-level model composition, and it falls back to the shipped example scene, so
+uploads process and the live camera works without any environment variable.
+`trafficpulse.app.asgi:app` is the environment-only composition with **no inference
+backend** — it serves every read endpoint and the whole UI, but processing returns
+`503 engine_unavailable`. `frontend/dist` is strictly `npm run build` output, never a
+second UI.
 
 The full setup, environment variables, production topologies (reverse-proxy or
 single-process SPA serving), real-inference configuration, demo workflow, and

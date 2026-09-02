@@ -68,12 +68,20 @@ npm install
 
 ## 4. Running in development
 
-**Terminal 1 — API** (a scene is required before processing; the example scene works):
+**Terminal 1 — API** (`serve.py` falls back to the shipped example scene, so no
+environment variable is needed to start processing):
 
 ```bash
-export TRAFFICPULSE_APP_SCENE=configs/scenes/example-scene.yaml   # Windows: set / $env:
-uvicorn trafficpulse.app.asgi:app --reload --port 8000
+uvicorn serve:app --reload --port 8000
 ```
+
+> This is the **canonical development entrypoint** — the same composition
+> production runs (§6), so uploads process, `/live` works, and what you see in dev
+> is what you ship. `trafficpulse.app.asgi:app` is the environment-only composition
+> with **no inference backend**; use it only when working on API *shape* and a
+> `503 engine_unavailable` on processing is acceptable. To govern the run with your
+> own scene instead of the shipped example, set
+> `TRAFFICPULSE_APP_SCENE=configs/scenes/example-scene.yaml` (Windows: `set` / `$env:`).
 
 **Terminal 2 — SPA** (Vite dev server proxies `/api` to `127.0.0.1:8000`):
 
@@ -329,5 +337,3 @@ test-suite stub.
   a bearer token provider can be registered).
 - **Analyst notes are local only** (browser `localStorage`); they are never sent to
   the backend.
-- **The legacy `viewer/` + `launch.py`** desktop demo is a separate, older
-  exploration and is not part of the H7 web-application deployment described here.

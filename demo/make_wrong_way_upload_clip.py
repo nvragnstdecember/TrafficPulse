@@ -4,7 +4,7 @@
 Purpose
 -------
 The upload path auto-calibrates each clip's legal direction from its observed
-dominant traffic flow (``viewer/calibration.py``) and confirms a wrong-way event
+dominant traffic flow and confirms a wrong-way event
 only for a vehicle that *sustainedly opposes* that flow. Footage of normal
 traffic therefore honestly yields **zero** events — so verifying the positive
 path needs a clip that actually contains an against-traffic vehicle.
@@ -29,10 +29,10 @@ travels bottom-left -> upper-right (heading ~339 deg, ~173 deg off the flow) for
 Usage
 -----
     ./.venv/Scripts/python.exe demo/make_wrong_way_upload_clip.py \
-        --source runs/viewer/_uploads/239de7f30a10_trafficpulsewrongway.mp4
+        --source trafficpulse-data/videos/<your-clip>.mp4
 
 Writes ``runs/demo/clips/wrong_way_upload_validation.mp4`` (H.264 when the
-bundled FFmpeg provides libx264, else MPEG-4) — upload it in the Viewer.
+bundled FFmpeg provides libx264, else MPEG-4) — upload it in the web app.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-_DEFAULT_SOURCE = REPO_ROOT / "runs" / "viewer" / "_uploads" / (
+_DEFAULT_SOURCE = REPO_ROOT / "trafficpulse-data" / "videos" / (
     "239de7f30a10_trafficpulsewrongway.mp4"
 )
 _DEFAULT_OUT = REPO_ROOT / "runs" / "demo" / "clips" / "wrong_way_upload_validation.mp4"

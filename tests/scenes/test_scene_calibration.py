@@ -1,9 +1,8 @@
 """Dominant traffic-flow estimation from observed tracks (H12).
 
-The algorithm promoted out of ``viewer/calibration.py``. These tests pin the
-behaviour that matters for calibration: it measures the traffic stream, it
-excludes what is not traffic, and it says "I cannot tell" rather than inventing a
-direction.
+These tests pin the behaviour that matters for calibration: it measures the
+traffic stream, it excludes what is not traffic, and it says "I cannot tell"
+rather than inventing a direction.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from trafficpulse.contracts import BoundingBox, TrackState
 from trafficpulse.contracts.enums import ObjectClass, TrackStatus
-from trafficpulse.scenes import estimate_dominant_flow
+from trafficpulse.scenes import FLOW_CLASSES, estimate_dominant_flow
 
 _T0 = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -167,3 +166,18 @@ def test_thresholds_are_caller_overridable() -> None:
 
     assert estimate_dominant_flow(brief) is None
     assert estimate_dominant_flow(brief, min_lifetime_seconds=0.1) is not None
+
+
+def test_flow_estimate_excludes_pedestrians() -> None:
+    """Persons are detected (helmet reasoning needs riders) but never define flow.
+
+    ``FLOW_CLASSES`` is the default class filter every auto-calibrated upload is
+    measured through (``ProcessingService`` calls :func:`estimate_dominant_flow`
+    without overriding it). Admitting ``PERSON`` here would let footpath movement
+    define a road's legal direction, and the failure is silent: the scene still
+    binds, and every vehicle is then judged against a pedestrian's heading.
+    """
+
+    assert ObjectClass.PERSON not in FLOW_CLASSES
+    assert ObjectClass.CAR in FLOW_CLASSES
+    assert ObjectClass.MOTORCYCLE in FLOW_CLASSES
