@@ -9,20 +9,24 @@ commitment is a hard separation between **perception** (what a model sees in a
 frame) and **violation reasoning** (typed observations accumulated over a track,
 combined with scene geometry and explicit rules, confirmed only with temporal
 evidence and reviewable by a human). This repository contains the frozen data
-contracts and governance **plus two offline, deterministic violation-reasoning
-slices — wrong-way and illegal-stopping — wired end to end from recorded video
-through a real detector, a real tracker, typed observations, temporal reasoning,
-confirmed-event minting, and minimal-manifest persistence.** It is a research
-foundation, **not** a production enforcement system.
+contracts and governance **plus five offline, deterministic violation-reasoning
+slices — wrong-way, illegal stopping, red-light jumping, triple riding and
+no-helmet — wired end to end from recorded video through a real detector, a real
+tracker, typed observations, temporal reasoning, confirmed-event minting, evidence
+rendering and persistence, behind a FastAPI application and a React
+analyst UI.** It is a research foundation, **not** a production enforcement system.
 
 ---
 
 ## Project status
 
-**Research foundation + two end-to-end offline violation slices.** The perception
-seam (real detector + tracker) and the reasoning/persistence path are implemented
-and tested; validation is on synthetic trajectories and generated synthetic clips
-only. Concretely:
+**Research foundation + five end-to-end offline violation slices, a web
+application, and a live-camera mode.** The perception seam (real detector +
+tracker) and the reasoning/persistence path are implemented and tested. What is
+*validated* varies sharply per violation, and the honest per-violation picture —
+structural tests vs real footage vs ground truth — is the
+**[validation matrix](docs/validation-matrix.md)**; read it before quoting any
+capability. Concretely:
 
 - **Phase 0-F (foundations): complete** — typed domain contracts, exported JSON
   schemas, label ontology, dataset registry + policies, scene-configuration
@@ -86,11 +90,22 @@ only. Concretely:
   camera preview stays smooth because it is deliberately not analysed
   frame-for-frame. No camera frame or live event is written to disk. See
   [`docs/live-camera.md`](docs/live-camera.md).
-- **Not started:** speeding (the sixth locked violation), real-footage validation,
-  ANPR, and simulated penalties (see [Roadmap](#planned-capabilities--roadmap)).
+- **Real-footage characterisation: partial, and recorded rather than claimed** — a
+  freely-licensed regression corpus (`test-videos/`) with a machine-readable
+  expectation manifest, plus reproducible validation scripts under `demo/`. Real
+  RT-DETR has produced real confirmed events on real footage for **wrong-way**
+  (against an auto-derived legal direction); triple riding runs the full real path
+  and correctly confirms nothing on the clips available; red-light jumping now runs
+  on real footage against an analyst-authored scene and a signal schedule
+  *transcribed from the clip*, and correctly confirms nothing; illegal stopping
+  still has no calibrated real example at all. No expected count is asserted
+  anywhere that has not been established, and no accuracy is claimed. Every cell of
+  that picture is in [`docs/validation-matrix.md`](docs/validation-matrix.md).
+- **Not started:** speeding (the sixth locked violation), ANPR, and simulated
+  penalties (see [Roadmap](#planned-capabilities--roadmap)).
 
-Quality gates are green: `ruff`, `mypy src` (strict), **2957 passing backend tests**
-(10 opt-in real-model/GPU tests skipped by default) plus **587 passing frontend
+Quality gates are green: `ruff`, `mypy src` (strict), **3021 passing backend tests**
+(10 opt-in real-model/GPU tests skipped by default) plus **661 passing frontend
 tests**, on the current tree, with single-environment Linux CI and a
 native-Windows verification checklist.
 
@@ -137,17 +152,17 @@ flowchart LR
     classDef done fill:#1f7a4d,stroke:#0d3,color:#fff;
     classDef partial fill:#8a6d1f,stroke:#d9a637,color:#fff;
     classDef todo fill:#555,stroke:#999,color:#fff,stroke-dasharray:4 3;
-    class V,D,T,A,O,R,E done;
-    class EV partial;
-    class RC,P todo;
+    class V,D,T,A,O,R,E,EV,RC done;
+    class P todo;
 ```
 
 *Green = implemented and covered by tests (real PTS ingestion, RT-DETR detection,
-IoU tracking + association, typed observations, the rule engine, and confirmed-event
-minting). Amber = minimal implementation (a reviewable `EvidenceManifest` stub and a
-deterministic JSON event store — **no** clip/frame rendering, crops, overlays, or
-media hashing yet). Grey/dashed = contract defined, behaviour planned (human review,
-simulated penalty).*
+IoU tracking + association, typed observations, the rule engine, confirmed-event
+minting, content-addressed evidence frames + annotated overlay video + downloadable
+evidence packages (H14), and the analyst review workflow with its append-only
+decision journal (H7E/H9)). Grey/dashed = contract defined, behaviour planned
+(simulated penalty). Storage is still the deterministic JSON `EventStore`: ADR-002's
+SQLite/Parquet substrate remains deferred.*
 
 Design posture, supported by the project docs:
 
@@ -184,44 +199,60 @@ All of the following are implemented **and** covered by tests in this repository
 | Illegal-stopping reasoning | `src/trafficpulse/rules/illegal_stopping.py` | stationary-in-zone dwell → `ConfirmedEvent`; joins the in-zone + stationary streams; taint/recovery abstention (P2-U4) |
 | Vertical-slice pipelines | `src/trafficpulse/pipeline/` | thin, deterministic offline orchestration: `WrongWayPipeline` (P1-U10) and `IllegalStoppingPipeline` (P2-U5), each detector/tracker-backend-agnostic |
 | Model-provenance propagation | `src/trafficpulse/pipeline/provenance.py` | confirmed events + manifests carry truthful, sorted/de-duplicated detector/tracker `ModelRef`s (name + version; `weights_hash` not computed) (P2-U1) |
-| Minimal event persistence + evidence manifest | `src/trafficpulse/persistence/` | deterministic per-run JSON `EventStore` (write-once, idempotent replay) + a minimal reviewable `EvidenceManifest` stub — no rendering/hashing (P1-U11) |
+| Minimal event persistence + evidence manifest | `src/trafficpulse/persistence/` | deterministic per-run JSON `EventStore` (write-once, idempotent replay) + the reviewable `EvidenceManifest` (P1-U11; rendering and content hashing were added later by H14, below) |
 | Recorded-clip slice runners / demos | `src/trafficpulse/pipeline/runner.py`, `pipeline/illegal_stopping_runner.py` | offline composition roots that decode a real clip and persist confirmed events; real RT-DETR built in the CLI, scripted stub injected in tests (P1-U12, P2-U6) |
+| Stop-line crossing + declared signal context | `src/trafficpulse/observations/crossing.py`, `observations/signal.py` | validated forward stop-line crossing into a junction (P3-U4) and a scene-level signal step function sampled from a **declared** schedule — never classified from pixels (P3-U3) |
+| Red-light-jumping reasoning | `src/trafficpulse/rules/red_light.py` | the signal is read **at the stop-line crossing** and latched onto the track, so a light turning green after entry cannot un-commit the act; `AMBER`/`UNKNOWN`/`OFF` never confirm (H13) |
+| Motorcycle perception + rider association | `src/trafficpulse/perception/`, `association/riders.py` | rider↔motorcycle association aggregated into `Motorcycle`/`Rider`/`MotorcycleTrack` observations (P4-U4, v1.1 U1) |
+| Triple-riding reasoning | `src/trafficpulse/rules/triple_riding.py`, `observations/rider_count.py` | per-**motorcycle** rider-count episodes; a single 3-rider frame never confirms, and the confirmed event names the rider tracks (v1.1 U3) |
+| No-helmet reasoning (experimental) | `src/trafficpulse/rules/no_helmet.py`, `observations/helmet.py` | four-label ontology at the rule layer; **only the `DRIVER` slot may confirm**, `turban` exempts on predominance, `uncertain` abstains as a bridged gap. Gated by a classifier capability guard — see [Limitations](#research--deployment-limitations) |
+| Helmet classifier seam | `src/trafficpulse/classifier/` | a `HelmetClassifier` interface with zero-shot (CLIP), trained-ResNet, and stub backends, each **declaring** whether it can emit `turban`; a turban-blind backend cannot build the no-helmet rule |
+| Scene capability probing | `src/trafficpulse/app/capabilities.py` | asks each shipped rule factory what a given scene can support, so "offered" and "runnable" cannot diverge and an uncalibrated video is structurally unable to produce a geometry violation |
+| Per-video scenes + calibration | `src/trafficpulse/scenes/`, `persistence/scene_store.py` | content-addressed scene revisions, an analyst calibration surface, and auto-calibration of an uncalibrated upload from **its own** observed dominant flow (H12) |
+| Evidence rendering + packaging | `src/trafficpulse/evidence/`, `overlay/` | content-addressed, hash-verified evidence frames, a violation-agnostic overlay renderer, annotated overlay video, and a deterministic ZIP evidence package (H14) |
+| Real-time inference engine | `src/trafficpulse/engine/` | deterministic PTS-scheduled composition of the shipped seams with metrics and structured logs (H6) |
+| FastAPI application + React SPA | `src/trafficpulse/app/`, `frontend/` | upload, processing jobs, events, evidence, analytics, scenes, review decisions, live camera; the SPA in `frontend/` is the single user-facing UI (H7A–H7E, H9–H16) |
+| Live camera monitoring | `src/trafficpulse/app/live/` | a persistent backend session over the engine's submit/drain/finalize seam, running the **same** pipeline an upload runs; back-pressured, never persisted (see [Limitations](#research--deployment-limitations)) |
+| Regression corpus + expectation manifest | `test-videos/` | freely-licensed real clips (media gitignored, fetchable) with a manifest that records an expected count **only** where it is structural or annotated, and `run_manifest.py` to execute exactly those |
 
-Both violation slices run end to end offline on a **recorded synthetic clip**
-through real ingestion, the real IoU tracker, real reasoning, and real persistence —
-deterministically and with byte-identical persisted files on replay — with
-detections supplied by an injected scripted stub.
+Every slice runs end to end offline through real ingestion, the real IoU tracker, real
+reasoning, and real persistence — deterministically, with byte-identical persisted
+files on replay. In the automated suite the detections are supplied by an injected
+scripted stub (a COCO RT-DETR does not fire a vehicle class on synthetic pixels); on
+**real** footage the same paths run with real RT-DETR inference through the scripts in
+`demo/`, and what that has and has not established per violation is recorded in
+[`docs/validation-matrix.md`](docs/validation-matrix.md).
 
 ## Planned capabilities / roadmap
 
 Defined by contract or design, **not yet implemented** (sequenced across Phases 3–5
 per the accepted design review — see the phase plans in [Documentation](#documentation)):
 
-- **Remaining violations** — feasibility-gated speeding (Phase 5). Red-light jumping,
-  triple riding, and no-helmet have since shipped, and the mandatory CNN-vs-ViT
-  experiment that no-helmet hosted is **complete** (see
-  [`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md)); a **trained** helmet
-  classifier remains outstanding, because that experiment measured whole-motorcycle
-  crops rather than the runtime's head crops and [ADR-005](docs/adr/ADR-005.md)
-  therefore adopts neither candidate. Phases 3–5 also deliver generalized
-  reasoning/pipeline infrastructure (by composition), a dynamic traffic-context stream,
-  the observation-log substrate, the event-level evaluation harness, and metric
-  calibration.
-- **Real-footage validation** — an external, gated activity (permissions/ethics +
-  approved footage + a matching validated `SceneConfig`); no real footage has been
-  processed, and the shipped pipelines run it with **no** new code once footage is
-  approved.
+- **The sixth violation** — feasibility-gated speeding (Phase 5). It has no reasoner,
+  and `engine.rules.require_shipped` refuses it by name rather than failing obscurely.
+- **An adopted helmet classifier** — the mandatory CNN-vs-ViT experiment is
+  **complete** ([`docs/cnn-vs-vit-results.md`](docs/cnn-vs-vit-results.md)), but it
+  measured whole-motorcycle crops rather than the runtime's head crops, so
+  [ADR-005](docs/adr/ADR-005.md) adopts neither candidate and helmet enforcement stays
+  experimental. Phase 3's generalized reasoning infrastructure and dynamic
+  traffic-context stream have since shipped; the observation-log substrate, the
+  event-level evaluation harness, and metric calibration have not.
+- **Ground-truth real-footage evaluation** — the corpus in `test-videos/` is real and
+  is processed, but nothing in it is *labelled*, so no precision/recall exists for any
+  violation. Turning observation into measurement needs frame-level ground truth
+  (`test-videos/sources.yaml` → `aicity_track5`) plus, for the geometry rules, an
+  analyst-authored `SceneConfig` matching each clip's road. The shipped pipelines need
+  **no** new code for either; see [`docs/validation-matrix.md`](docs/validation-matrix.md).
 - **Congestion-robust / ID-churn-robust illegal stopping** — the first slice
   excludes congested scenes and does not re-associate a long-stationary vehicle
   across a tracker ID switch (both explicit, documented deferrals).
-- **Full evidence-engine runtime** — clip/frame rendering, crops, overlays,
-  content-addressed media hashing, and OCR (the current manifest is a minimal
-  reference stub only).
+- **Perceived signal state** — the red-light rule reads a *declared* schedule, not a
+  signal head. `SignalSourceMode.ROI_CLASSIFIER` is contract-defined and unimplemented.
 - **Durable storage** — SQLite + Parquet observation/event logs (ADR-002 defers
   this; the JSON `EventStore` is the current storage posture, ADR-004 stays
   *Proposed*).
-- **ANPR, privacy/redaction, human-review UI, simulated-penalty workflow, and
-  analytics / evaluation-harness code.**
+- **ANPR, privacy/redaction, and the simulated-penalty workflow.** The human-review
+  layer and the analytics/evaluation surfaces have since shipped (H7E/H9, H15).
 
 No model weights, datasets, or training pipelines are included.
 
@@ -244,17 +275,29 @@ TrafficPulse/
 ├── schemas/                    # exported JSON schemas
 ├── docs/
 │   ├── architecture-review.md  # canonical architecture reference
-│   ├── architecture.md · phase-0-plan.md · phase-1-plan.md · phase-2-plan.md
+│   ├── validation-matrix.md    # what is tested / observed / reproduced per violation
+│   ├── architecture.md · phase-0-plan.md … phase-5-plan.md
+│   ├── deployment.md · demo-guide.md · live-camera.md
+│   ├── controlled-demo.md      # declared scene context; one clip, four reasoners
+│   ├── final-demo-checklist.md · viva-fact-sheet.md
 │   ├── ontology.md · dataset-policy.md · evaluation-protocol.md
+│   ├── cnn-vs-vit-results.md · helmet-runtime-evaluation.md
 │   ├── scene-configuration.md · windows-verification.md
-│   └── adr/ADR-001..004.md
+│   └── adr/ADR-001..005.md
+├── serve.py                    # production launcher (real RT-DETR + helmet backend)
+├── serve_demo.py               # labelled helmet-analysis demonstration launcher
+├── demo/                       # reproducible validation + demo scripts (real footage)
+├── test-videos/                # regression corpus: metadata tracked, media gitignored
+├── experiments/                # helmet_cnn_vit (FROZEN, P4-U5) · helmet_rtdetr
+├── frontend/                   # the single user-facing UI (Vite + React SPA)
 ├── src/trafficpulse/
-│   ├── contracts/ · geometry/ · synth/ · ingestion/
-│   ├── detector/ · tracking/ · observations/
-│   ├── rules/ · pipeline/ · persistence/
-└── tests/                      # contracts, geometry, synth, rules, observations,
-                                # ingestion, detector, tracking, pipeline,
-                                # persistence, ontology, registry, scenes, docs
+│   ├── contracts/ · geometry/ · synth/ · ingestion/ · scenes/
+│   ├── detector/ · tracking/ · association/ · perception/ · classifier/
+│   ├── observations/ · rules/ · pipeline/ · engine/
+│   ├── evidence/ · overlay/ · persistence/
+│   └── app/                    # FastAPI application, routers, live-camera sessions
+└── tests/                      # one subdirectory per source package, plus docs/
+                                # registry/ ontology/ experiments/ guards
 ```
 
 Packages appear only when a unit needs them — there is no speculative scaffold.
@@ -346,6 +389,36 @@ written down in the **[Demonstration guide](docs/demo-guide.md)**; the evidence 
 those limits is in
 [`docs/helmet-runtime-evaluation.md`](docs/helmet-runtime-evaluation.md).
 
+## Controlled demonstration (declared context, synthetic footage)
+
+The real-footage corpus contains no single clip with a red-light runner, a wrong-way
+vehicle, an illegally stopped car *and* an overloaded motorcycle in it. Rather than
+lower a threshold until real footage produces a wanted answer, the project ships a
+**declared** scenario: a 6-second synthetic clip, an operator-drawn scene, a declared
+signal schedule, and a written statement of what was built into it.
+
+```bash
+./.venv/Scripts/python.exe demo/controlled_demo.py --real-pixels   # writes the clip
+./.venv/Scripts/python.exe demo/controlled_demo.py --real-pixels --api http://127.0.0.1:8000
+```
+
+One video → one analysis → **four** independently reasoned violation types (wrong way,
+illegal stopping, red-light jumping, triple riding), each with its own evidence
+manifest. Declared expectations are stored where no rule, reasoner or engine can read
+them, so a family the reasoners decline to confirm is reported as *missing*, never
+conjured — and **no accuracy is computed**, because precision over one hand-authored
+clip would be arithmetic against ground truth the same person wrote.
+
+The clip has two renderings from one specification: coloured rectangles replayed
+against a scripted detector (what CI checks — real RT-DETR detects nothing in them),
+and **real vehicle crops** cut from this project's own corpus and composited along the
+same trajectories, which real RT-DETR does detect.
+
+**Even the real-inference run demonstrates reasoning over declared context and nothing
+about real-world detection** — it is unchanging vehicle cut-outs sliding across an
+empty synthetic road. See [`docs/controlled-demo.md`](docs/controlled-demo.md) and
+validation matrix §7b, which keep this strictly apart from real-footage findings.
+
 ## Vertical-slice demos (offline)
 
 Two offline, deterministic commands run the violation slices end to end — one
@@ -395,7 +468,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 
 - **Lint/format:** `ruff check .`
 - **Types:** `mypy src` (strict mode).
-- **Tests:** `pytest -q` (currently 2957 passing; 10 opt-in real-model/GPU tests
+- **Tests:** `pytest -q` (currently 3021 passing; 10 opt-in real-model/GPU tests
   skipped by default). Install the `api` and `overlay` extras so the web layer and
   the overlay renderer are both type-checked and tested — this is exactly what CI
   installs: `pip install -e ".[dev,api,overlay]"`. Without `overlay`, `mypy src`
@@ -404,7 +477,7 @@ illegal-stopping opt-in in `test_illegal_stopping_e2e.py`) — set
 **Frontend** (from `frontend/`)
 
 - **Types:** `npm run typecheck` · **Lint:** `npm run lint` · **Build:**
-  `npm run build` · **Tests:** `npm run test` (587 passing, jsdom, mocked API — no
+  `npm run build` · **Tests:** `npm run test` (661 passing, jsdom, mocked API — no
   backend). Coverage via `npm run coverage`.
 
 - **CI:** [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the backend
@@ -450,16 +523,49 @@ detector-stack licence posture — not the project licence.
 - **A confirmed event is not a legal determination of guilt.** Human review is a
   mandatory design step before any *simulated* penalty, and all penalty artefacts
   are simulation-only (and not yet implemented).
-- **No validated real-world accuracy.** No real footage has been processed, and no
-  accuracy, throughput, or event-level precision/recall number is claimed.
-  Real-world accuracy requires dataset-backed evaluation on approved footage that
-  has not been performed.
-- **Wrong-way and illegal-stopping reasoning are validated on synthetic
-  trajectories and generated synthetic clips only**, with detections supplied by an
-  injected scripted stub. A COCO RT-DETR does **not** fire the vehicle class on
-  those synthetic pixels, so no confirmed event has been produced by a real detector
-  on real pixels; genuine RT-DETR inference is exercised only through the opt-in
-  end-to-end tests.
+- **No validated real-world accuracy.** Real footage *has* been processed — see
+  [`docs/validation-matrix.md`](docs/validation-matrix.md) — but **none of it is
+  labelled**, so no accuracy, precision, recall or event-level throughput number is
+  claimed for any violation. An observation of one run at one sampling is not a
+  detection rate, and the validation scripts say so in their own output.
+- **What real footage has established, precisely.** Wrong-way has produced real
+  confirmed events from real RT-DETR inference on real pixels, against a legal
+  direction *auto-derived from the clip's own dominant flow* and a whole-frame lane —
+  a weaker scene than an analyst would draw, and on **lawful signed contraflow**. The
+  rule detects *sustained opposition to the scene's declared legal direction*; it does
+  not, and must not be said to, detect illegal driving. Triple riding runs the entire
+  real path and correctly confirms **nothing** on the available clips (the per-frame
+  rider count never holds ≥3 for the required second). Red-light jumping has been run
+  on real footage against an analyst-authored stop line and junction plus a signal
+  schedule **transcribed from a signal head and countdown visible in the clip**, and
+  correctly confirms **nothing**: the governed approach is red and stopped, and no
+  vehicle crosses the stop line — so the latch is never exercised, and no claim that a
+  violator would be caught follows from it. Illegal stopping has **no** calibrated real
+  example and cannot be given one from this corpus, because every stationary vehicle in
+  it is stopped lawfully.
+- **Red-light jumping reads a *declared* signal schedule, never a signal head.** No
+  component classifies a traffic light from pixels. A confirmed event records the
+  latched state as a measurement so a reviewer audits what the system was *told*.
+  It also does not distinguish a vehicle that overran the stop line on red, stopped,
+  and then entered the junction lawfully on green from one that drove straight
+  through — separating those needs the stationary stream the join does not receive
+  (documented in `rules/red_light.py`).
+- **No-helmet enforcement is experimental and must not be claimed.** Only the
+  `DRIVER` slot can confirm, and that slot is assigned only when exactly one rider is
+  associated with a motorcycle — so the multi-rider traffic this rule most targets is
+  unattributable by design. The turban exemption depends on a `turban` label the
+  shipped zero-shot backend produces unreliably and the trained P4-U5 backend cannot
+  produce at all; the capability guard therefore refuses to build the rule on a
+  turban-blind backend. Demonstrate helmet work through `serve_demo.py`, which
+  classifies and reports and mints no violation.
+- **The ID-switch guard is implemented everywhere and fires nowhere.** Every reasoner
+  refuses to accumulate support across a tainted step, and the suite proves it — but
+  the shipped greedy-IoU associator sets `tainted=False` unconditionally, because it
+  "exposes no trustworthy ID-switch signal, so fabricating taint would be dishonest"
+  (`tracking/iou_tracker.py`). In a real run today, ID switches therefore go
+  **undetected**: `taint restarts: 0` in the validation output means nothing was
+  reported, not that nothing happened. Closing this needs a tracker with motion state
+  (the audited-ByteTrack path), not a heuristic bolted on at the rule layer.
 - **Illegal stopping is not congestion-robust or ID-churn-robust.** The first slice
   targets non-congested, single-vehicle synthetic scenes and does not re-associate a
   long-stationary vehicle across a tracker ID switch (both explicit deferrals); its
@@ -483,8 +589,11 @@ detector-stack licence posture — not the project licence.
 ## Documentation
 
 - [`TRAFFICPULSE_MASTER_SPEC.md`](TRAFFICPULSE_MASTER_SPEC.md) — product/research specification
+- [`docs/validation-matrix.md`](docs/validation-matrix.md) — **what is actually established per violation**: structural tests vs real footage vs calibration vs ground truth, the exact honest claim for each, and how to reproduce every result cited
 - [`docs/deployment.md`](docs/deployment.md) — **deployment & operations guide** (setup, run, env, CORS/static, health, demo, troubleshooting)
 - [`docs/demo-guide.md`](docs/demo-guide.md) — **demonstration guide**: what `serve_demo.py` shows, and exactly what may and may not be claimed from it
+- [`docs/final-demo-checklist.md`](docs/final-demo-checklist.md) — **operator checklist** for running the demo: pre-flight, launch, demo order, the four-demonstration set with what to say and what not to claim, and the backup plan
+- [`docs/viva-fact-sheet.md`](docs/viva-fact-sheet.md) — **defensible technical reference**: architecture, per-violation semantics, limitations and evaluation methodology, every claim tagged tested / observed / reproduced / benchmarked / unvalidated
 - [`docs/live-camera.md`](docs/live-camera.md) — **live camera monitoring**: architecture, session lifecycle, frame transport, back-pressure, measured performance, and limitations
 - [`frontend/README.md`](frontend/README.md) — frontend architecture, workspace, live processing, review workflow, keyboard shortcuts
 - [`docs/architecture-review.md`](docs/architecture-review.md) — **canonical** architecture & feasibility reference

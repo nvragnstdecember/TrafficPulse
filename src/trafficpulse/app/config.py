@@ -212,6 +212,17 @@ class AppConfig(BaseModel):
         return self.storage_dir / "scenes"
 
     @property
+    def expectations_dir(self) -> Path:
+        """Where a controlled demonstration's declared expectations live, one per video.
+
+        A sibling of ``videos_dir`` / ``scenes_dir`` rather than a file inside either:
+        a declaration is about a *demonstration*, it outlives any one run, and it must
+        never be mistaken for part of the video's recovery snapshot. Nothing in the
+        detection path reads this directory."""
+
+        return self.storage_dir / "expectations"
+
+    @property
     def overlays_dir(self) -> Path:
         """Where rendered overlay (annotated) videos are stored, one per job.
 

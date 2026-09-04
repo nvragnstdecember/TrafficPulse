@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..contracts import ConfidenceBreakdown, ReviewCase, ReviewEntry
 from ..contracts.enums import ReviewAction, ReviewStatus, ViolationType
@@ -292,6 +292,138 @@ class SceneValidationResponse(_ApiModel):
         default=None,
         description="The address this draft would be stored under, or null when "
         "invalid. Equal to the current binding's hash when nothing has changed.",
+    )
+
+
+# --- controlled demonstration: declared expectations ----------------------------
+class ExpectationDeclaration(_ApiModel):
+    """What a controlled clip was **built** to contain, declared before it is run.
+
+    A demonstration's ground truth, and nothing else. It is written by an operator,
+    stored beside the video, and read back only to be *compared* with what the
+    reasoners independently confirmed. It is never given to the engine, never
+    consulted by a rule, and never turned into an event -- see
+    :class:`ExpectationComparison` for the one thing it is allowed to do.
+
+    Declaring an expectation on real footage would be a claim about that footage's
+    ground truth, which this project does not have for any real clip; the field is
+    honest only for a scenario somebody authored, which is why the surface calls it
+    a controlled demonstration rather than a test result.
+    """
+
+    expected_violations: tuple[ViolationType, ...] = Field(
+        default=(),
+        description="The violation families this clip was constructed to contain. "
+        "An expectation, never a detection.",
+    )
+    notes: str = Field(
+        default="",
+        max_length=4000,
+        description="Free-text declaration of what the controlled scenario is and "
+        "how its context was chosen -- the honesty record a reviewer reads next to "
+        "the result.",
+    )
+    declared_by: str = Field(
+        default="analyst",
+        min_length=1,
+        max_length=128,
+        description="Opaque identifier of whoever declared this; not authenticated.",
+    )
+
+    @field_validator("expected_violations")
+    @classmethod
+    def _unique(cls, value: tuple[ViolationType, ...]) -> tuple[ViolationType, ...]:
+        """Reject a repeated family: a duplicate would double-count in the summary."""
+
+        if len(set(value)) != len(value):
+            raise ValueError("expected_violations must not repeat a violation type")
+        return value
+
+
+class ExpectationRecord(_ApiModel):
+    """A stored declaration, with the video it belongs to and when it was made."""
+
+    video_id: str = Field(description="The video this declaration describes.")
+    expected_violations: tuple[ViolationType, ...] = Field(
+        description="The violation families this clip was constructed to contain."
+    )
+    notes: str = Field(description="The operator's declaration of the scenario.")
+    declared_by: str = Field(description="Opaque declarer identifier; not authenticated.")
+    declared_at: datetime = Field(
+        description="Wall-clock instant the declaration was recorded. Bookkeeping, "
+        "not media time -- nothing reasons about it."
+    )
+
+
+class ExpectationOutcome(StrEnum):
+    """How one violation family's expectation and detection line up."""
+
+    MATCHED = "matched"
+    """Expected, and at least one event of that family was confirmed."""
+
+    MISSING = "missing"
+    """Expected, and nothing of that family was confirmed."""
+
+    UNEXPECTED = "unexpected"
+    """Not expected, but something of that family was confirmed."""
+
+
+class ExpectationRow(_ApiModel):
+    """One violation family's expected/detected comparison."""
+
+    violation_type: ViolationType
+    expected: bool = Field(description="Whether the declaration named this family.")
+    detected_count: int = Field(
+        ge=0, description="How many events of this family the run actually confirmed."
+    )
+    event_ids: tuple[str, ...] = Field(
+        default=(),
+        description="The confirmed events backing `detected_count`, so every number "
+        "here can be opened and inspected rather than taken on trust.",
+    )
+    outcome: ExpectationOutcome
+
+
+class ExpectationComparison(_ApiModel):
+    """Declared expectations beside independently confirmed events.
+
+    The one place the two sides meet, and they meet as **counts of real event
+    ids** -- every ``detected_count`` is the length of ``event_ids``, and every one
+    of those addresses an event that the reasoners minted, persisted, and will
+    serve with its own evidence manifest. Nothing here can create an event, and no
+    expectation appears in any event listing.
+
+    Deliberately **no accuracy metric**. Precision, recall and F1 over one
+    hand-authored clip would be arithmetic on a sample of four, computed against
+    ground truth the same person authored -- a number that looks like a measurement
+    and is not one. The comparison reports what matched, what is missing and what
+    was unexpected, and stops there. Accuracy claims live in
+    ``docs/validation-matrix.md``, which has none for any violation.
+    """
+
+    video_id: str
+    job_id: str | None = Field(
+        default=None,
+        description="The run compared against, or null when every succeeded run of "
+        "this video was considered.",
+    )
+    expectation: ExpectationRecord | None = Field(
+        default=None,
+        description="The declaration compared against; null when the video has none, "
+        "in which case every detected family is reported as unexpected.",
+    )
+    rows: tuple[ExpectationRow, ...] = Field(
+        description="One row per violation family that is either expected or "
+        "detected, in the fixed ViolationType order."
+    )
+    expected_count: int = Field(ge=0, description="How many families were declared.")
+    detected_event_count: int = Field(
+        ge=0, description="How many events the run confirmed, across all families."
+    )
+    matched_count: int = Field(ge=0, description="Declared families that were confirmed.")
+    missing_count: int = Field(ge=0, description="Declared families that were not.")
+    unexpected_count: int = Field(
+        ge=0, description="Confirmed families that were never declared."
     )
 
 

@@ -35,6 +35,7 @@ import { ErrorBanner } from '../common/error-banner';
 import { type ExportFormat, EventList } from './event-list';
 import { EventDetail } from './event-detail';
 import { EvidenceViewer } from './evidence-viewer';
+import { ExpectationPanel } from './expectation-panel';
 import { HelmetAnalysisPanel } from './helmet-analysis-panel';
 import { usePlayer } from './player-context';
 import { ProcessingPanel } from './processing-panel';
@@ -305,9 +306,21 @@ export function WorkspaceView({ processing, objectUrl }: WorkspaceViewProps) {
             posterSrc={objectUrl}
             schedule={schedule}
             onScheduleChange={setSchedule}
+            durationSeconds={duration}
             onReprocess={(supported) =>
               processing.actions.reprocessWith(rulesForRun(supported, schedule))
             }
+          />
+        ) : null}
+        {/* Ground truth, deliberately below the calibration and above the run: it is
+            declared before processing and read after it, and it belongs nowhere near
+            the event list, which must only ever show what was actually confirmed. */}
+        {processing.video ? (
+          <ExpectationPanel
+            videoId={processing.video.video_id}
+            jobId={processing.jobId ?? null}
+            runComplete={processing.phase === 'completed'}
+            onOpenEvent={selectAndReview}
           />
         ) : null}
         <div ref={stageRefs.processing}>

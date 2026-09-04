@@ -99,6 +99,7 @@ from .errors import (
     DuplicateVideoError,
     EngineUnavailableError,
     EventNotFoundError,
+    ExpectationNotFoundError,
     InvalidConfigurationError,
     InvalidTransitionError,
     JobNotFoundError,
@@ -109,11 +110,16 @@ from .errors import (
     VideoMediaNotFoundError,
     VideoNotFoundError,
 )
+from .expectations import ExpectationStore, record_from
+from .expectations import compare as compare_expectation
 from .models import (
     EventListResponse,
     EventSort,
     EventSummary,
     EvidenceRepairResponse,
+    ExpectationComparison,
+    ExpectationDeclaration,
+    ExpectationRecord,
     JobStatusResponse,
     MetricsResponse,
     ReviewDecisionRequest,
@@ -1777,6 +1783,98 @@ class MetricsService:
             jobs_cancelled=by_status[JobStatus.CANCELLED],
             events_total=events_total,
             latest=latest,
+        )
+
+
+class ExpectationService:
+    """Declared expectations for a controlled demonstration, and their comparison.
+
+    The application-layer owner of the *ground-truth* side of a controlled demo. It
+    does three things and delegates the rest:
+
+    * the video must exist (delegated to :class:`VideoService`, so a declaration
+      can never be attached to an id nothing can produce events for);
+    * the declaration is stamped and stored (delegated to
+      :class:`~trafficpulse.app.expectations.ExpectationStore`);
+    * the comparison is computed by the pure
+      :func:`~trafficpulse.app.expectations.compare`, over event summaries read
+      through :class:`EventService` -- the same path the workspace lists from, so
+      the demo table and the event list cannot disagree.
+
+    It is deliberately **not** wired into :class:`ProcessingService`, and nothing in
+    the engine, the rule registry or the event store can reach it. An expectation
+    can only ever be read back and compared; it can never become a finding.
+    """
+
+    #: Comparison reads the run's whole event set, not a page. A controlled demo
+    #: confirms a handful of events, and a demonstration table that silently
+    #: truncated would be worse than one that refuses -- so the ceiling is high
+    #: enough that no honest controlled run reaches it, and reaching it is loud.
+    MAX_EVENTS = 1000
+
+    def __init__(
+        self, store: ExpectationStore, videos: VideoService, events: EventService
+    ) -> None:
+        self._store = store
+        self._videos = videos
+        self._events = events
+
+    def get(self, video_id: str) -> ExpectationRecord:
+        """The video's declaration (404 when it has none, or the video is unknown)."""
+
+        self._videos.require(video_id)
+        record = self._store.get(video_id)
+        if record is None:
+            raise ExpectationNotFoundError(
+                f"video {video_id!r} has no declared expectation"
+            )
+        return record
+
+    def declare(
+        self, video_id: str, declaration: ExpectationDeclaration
+    ) -> ExpectationRecord:
+        """Record what this clip was built to contain, replacing any earlier claim.
+
+        Idempotent in effect but not in content: re-declaring the same families
+        writes a fresh ``declared_at``, because *when* somebody last asserted this
+        is part of what makes the declaration auditable.
+        """
+
+        self._videos.require(video_id)
+        return self._store.put(record_from(declaration, video_id=video_id))
+
+    def clear(self, video_id: str) -> bool:
+        """Withdraw a declaration; returns whether there was one to withdraw."""
+
+        self._videos.require(video_id)
+        return self._store.delete(video_id)
+
+    def compare(self, video_id: str, *, job_id: str | None = None) -> ExpectationComparison:
+        """Declared expectations beside the events a run actually confirmed.
+
+        ``job_id`` scopes the detected side to one run -- which is what a
+        demonstration wants, because a video reprocessed with different rules has a
+        different answer. Omitting it compares against every succeeded run of the
+        video, matching the workspace's own default scope.
+
+        A video with no declaration is not an error: the comparison is returned with
+        ``expectation: null`` and every detected family reported ``unexpected``,
+        which is the honest reading of "nothing was claimed about this clip".
+        """
+
+        self._videos.require(video_id)
+        listing = self._events.list(
+            video_id=video_id,
+            job_id=job_id,
+            limit=self.MAX_EVENTS,
+            offset=0,
+            sort=EventSort.TRIGGER_AT_ASC,
+        )
+        return compare_expectation(
+            video_id=video_id,
+            job_id=job_id,
+            expectation=self._store.get(video_id),
+            events=listing.items,
         )
 
 

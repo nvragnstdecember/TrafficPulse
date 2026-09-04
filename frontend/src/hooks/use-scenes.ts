@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { queryKeys } from '@/api/query-keys';
-import { type SceneDraft, type SceneSummary } from '@/api/types';
+import { type SceneDraft, type SceneSummary, type StoredScene } from '@/api/types';
 import { ApiError } from '@/api/errors';
 import { scenesService } from '@/services/scenes.service';
 
@@ -26,6 +26,25 @@ export function useVideoScene(videoId: string | undefined) {
         throw error;
       }
     },
+  });
+}
+
+/**
+ * One stored scene revision, by the hash events carry.
+ *
+ * What makes a saved calibration reloadable rather than write-only: the analyst can
+ * see the geometry that is actually bound to this video, correct one polygon without
+ * redrawing the rest, and check that a stored revision is what a demonstration claims
+ * it is. Enabled only when a hash is known, so an uncalibrated video fetches nothing.
+ */
+export function useSceneRevision(sceneHash: string | null | undefined) {
+  return useQuery({
+    queryKey: [...queryKeys.scenes.all, 'revision', sceneHash ?? ''] as const,
+    enabled: Boolean(sceneHash),
+    // A revision is immutable — content-addressed — so it never needs refetching.
+    staleTime: Infinity,
+    queryFn: ({ signal }): Promise<StoredScene> =>
+      scenesService.get(sceneHash as string, signal),
   });
 }
 

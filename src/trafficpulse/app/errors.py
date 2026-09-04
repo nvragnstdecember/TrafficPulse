@@ -88,6 +88,19 @@ class SceneNotFoundError(AppError):
     error_type = "scene_not_found"
 
 
+class ExpectationNotFoundError(AppError):
+    """This video carries no declared controlled-demo expectation (404).
+
+    A state to render (offer to declare one), not a failure. Deliberately distinct
+    from the *comparison* endpoint, which never 404s on a missing declaration: there,
+    "nothing was claimed about this clip" is a meaningful answer with a table to
+    show, whereas here the client asked for the declaration itself.
+    """
+
+    status_code = 404
+    error_type = "expectation_not_found"
+
+
 class JobNotFoundError(AppError):
     """No processing job matches the requested id (404)."""
 

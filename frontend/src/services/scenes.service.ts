@@ -4,6 +4,7 @@ import {
   type SceneDraft,
   type SceneSummary,
   type SceneValidationResponse,
+  type StoredScene,
 } from '@/api/types';
 
 /**
@@ -15,6 +16,16 @@ import {
  * and the calibrator component.
  */
 export const scenesService = {
+  /**
+   * One stored scene revision, addressed by the hash every event carries.
+   *
+   * What makes a calibration reproducible: the drawing an analyst saved can be read
+   * back and redrawn, and an event months old resolves to the exact geometry it was
+   * confirmed under rather than to whatever the scene has since become.
+   */
+  get(sceneHash: string, signal?: AbortSignal): Promise<StoredScene> {
+    return apiClient.get<StoredScene>(endpoints.scene(sceneHash), { signal });
+  },
   /** The scene a video is calibrated against; 404s when it has none. */
   getForVideo(videoId: string, signal?: AbortSignal): Promise<SceneSummary> {
     return apiClient.get<SceneSummary>(endpoints.videoScene(videoId), { signal });

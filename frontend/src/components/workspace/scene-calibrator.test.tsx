@@ -4,13 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '@/api/errors';
 import { type SignalPhaseSpec } from '@/api/types';
-import { makeSceneSummary } from '@/test/fixtures';
+import { makeSceneSummary, makeStoredScene } from '@/test/fixtures';
 import { renderWithProviders } from '@/test/utils';
 
 import { SceneCalibrator } from './scene-calibrator';
 
 vi.mock('@/services/scenes.service', () => ({
   scenesService: {
+    get: vi.fn(),
     getForVideo: vi.fn(),
     calibrate: vi.fn(),
     validate: vi.fn(),
@@ -22,6 +23,9 @@ const { scenesService } = await import('@/services/scenes.service');
 const FRAME = { width: 320, height: 240 };
 
 beforeEach(() => {
+  vi.mocked(scenesService.get).mockRejectedValue(
+    new ApiError('no scene', { kind: 'http', status: 404, type: 'scene_not_found' }),
+  );
   vi.mocked(scenesService.getForVideo).mockRejectedValue(
     new ApiError('no scene', { kind: 'http', status: 404, type: 'scene_not_found' }),
   );
@@ -359,5 +363,225 @@ describe('SceneCalibrator — derived-scene provenance', () => {
     expect(await screen.findByLabelText('Violations unlocked')).toBeInTheDocument();
     // …and nothing casts doubt on geometry a person actually drew.
     expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+});
+
+describe('SceneCalibrator — declared context (controlled demo)', () => {
+  function drawLane(surface: Element) {
+    drawPolygon(surface, [
+      [0, 0],
+      [320, 0],
+      [320, 240],
+    ]);
+  }
+
+  it('says the context is declared rather than inferred', async () => {
+    // The single most important sentence on this panel: a viewer who assumes the
+    // system worked out the legal direction has misunderstood the whole system.
+    render();
+
+    const notice = await screen.findByTestId('calibration-declared-notice');
+    expect(notice).toHaveTextContent(/Everything here is declared/i);
+    expect(notice).toHaveTextContent(/not things the camera can establish from pixels/i);
+    expect(notice).toHaveTextContent(/does not infer it/i);
+  });
+
+  it('sends the dwell threshold the analyst typed', async () => {
+    const user = userEvent.setup();
+    render();
+    const surface = await screen.findByTestId('calibration-surface');
+    drawLane(surface);
+
+    await user.click(screen.getByRole('button', { name: 'No-stopping zone' }));
+    drawPolygon(surface, [
+      [10, 10],
+      [100, 10],
+      [100, 100],
+    ]);
+    await user.clear(screen.getByLabelText(/stopping dwell/i));
+    await user.type(screen.getByLabelText(/stopping dwell/i), '8');
+    await user.click(screen.getByRole('button', { name: /save scene/i }));
+
+    await waitFor(() => expect(scenesService.calibrate).toHaveBeenCalled());
+    const [, draft] = vi.mocked(scenesService.calibrate).mock.calls[0];
+    expect(draft.tuning).toEqual({ stationary_duration_seconds: 8 });
+  });
+
+  it('sends no tuning at all when the analyst typed nothing', async () => {
+    const user = userEvent.setup();
+    render();
+    const surface = await screen.findByTestId('calibration-surface');
+    drawLane(surface);
+    await user.click(screen.getByRole('button', { name: /save scene/i }));
+
+    await waitFor(() => expect(scenesService.calibrate).toHaveBeenCalled());
+    expect(vi.mocked(scenesService.calibrate).mock.calls[0][1].tuning).toBeUndefined();
+  });
+
+  it('refuses to save a threshold the backend would reject', async () => {
+    const user = userEvent.setup();
+    render();
+    const surface = await screen.findByTestId('calibration-surface');
+    drawLane(surface);
+    await user.click(screen.getByRole('button', { name: 'No-stopping zone' }));
+    drawPolygon(surface, [
+      [10, 10],
+      [100, 10],
+      [100, 100],
+    ]);
+
+    await user.clear(screen.getByLabelText(/stopping dwell/i));
+    await user.type(screen.getByLabelText(/stopping dwell/i), '0');
+
+    expect(await screen.findByText(/must be greater than 0/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save scene/i })).toBeDisabled();
+  });
+
+  it('offers a dwell threshold only once a no-stopping zone exists', async () => {
+    render();
+
+    expect(
+      await screen.findByText(/draw a no-stopping zone to set a dwell threshold/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/stopping dwell/i)).not.toBeInTheDocument();
+  });
+
+  it('stores the analyst’s scene notes inside the scene', async () => {
+    const user = userEvent.setup();
+    render();
+    const surface = await screen.findByTestId('calibration-surface');
+    drawLane(surface);
+
+    await user.type(
+      screen.getByLabelText(/scene notes/i),
+      'Controlled demo; the zone is designated for demonstration.',
+    );
+    await user.click(screen.getByRole('button', { name: /save scene/i }));
+
+    await waitFor(() => expect(scenesService.calibrate).toHaveBeenCalled());
+    expect(vi.mocked(scenesService.calibrate).mock.calls[0][1].description).toMatch(
+      /designated for demonstration/,
+    );
+  });
+});
+
+describe('SceneCalibrator — reloading a saved calibration', () => {
+  it('offers nothing to load for an uncalibrated video', async () => {
+    render();
+
+    await screen.findByText('Not calibrated');
+    expect(
+      screen.queryByRole('button', { name: /load saved calibration/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('redraws the bound revision onto the surface', async () => {
+    // Reproducibility: before this, a saved calibration was write-only — refresh the
+    // page and nobody could see what had been drawn, or correct one polygon.
+    const user = userEvent.setup();
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(makeSceneSummary());
+    vi.mocked(scenesService.get).mockResolvedValue(makeStoredScene());
+    render();
+
+    await user.click(await screen.findByRole('button', { name: /load saved calibration/i }));
+    await user.click(screen.getByRole('button', { name: /save scene/i }));
+
+    await waitFor(() => expect(scenesService.calibrate).toHaveBeenCalled());
+    const [, draft] = vi.mocked(scenesService.calibrate).mock.calls[0];
+    expect(draft.zones.map((z) => z.zone_id)).toEqual(['zone-lane', 'zone-no-stopping']);
+    expect(draft.tuning).toEqual({ stationary_duration_seconds: 7 });
+    expect(draft.description).toMatch(/Controlled demonstration/);
+  });
+
+  it('loads only when asked, so an in-progress drawing is never clobbered', async () => {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(makeSceneSummary());
+    vi.mocked(scenesService.get).mockResolvedValue(makeStoredScene());
+    render();
+
+    const surface = await screen.findByTestId('calibration-surface');
+    drawPolygon(surface, [
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+    // The revision has resolved by now, but the drawing is untouched until asked.
+    await screen.findByRole('button', { name: /load saved calibration/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /save scene/i }));
+    await waitFor(() => expect(scenesService.calibrate).toHaveBeenCalled());
+    expect(vi.mocked(scenesService.calibrate).mock.calls[0][1].zones[0].polygon).toEqual([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ]);
+  });
+});
+
+describe('SceneCalibrator — representative frame', () => {
+  it('offers a frame picker when the clip is playable and its length is known', async () => {
+    render({ durationSeconds: 12 });
+
+    expect(await screen.findByLabelText(/representative frame/i)).toBeInTheDocument();
+  });
+
+  it('offers none when there is nothing to scrub', async () => {
+    render({ posterSrc: null, durationSeconds: 12 });
+
+    await screen.findByTestId('calibration-no-backdrop');
+    expect(screen.queryByLabelText(/representative frame/i)).not.toBeInTheDocument();
+  });
+
+  it('says the geometry applies to the whole clip regardless of the frame drawn on', async () => {
+    render({ durationSeconds: 12 });
+
+    expect(
+      await screen.findByText(/applies to the whole clip regardless of which frame/i),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('SignalScheduleEditor — declared timeline', () => {
+  function renderWithJunction(schedule: SignalPhaseSpec[] = [], durationSeconds = 20) {
+    vi.mocked(scenesService.getForVideo).mockResolvedValue(
+      makeSceneSummary({ supported_violations: ['red_light_jumping'] }),
+    );
+    return render({ schedule, durationSeconds });
+  }
+
+  it('draws the declared phases over the clip', async () => {
+    renderWithJunction([
+      { at_seconds: 0, state: 'red' },
+      { at_seconds: 8, state: 'green' },
+    ]);
+
+    const timeline = await screen.findByTestId('signal-timeline');
+    expect(within(timeline).getByRole('img')).toHaveAccessibleName(
+      /Red from 0.0s, Green from 8.0s/,
+    );
+  });
+
+  it('warns when the clip opens with no declared state', async () => {
+    // Before the first phase every instant resolves to `unknown`, and red-light can
+    // never confirm there — a gap that is invisible in a list of numbers.
+    renderWithJunction([{ at_seconds: 5, state: 'red' }]);
+
+    expect(
+      await screen.findByText(/The clip opens with no declared state/i),
+    ).toBeInTheDocument();
+  });
+
+  it('does not warn when the schedule starts at zero', async () => {
+    renderWithJunction([{ at_seconds: 0, state: 'red' }]);
+
+    await screen.findByTestId('signal-timeline');
+    expect(screen.queryByText(/opens with no declared state/i)).not.toBeInTheDocument();
+  });
+
+  it('draws no timeline when the clip length is unknown', async () => {
+    renderWithJunction([{ at_seconds: 0, state: 'red' }], 0);
+
+    await screen.findByLabelText('Signal schedule');
+    expect(screen.queryByTestId('signal-timeline')).not.toBeInTheDocument();
   });
 });

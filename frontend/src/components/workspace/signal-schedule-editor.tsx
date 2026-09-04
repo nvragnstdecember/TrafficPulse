@@ -1,7 +1,14 @@
 import { Plus, Trash2 } from 'lucide-react';
 
 import { type SignalPhaseSpec, type SignalState } from '@/api/types';
-import { SIGNAL_STATES, isScheduleUsable, sortSchedule } from '@/lib/calibration';
+import {
+  SIGNAL_STATES,
+  isScheduleUsable,
+  scheduleSegments,
+  sortSchedule,
+} from '@/lib/calibration';
+import { formatClock } from '@/lib/workspace';
+import { cn } from '@/lib/utils';
 
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -11,6 +18,8 @@ export interface SignalScheduleEditorProps {
   onChange: (schedule: SignalPhaseSpec[]) => void;
   /** Whether the scene has the junction geometry that makes a schedule meaningful. */
   enabled: boolean;
+  /** Clip duration in seconds, for the timeline bar. Omitted, only the list shows. */
+  durationSeconds?: number;
 }
 
 const STATE_LABEL: Record<SignalState, string> = {
@@ -22,7 +31,22 @@ const STATE_LABEL: Record<SignalState, string> = {
 };
 
 /**
- * The per-run signal schedule (H13).
+ * The colour each declared state is drawn in on the timeline.
+ *
+ * `unknown` is deliberately a hatched grey rather than a colour: it is not a signal
+ * state the operator chose, it is the absence of one, and it is the only state on
+ * this bar that no rule may ever confirm against.
+ */
+const STATE_FILL: Record<SignalState, string> = {
+  red: 'bg-destructive',
+  amber: 'bg-warning',
+  green: 'bg-success',
+  off: 'bg-muted-foreground/40',
+  unknown: 'bg-muted-foreground/20',
+};
+
+/**
+ * The per-run signal schedule (H13), as a list and a timeline.
  *
  * Timing belongs to the *video*, not to the camera: a phase names a media-time
  * instant, and a scene is shared across many clips. So this is not part of the scene
@@ -33,17 +57,26 @@ const STATE_LABEL: Record<SignalState, string> = {
  * A schedule the backend would refuse is refused here too, with the reason: an empty
  * one resolves every instant to `unknown` and could never confirm, so offering to
  * run with it would promise an analysis that structurally cannot happen.
+ *
+ * The bar exists for one specific mistake. A schedule whose first phase starts after
+ * 0 leaves the head of the clip `unknown` — a stretch in which red-light can never
+ * confirm — and in a list of numbers that gap is invisible. On the bar it is the
+ * first thing you see.
  */
 export function SignalScheduleEditor({
   schedule,
   onChange,
   enabled,
+  durationSeconds,
 }: SignalScheduleEditorProps) {
   if (!enabled) return null;
 
   function updatePhase(index: number, patch: Partial<SignalPhaseSpec>): void {
     onChange(schedule.map((phase, i) => (i === index ? { ...phase, ...patch } : phase)));
   }
+
+  const segments = scheduleSegments(schedule, durationSeconds ?? 0);
+  const unknownLead = segments.length > 0 && segments[0].state === 'unknown';
 
   return (
     <section className="space-y-2 rounded-md border p-3" aria-label="Signal schedule">
@@ -70,6 +103,45 @@ export function SignalScheduleEditor({
         The signal state is declared, not detected — TrafficPulse does not read a signal
         head from pixels. Scrub the video to each change and record the time here.
       </p>
+
+      {segments.length > 0 ? (
+        <div className="space-y-1" data-testid="signal-timeline">
+          <div
+            className="flex h-4 w-full overflow-hidden rounded-sm border"
+            role="img"
+            aria-label={`Declared signal over the clip: ${segments
+              .map((s) => `${STATE_LABEL[s.state]} from ${s.from.toFixed(1)}s`)
+              .join(', ')}`}
+          >
+            {segments.map((segment) => (
+              <div
+                key={`${segment.from}-${segment.state}`}
+                className={cn('h-full', STATE_FILL[segment.state])}
+                style={{ width: `${Math.max(segment.fraction * 100, 0.5)}%` }}
+                title={`${STATE_LABEL[segment.state]} · ${formatClock(segment.from)}–${formatClock(segment.to)}`}
+              />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-muted-foreground">
+            {segments.map((segment) => (
+              <span key={`legend-${segment.from}`} className="flex items-center gap-1">
+                <span
+                  aria-hidden="true"
+                  className={cn('size-2 rounded-sm', STATE_FILL[segment.state])}
+                />
+                {STATE_LABEL[segment.state]} · {formatClock(segment.from)}
+              </span>
+            ))}
+          </div>
+          {unknownLead ? (
+            <p role="note" className="text-2xs text-warning">
+              The clip opens with no declared state. Anything before the first phase resolves
+              to <strong>unknown</strong>, and red-light can never confirm there — add a phase
+              at 0s if the signal was already showing something.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {schedule.length === 0 ? (
         <p className="text-xs text-muted-foreground">

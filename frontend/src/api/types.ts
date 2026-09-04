@@ -185,6 +185,59 @@ export interface SceneSummary {
   supported_violations: ViolationType[];
 }
 
+/**
+ * A stored scene revision, as much of it as the calibration surface needs.
+ *
+ * Deliberately a **subset** of the backend's frozen `SceneConfig`, not a mirror of
+ * it: the client reads this to redraw geometry it previously authored and to show
+ * the thresholds in force, and it authors a `SceneDraft` — never a `SceneConfig`.
+ * Mirroring the whole contract here would invite exactly the "the browser writes its
+ * own provenance and status" mistake the draft vocabulary exists to prevent.
+ */
+export interface StoredScene {
+  scene: {
+    scene_id: string;
+    scene_name: string;
+    description: string;
+    status: SceneStatus;
+    camera_id: string;
+  };
+  frame: { reference_width: number; reference_height: number };
+  zones: Array<{
+    zone_id: string;
+    zone_type: ZoneType;
+    enabled: boolean;
+    polygon: ScenePoint[];
+  }>;
+  stop_lines: Array<{
+    stop_line_id: string;
+    enabled: boolean;
+    endpoints: { a: ScenePoint; b: ScenePoint };
+    crossing_direction: { dx: number; dy: number };
+  }>;
+  legal_directions: Array<{
+    direction_id: string;
+    description: string;
+    vector: { dx: number; dy: number };
+    zone_ids: string[];
+  }>;
+  signal_groups: Array<{
+    signal_group_id: string;
+    roi: { shape: string; polygon: ScenePoint[] | null };
+  }>;
+  rule_parameters: Array<{
+    violation_type: ViolationType;
+    parameters: Array<{
+      id: string;
+      value: number | null;
+      unit: string;
+      status: string;
+      note: string | null;
+    }>;
+  }>;
+  calibration: { source: string; type: string; status: CalibrationStatus };
+}
+
 export interface SceneValidationResponse {
   valid: boolean;
   errors: string[];
@@ -197,6 +250,61 @@ export interface SceneValidationResponse {
 export interface SignalPhaseSpec {
   at_seconds: number;
   state: SignalState;
+}
+
+// --- controlled demonstration: declared expectations --------------------------------
+/**
+ * What a controlled clip was **built** to contain, declared before it is run.
+ *
+ * Ground truth for a *demonstration*, and nothing else. It never reaches the engine,
+ * never becomes an event, and never appears in an event listing — the backend stores
+ * it in a separate place no rule or reasoner can read. Declaring it on real footage
+ * would be a claim about that footage's ground truth, which this project does not
+ * have for any real clip.
+ */
+export interface ExpectationDeclaration {
+  expected_violations: ViolationType[];
+  notes: string;
+  declared_by: string;
+}
+
+/** A stored declaration, with the video it describes and when it was made. */
+export interface ExpectationRecord extends ExpectationDeclaration {
+  video_id: string;
+  /** Wall-clock instant the declaration was recorded — bookkeeping, not media time. */
+  declared_at: string;
+}
+
+/** How one family's expectation and detection line up. */
+export type ExpectationOutcome = 'matched' | 'missing' | 'unexpected';
+
+export interface ExpectationRow {
+  violation_type: ViolationType;
+  expected: boolean;
+  detected_count: number;
+  /** The confirmed events behind `detected_count`, so every number can be opened. */
+  event_ids: string[];
+  outcome: ExpectationOutcome;
+}
+
+/**
+ * Declared expectations beside independently confirmed events.
+ *
+ * Deliberately carries **no accuracy metric**. Precision or recall over one
+ * hand-authored clip would be arithmetic against ground truth the same person wrote;
+ * the comparison reports matched / missing / unexpected and stops there.
+ */
+export interface ExpectationComparison {
+  video_id: string;
+  job_id: string | null;
+  /** Null when nothing was declared — every detected family is then `unexpected`. */
+  expectation: ExpectationRecord | null;
+  rows: ExpectationRow[];
+  expected_count: number;
+  detected_event_count: number;
+  matched_count: number;
+  missing_count: number;
+  unexpected_count: number;
 }
 
 export type VideoSort = 'uploaded_at' | '-uploaded_at' | 'filename' | '-filename';

@@ -10,7 +10,10 @@ import {
   type ReviewCase,
   type ReviewEntry,
   type ReviewResponse,
+  type ExpectationComparison,
+  type ExpectationRecord,
   type SceneSummary,
+  type StoredScene,
   type VideoSummary,
   type VideoUploadResponse,
   type ViolationType,
@@ -200,6 +203,120 @@ export function makeSceneSummary(overrides: Partial<SceneSummary> = {}): SceneSu
     // Analyst-drawn by default; a derived scene is the exception a test opts into.
     derived: false,
     supported_violations: ['no_helmet', 'triple_riding'],
+    ...overrides,
+  };
+}
+
+/**
+ * A stored scene revision, using the ids `lib/calibration` authors.
+ *
+ * Shaped so `sceneToShapes` can round-trip it: a saved calibration that cannot be
+ * read back onto the drawing surface is the bug this fixture exists to catch.
+ */
+export function makeStoredScene(overrides: Partial<StoredScene> = {}): StoredScene {
+  return {
+    scene: {
+      scene_id: 'scene-vid-1',
+      scene_name: 'Scene for vid-1',
+      description: 'Controlled demonstration intersection.',
+      status: 'draft',
+      camera_id: 'cam-vid-1',
+    },
+    frame: { reference_width: 320, reference_height: 240 },
+    zones: [
+      {
+        zone_id: 'zone-lane',
+        zone_type: 'lane',
+        enabled: true,
+        polygon: [
+          [10, 10],
+          [300, 10],
+          [300, 200],
+        ],
+      },
+      {
+        zone_id: 'zone-no-stopping',
+        zone_type: 'no_stopping',
+        enabled: true,
+        polygon: [
+          [20, 120],
+          [120, 120],
+          [120, 200],
+        ],
+      },
+    ],
+    stop_lines: [],
+    legal_directions: [
+      {
+        direction_id: 'dir-legal',
+        description: 'Legal travel direction',
+        vector: { dx: 1, dy: 0 },
+        zone_ids: ['zone-lane'],
+      },
+    ],
+    signal_groups: [],
+    rule_parameters: [
+      {
+        violation_type: 'illegal_stopping',
+        parameters: [
+          {
+            id: 'stationary_duration',
+            value: 7,
+            unit: 'seconds',
+            status: 'provisional',
+            note: null,
+          },
+        ],
+      },
+    ],
+    calibration: { source: 'analyst_calibration', type: 'none', status: 'absent' },
+    ...overrides,
+  };
+}
+
+/** A declared controlled-demo expectation. Ground truth, never a detection. */
+export function makeExpectation(
+  overrides: Partial<ExpectationRecord> = {},
+): ExpectationRecord {
+  return {
+    video_id: 'vid-1',
+    expected_violations: ['wrong_way', 'triple_riding'],
+    notes: 'Controlled demo clip; the no-stopping zone is artificially designated.',
+    declared_by: 'analyst',
+    declared_at: '2026-01-01T00:00:00Z',
+    ...overrides,
+  };
+}
+
+/** An expected-vs-detected comparison; defaults to one matched and one missing. */
+export function makeComparison(
+  overrides: Partial<ExpectationComparison> = {},
+): ExpectationComparison {
+  return {
+    video_id: 'vid-1',
+    job_id: 'job-1',
+    expectation: makeExpectation(),
+    rows: [
+      {
+        violation_type: 'triple_riding',
+        expected: true,
+        detected_count: 1,
+        event_ids: ['evt-1'],
+        outcome: 'matched',
+      },
+      {
+        violation_type: 'wrong_way',
+        expected: true,
+        detected_count: 0,
+        event_ids: [],
+        outcome: 'missing',
+      },
+    ],
+    expected_count: 2,
+    detected_event_count: 1,
+    matched_count: 1,
+    missing_count: 1,
+    unexpected_count: 0,
     ...overrides,
   };
 }

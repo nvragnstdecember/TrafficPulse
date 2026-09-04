@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { type SignalPhaseSpec } from '@/api/types';
-import { makeSceneSummary } from '@/test/fixtures';
+import { type ScenePoint, type SignalPhaseSpec } from '@/api/types';
+import { makeSceneSummary, makeStoredScene } from '@/test/fixtures';
 
 import {
   type CalibrationShapes,
@@ -16,8 +16,13 @@ import {
   perpendicular,
   previewUnlocked,
   rulesForRun,
+  TUNING_DEFAULTS,
+  sceneToShapes,
+  sceneToTuning,
+  scheduleSegments,
   segmentVector,
   sortSchedule,
+  tuningErrors,
 } from './calibration';
 
 const LANE: CalibrationShapes['lane'] = [
@@ -355,5 +360,218 @@ describe('derivedSceneNotice', () => {
       );
       expect(notice?.body).toMatch(/no no-stopping zone, stop line or signal timing/i);
     }
+  });
+});
+
+describe('operator thresholds', () => {
+  const laneShapes: CalibrationShapes = {
+    ...EMPTY_SHAPES,
+    lane: [
+      [0, 0],
+      [100, 0],
+      [100, 100],
+    ],
+  };
+
+  function draft(overrides: {
+    tuning?: Parameters<typeof buildSceneDraft>[0]['tuning'];
+    notes?: string;
+  }) {
+    return buildSceneDraft({
+      shapes: laneShapes,
+      frameWidth: 320,
+      frameHeight: 240,
+      cameraId: 'cam-1',
+      sceneName: 'Scene',
+      ...overrides,
+    });
+  }
+
+  it('omits tuning entirely when the analyst set nothing', () => {
+    // Sending the provisional default would record it as an operator's choice, and
+    // the scene hash would preserve that small untruth forever.
+    expect(draft({}).tuning).toBeUndefined();
+    expect(draft({ tuning: {} }).tuning).toBeUndefined();
+  });
+
+  it('carries only the thresholds that were actually typed', () => {
+    const tuning = draft({ tuning: { stationaryDurationSeconds: 3 } }).tuning;
+
+    expect(tuning).toEqual({ stationary_duration_seconds: 3 });
+    expect(tuning).not.toHaveProperty('heading_deviation_max_degrees');
+  });
+
+  it('carries every threshold when all four are set', () => {
+    expect(
+      draft({
+        tuning: {
+          stationaryDurationSeconds: 3,
+          headingDeviationMaxDegrees: 100,
+          wrongWayMinPersistenceSeconds: 2,
+          redLightMinPersistenceSeconds: 0.5,
+        },
+      }).tuning,
+    ).toEqual({
+      stationary_duration_seconds: 3,
+      heading_deviation_max_degrees: 100,
+      wrong_way_min_persistence_seconds: 2,
+      red_light_min_persistence_seconds: 0.5,
+    });
+  });
+
+  it('rejects a threshold the backend would refuse', () => {
+    expect(tuningErrors({})).toEqual([]);
+    expect(tuningErrors({ stationaryDurationSeconds: 0 })[0]).toMatch(/greater than 0/);
+    expect(tuningErrors({ headingDeviationMaxDegrees: 200 })[0]).toMatch(/at most 180/);
+    expect(tuningErrors({ wrongWayMinPersistenceSeconds: -1 })).toHaveLength(1);
+    expect(tuningErrors({ redLightMinPersistenceSeconds: 31 })[0]).toMatch(/at most 30/);
+  });
+
+  it('states the defaults the backend applies, for the placeholder', () => {
+    expect(TUNING_DEFAULTS.stationaryDurationSeconds).toBe(5);
+    expect(TUNING_DEFAULTS.headingDeviationMaxDegrees).toBe(120);
+  });
+
+  it('stores the analyst notes inside the scene, trimmed', () => {
+    expect(draft({ notes: '  Controlled demo.  ' }).description).toBe('Controlled demo.');
+    expect(draft({ notes: '   ' }).description).toBeUndefined();
+    expect(draft({}).description).toBeUndefined();
+  });
+});
+
+describe('reloading a saved calibration', () => {
+  it('redraws the zones it authored', () => {
+    const shapes = sceneToShapes(makeStoredScene());
+
+    expect(shapes.lane).toEqual([
+      [10, 10],
+      [300, 10],
+      [300, 200],
+    ]);
+    expect(shapes.noStopping).toHaveLength(3);
+    expect(shapes.junction).toEqual([]);
+  });
+
+  it('redraws the legal direction as an arrow from the lane centre', () => {
+    // A stored direction is a unit vector with no anchor; the arrow has to be placed
+    // somewhere, and the lane's centroid is where it reads.
+    const shapes = sceneToShapes(makeStoredScene());
+
+    expect(shapes.direction).not.toBeNull();
+    expect(shapes.direction!.to[0]).toBeGreaterThan(shapes.direction!.from[0]);
+    expect(shapes.direction!.to[1]).toBeCloseTo(shapes.direction!.from[1]);
+  });
+
+  it('reads the thresholds the stored scene actually carries', () => {
+    expect(sceneToTuning(makeStoredScene()).stationaryDurationSeconds).toBe(7);
+    expect(sceneToTuning(makeStoredScene()).headingDeviationMaxDegrees).toBeUndefined();
+  });
+
+  it('comes back empty for a scene it did not author', () => {
+    // An auto-derived or hand-written scene uses other zone ids. Half-populating the
+    // tools with shapes the analyst cannot account for would be worse than nothing.
+    const foreign = makeStoredScene({
+      zones: [
+        {
+          zone_id: 'auto-lane',
+          zone_type: 'lane',
+          enabled: true,
+          polygon: [
+            [0, 0],
+            [5, 0],
+            [5, 5],
+          ],
+        },
+      ],
+      legal_directions: [],
+    });
+
+    expect(sceneToShapes(foreign)).toMatchObject({ lane: [], noStopping: [], direction: null });
+  });
+
+  it('does not invent a signal head that was never drawn', () => {
+    // `buildSceneDraft` reuses the junction polygon as the ROI when no head was
+    // outlined; echoing that back would show a drawing nobody made.
+    const junction: ScenePoint[] = [
+      [10, 10],
+      [50, 10],
+      [50, 50],
+    ];
+    const scene = makeStoredScene({
+      zones: [
+        { zone_id: 'zone-junction', zone_type: 'intersection', enabled: true, polygon: junction },
+      ],
+      signal_groups: [{ signal_group_id: 'sg-1', roi: { shape: 'polygon', polygon: junction } }],
+    });
+
+    expect(sceneToShapes(scene).signalRoi).toEqual([]);
+  });
+
+  it('is empty for a video with no scene at all', () => {
+    expect(sceneToShapes(null)).toEqual(EMPTY_SHAPES);
+    expect(sceneToTuning(undefined)).toEqual({});
+  });
+});
+
+describe('signal timeline', () => {
+  it('lays the declared phases out over the clip', () => {
+    const segments = scheduleSegments(
+      [
+        { at_seconds: 0, state: 'red' },
+        { at_seconds: 4, state: 'green' },
+      ],
+      10,
+    );
+
+    expect(segments).toEqual([
+      { from: 0, to: 4, state: 'red', fraction: 0.4 },
+      { from: 4, to: 10, state: 'green', fraction: 0.6 },
+    ]);
+  });
+
+  it('shows the head of the clip as unknown when no phase starts at zero', () => {
+    // The mistake the bar exists for: before the first phase every instant resolves
+    // to `unknown` and red-light can never confirm there. In a list of numbers that
+    // gap is invisible.
+    const segments = scheduleSegments([{ at_seconds: 3, state: 'red' }], 10);
+
+    expect(segments[0]).toEqual({ from: 0, to: 3, state: 'unknown', fraction: 0.3 });
+    expect(segments[1].state).toBe('red');
+  });
+
+  it('is entirely unknown for an empty schedule', () => {
+    expect(scheduleSegments([], 10)).toEqual([
+      { from: 0, to: 10, state: 'unknown', fraction: 1 },
+    ]);
+  });
+
+  it('orders phases declared out of sequence', () => {
+    const segments = scheduleSegments(
+      [
+        { at_seconds: 5, state: 'green' },
+        { at_seconds: 0, state: 'red' },
+      ],
+      10,
+    );
+
+    expect(segments.map((s) => s.state)).toEqual(['red', 'green']);
+  });
+
+  it('drops a phase declared past the end of the clip', () => {
+    const segments = scheduleSegments(
+      [
+        { at_seconds: 0, state: 'red' },
+        { at_seconds: 99, state: 'green' },
+      ],
+      10,
+    );
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toEqual({ from: 0, to: 10, state: 'red', fraction: 1 });
+  });
+
+  it('invents nothing when the duration is unknown', () => {
+    expect(scheduleSegments([{ at_seconds: 0, state: 'red' }], 0)).toEqual([]);
+    expect(scheduleSegments([{ at_seconds: 0, state: 'red' }], Number.NaN)).toEqual([]);
   });
 });

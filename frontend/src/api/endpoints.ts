@@ -20,6 +20,16 @@ export const endpoints = {
   videoScene: (videoId: string) => `/api/videos/${encodeURIComponent(videoId)}/scene`,
   videoSceneValidate: (videoId: string) =>
     `/api/videos/${encodeURIComponent(videoId)}/scene/validate`,
+  /**
+   * A controlled demonstration's declared expectation: GET reads it, PUT declares
+   * it, DELETE withdraws it. Ground truth for a demo only — the backend keeps it
+   * out of reach of every rule and reasoner.
+   */
+  videoExpectation: (videoId: string) =>
+    `/api/videos/${encodeURIComponent(videoId)}/expectation`,
+  /** Declared expectations beside the events a run actually confirmed. */
+  videoExpectationComparison: (videoId: string) =>
+    `/api/videos/${encodeURIComponent(videoId)}/expectation/comparison`,
   process: '/api/process',
   job: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}`,
   cancelJob: (jobId: string) => `/api/process/${encodeURIComponent(jobId)}/cancel`,

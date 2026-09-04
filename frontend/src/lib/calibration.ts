@@ -4,6 +4,7 @@ import {
   type SceneSummary,
   type SignalPhaseSpec,
   type SignalState,
+  type StoredScene,
   type ViolationType,
 } from '@/api/types';
 
@@ -172,12 +173,73 @@ export function previewUnlocked(shapes: CalibrationShapes): ViolationType[] {
   return unlocked;
 }
 
+/**
+ * The site thresholds an analyst may set, in the units they are read in.
+ *
+ * Deliberately few, and deliberately the same four the backend's `RuleTuning`
+ * exposes — most rule parameters are policy constants that should not vary per
+ * camera. An empty field means "use the provisional default", which is why every
+ * value is optional rather than pre-filled with a number the operator did not choose.
+ */
+export interface TuningInput {
+  /** Seconds a vehicle may dwell in the no-stopping zone before it is a violation. */
+  stationaryDurationSeconds?: number;
+  /** Degrees off the legal heading that count as opposing traffic. */
+  headingDeviationMaxDegrees?: number;
+  /** Seconds of sustained opposition before wrong-way confirms. */
+  wrongWayMinPersistenceSeconds?: number;
+  /** Debounce after a stop-line crossing before red-light confirms. */
+  redLightMinPersistenceSeconds?: number;
+}
+
+export const EMPTY_TUNING: TuningInput = {};
+
+/**
+ * The provisional defaults the backend applies when a field is left blank.
+ *
+ * Shown as placeholders so an analyst can see what will be used without the number
+ * being submitted as though they had chosen it. Mirrors
+ * `trafficpulse.scenes.builder`'s `DEFAULT_*` constants; the backend remains the
+ * authority and nothing here is sent unless the analyst types it.
+ */
+export const TUNING_DEFAULTS = {
+  stationaryDurationSeconds: 5,
+  headingDeviationMaxDegrees: 120,
+  wrongWayMinPersistenceSeconds: 1,
+  redLightMinPersistenceSeconds: 0.4,
+} as const;
+
+/** A tuning value must be a positive number when present; blank means "default". */
+export function tuningErrors(tuning: TuningInput): string[] {
+  const errors: string[] = [];
+  const check = (value: number | undefined, label: string, max: number): void => {
+    if (value === undefined) return;
+    if (!Number.isFinite(value) || value <= 0) errors.push(`${label} must be greater than 0.`);
+    else if (value > max) errors.push(`${label} must be at most ${max}.`);
+  };
+  check(tuning.stationaryDurationSeconds, 'Stopping dwell threshold', 3600);
+  check(tuning.headingDeviationMaxDegrees, 'Heading deviation', 180);
+  check(tuning.wrongWayMinPersistenceSeconds, 'Wrong-way persistence', 600);
+  check(tuning.redLightMinPersistenceSeconds, 'Red-light debounce', 30);
+  return errors;
+}
+
 export interface BuildDraftInput {
   shapes: CalibrationShapes;
   frameWidth: number;
   frameHeight: number;
   cameraId: string;
   sceneName: string;
+  /** Operator-chosen site thresholds; omitted fields take the provisional defaults. */
+  tuning?: TuningInput;
+  /**
+   * The operator's written declaration of what this scene is.
+   *
+   * Stored *in the scene*, so it travels with the geometry: a reviewer resolving an
+   * event's `scene_config_hash` months later reads why the zone was drawn where it
+   * was, rather than having to be told.
+   */
+  notes?: string;
 }
 
 /**
@@ -193,6 +255,8 @@ export function buildSceneDraft({
   frameHeight,
   cameraId,
   sceneName,
+  tuning,
+  notes,
 }: BuildDraftInput): SceneDraft {
   const zones: SceneDraft['zones'] = [];
   if (isPolygonComplete(shapes.lane)) {
@@ -229,6 +293,10 @@ export function buildSceneDraft({
     frame_height: frameHeight,
     zones,
   };
+
+  if (notes && notes.trim()) draft.description = notes.trim();
+  const tuned = buildTuning(tuning);
+  if (tuned) draft.tuning = tuned;
 
   if (direction && isPolygonComplete(shapes.lane)) {
     draft.direction = {
@@ -302,6 +370,112 @@ export function centroid(points: ScenePoint[]): ScenePoint | undefined {
   return [sum[0] / points.length, sum[1] / points.length];
 }
 
+/**
+ * The `RuleTuning` payload for the draft, or `undefined` when nothing was set.
+ *
+ * Blank fields are **omitted rather than defaulted**: sending the provisional value
+ * would record it as an operator's choice, and a scene that says "the analyst chose
+ * 5 seconds" when nobody typed anything is a small lie the hash would then preserve
+ * forever.
+ */
+export function buildTuning(tuning: TuningInput | undefined): SceneDraft['tuning'] {
+  if (!tuning) return undefined;
+  const payload: NonNullable<SceneDraft['tuning']> = {};
+  if (tuning.stationaryDurationSeconds !== undefined) {
+    payload.stationary_duration_seconds = tuning.stationaryDurationSeconds;
+  }
+  if (tuning.headingDeviationMaxDegrees !== undefined) {
+    payload.heading_deviation_max_degrees = tuning.headingDeviationMaxDegrees;
+  }
+  if (tuning.wrongWayMinPersistenceSeconds !== undefined) {
+    payload.wrong_way_min_persistence_seconds = tuning.wrongWayMinPersistenceSeconds;
+  }
+  if (tuning.redLightMinPersistenceSeconds !== undefined) {
+    payload.red_light_min_persistence_seconds = tuning.redLightMinPersistenceSeconds;
+  }
+  return Object.keys(payload).length > 0 ? payload : undefined;
+}
+
+// --- reloading a saved calibration --------------------------------------------------
+/**
+ * Rebuild the drawing surface from a stored scene revision.
+ *
+ * Reproducibility, not convenience. Before this, a saved calibration was invisible:
+ * refresh the page and the shapes were gone, so a reviewer could not see what had
+ * been drawn, could not correct one polygon without redrawing all of them, and had no
+ * way to check that a stored revision matches what the demo claims. Reading the
+ * geometry back from the revision the video is actually bound to closes that.
+ *
+ * Zones are matched by the ids this module authors. A scene drawn elsewhere (an
+ * auto-derived one, or a hand-written YAML) may use other ids, and then the tools
+ * simply come back empty rather than half-populated with shapes the analyst cannot
+ * account for — an honest "there is nothing here I can redraw".
+ */
+export function sceneToShapes(scene: StoredScene | null | undefined): CalibrationShapes {
+  if (!scene) return EMPTY_SHAPES;
+  const polygonFor = (zoneId: string): ScenePoint[] =>
+    scene.zones.find((zone) => zone.zone_id === zoneId)?.polygon ?? [];
+
+  const direction = scene.legal_directions[0];
+  const lane = polygonFor(ZONE_IDS.lane);
+  const stopLine = scene.stop_lines[0];
+  const roi = scene.signal_groups[0]?.roi;
+  const junction = polygonFor(ZONE_IDS.junction);
+
+  return {
+    lane,
+    noStopping: polygonFor(ZONE_IDS.noStopping),
+    junction,
+    // The saved ROI stands in for the drawn signal head only when it is genuinely a
+    // separate shape: `buildSceneDraft` reuses the junction polygon when no head was
+    // outlined, and echoing that back would invent a drawing nobody made.
+    signalRoi:
+      roi?.polygon && !samePolygon(roi.polygon, junction) ? roi.polygon : [],
+    // A stored direction is a unit vector with no anchor, so the arrow is redrawn
+    // from the lane's centre — the same direction, placed where it reads.
+    direction: direction ? vectorSegment(centroid(lane), direction.vector) : null,
+    stopLine: stopLine ? { from: stopLine.endpoints.a, to: stopLine.endpoints.b } : null,
+  };
+}
+
+/** The tuning values a stored scene actually carries, for repopulating the form. */
+export function sceneToTuning(scene: StoredScene | null | undefined): TuningInput {
+  if (!scene) return EMPTY_TUNING;
+  const value = (violation: ViolationType, id: string): number | undefined => {
+    const block = scene.rule_parameters.find((b) => b.violation_type === violation);
+    const parameter = block?.parameters.find((p) => p.id === id);
+    return parameter?.value ?? undefined;
+  };
+  const tuning: TuningInput = {};
+  const dwell = value('illegal_stopping', 'stationary_duration');
+  if (dwell !== undefined) tuning.stationaryDurationSeconds = dwell;
+  const heading = value('wrong_way', 'heading_deviation_max');
+  if (heading !== undefined) tuning.headingDeviationMaxDegrees = heading;
+  const wrongWay = value('wrong_way', 'min_persistence');
+  if (wrongWay !== undefined) tuning.wrongWayMinPersistenceSeconds = wrongWay;
+  const redLight = value('red_light_jumping', 'min_persistence');
+  if (redLight !== undefined) tuning.redLightMinPersistenceSeconds = redLight;
+  return tuning;
+}
+
+function samePolygon(a: ScenePoint[], b: ScenePoint[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(([x, y], index) => x === b[index][0] && y === b[index][1]);
+}
+
+/** An arrow of readable length, drawn from `anchor` along a unit vector. */
+function vectorSegment(
+  anchor: ScenePoint | undefined,
+  vector: { dx: number; dy: number },
+  length = 80,
+): Segment | null {
+  if (!anchor) return null;
+  return {
+    from: anchor,
+    to: [anchor[0] + vector.dx * length, anchor[1] + vector.dy * length],
+  };
+}
+
 // --- signal schedule ---------------------------------------------------------------
 export const SIGNAL_STATES: SignalState[] = ['red', 'amber', 'green', 'off'];
 
@@ -323,6 +497,57 @@ export function isScheduleUsable(schedule: SignalPhaseSpec[]): boolean {
 /** Order a schedule by time, so an analyst can add phases in any order. */
 export function sortSchedule(schedule: SignalPhaseSpec[]): SignalPhaseSpec[] {
   return [...schedule].sort((a, b) => a.at_seconds - b.at_seconds);
+}
+
+/** One constant stretch of the declared signal, in media seconds. */
+export interface ScheduleSegment {
+  from: number;
+  to: number;
+  state: SignalState;
+  /** Fraction of the clip this segment covers, for laying out a timeline bar. */
+  fraction: number;
+}
+
+/**
+ * The declared schedule as a step function over the clip's duration.
+ *
+ * What a timeline bar draws. Two honest details it does not gloss over:
+ *
+ * - a schedule that does not begin at 0 leaves the head of the clip **unknown**,
+ *   because `signal_state_at` resolves anything before the first phase to
+ *   `unknown` and no rule may confirm on it. Showing that gap is the point — an
+ *   operator who forgot the opening phase can see it rather than discover it as a
+ *   silent non-detection;
+ * - a phase declared past the end of the clip is kept but clamped, so a typo is
+ *   visible instead of vanishing.
+ *
+ * Returns `[]` for a zero/unknown duration rather than inventing one.
+ */
+export function scheduleSegments(
+  schedule: SignalPhaseSpec[],
+  durationSeconds: number,
+): ScheduleSegment[] {
+  if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) return [];
+  const ordered = sortSchedule(schedule).filter((phase) => phase.at_seconds < durationSeconds);
+  const segments: ScheduleSegment[] = [];
+
+  const push = (from: number, to: number, state: SignalState): void => {
+    if (to <= from) return;
+    segments.push({ from, to, state, fraction: (to - from) / durationSeconds });
+  };
+
+  if (ordered.length === 0 || ordered[0].at_seconds > 0) {
+    push(0, ordered.length > 0 ? ordered[0].at_seconds : durationSeconds, 'unknown');
+  }
+  ordered.forEach((phase, index) => {
+    const next = ordered[index + 1];
+    push(
+      Math.max(phase.at_seconds, 0),
+      next ? next.at_seconds : durationSeconds,
+      phase.state,
+    );
+  });
+  return segments;
 }
 
 /**

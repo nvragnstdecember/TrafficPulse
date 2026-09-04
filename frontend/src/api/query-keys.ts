@@ -49,6 +49,12 @@ export const queryKeys = {
     all: ['scenes'] as const,
     forVideo: (videoId: string) => ['scenes', 'video', videoId] as const,
   },
+  expectations: {
+    all: ['expectations'] as const,
+    forVideo: (videoId: string) => ['expectations', 'video', videoId] as const,
+    comparison: (videoId: string, jobId?: string) =>
+      ['expectations', 'comparison', videoId, jobId ?? null] as const,
+  },
   events: {
     all: ['events'] as const,
     list: (params: EventListParams) => ['events', 'list', params] as const,

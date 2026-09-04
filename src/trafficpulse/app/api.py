@@ -34,6 +34,7 @@ from .config import AppConfig, load_scene
 from .dependencies import AppContext
 from .engine_provider import EngineProvider, RealEngineProvider
 from .errors import AppError
+from .expectations import ExpectationStore
 from .live import LiveConfig, LiveSessionManager
 from .logging_config import RequestIdMiddleware, configure_logging
 from .models import ErrorDetail, ErrorResponse
@@ -43,6 +44,7 @@ from .registry import JobExecutor, JobStore, ThreadJobExecutor, VideoStore
 from .routers import (
     analysis,
     analytics,
+    demo,
     events,
     evidence,
     health,
@@ -56,6 +58,7 @@ from .routers import (
 from .services import (
     EventService,
     EvidenceService,
+    ExpectationService,
     MetricsService,
     ProcessingService,
     ReviewService,
@@ -209,6 +212,13 @@ def _build_context(
         processing=processing,
         events=event_service,
         evidence=EvidenceService(event_service, rendered_store, artifact_store),
+        # The controlled-demonstration ground truth. Wired here so it is reachable
+        # from the API and from nowhere else: the processing service, the engine
+        # provider and the rule registry are all constructed without it, so no
+        # declared expectation can reach a reasoner even by accident.
+        expectations=ExpectationService(
+            ExpectationStore(config.expectations_dir), video_service, event_service
+        ),
         reviews=ReviewService(event_service, review_store),
         metrics=MetricsService(job_store),
         # The single aggregation layer (H15). It composes the same registries every
@@ -298,6 +308,7 @@ def create_app(
         process,
         events,
         evidence,
+        demo,
         metrics,
         analytics,
         analysis,

@@ -25,6 +25,7 @@ from .live import LiveSessionManager
 from .services import (
     EventService,
     EvidenceService,
+    ExpectationService,
     MetricsService,
     ProcessingService,
     ReviewService,
@@ -46,6 +47,7 @@ class AppContext:
     processing: ProcessingService
     events: EventService
     evidence: EvidenceService
+    expectations: ExpectationService
     reviews: ReviewService
     metrics: MetricsService
     analytics: AnalyticsService
@@ -85,6 +87,10 @@ def get_processing_service(request: Request) -> ProcessingService:
 
 def get_event_service(request: Request) -> EventService:
     return get_context(request).events
+
+
+def get_expectation_service(request: Request) -> ExpectationService:
+    return get_context(request).expectations
 
 
 def get_evidence_service(request: Request) -> EvidenceService:
@@ -129,6 +135,7 @@ VideoLibraryServiceDep = Annotated[VideoLibraryService, Depends(get_video_librar
 ProcessingServiceDep = Annotated[ProcessingService, Depends(get_processing_service)]
 EventServiceDep = Annotated[EventService, Depends(get_event_service)]
 EvidenceServiceDep = Annotated[EvidenceService, Depends(get_evidence_service)]
+ExpectationServiceDep = Annotated[ExpectationService, Depends(get_expectation_service)]
 ReviewServiceDep = Annotated[ReviewService, Depends(get_review_service)]
 MetricsServiceDep = Annotated[MetricsService, Depends(get_metrics_service)]
 AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]
